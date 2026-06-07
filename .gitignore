@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# next.js
+.next/
+next-env.d.ts
+
+# env / secrets
+.env
+.env.local
+*.pem
+github-app-private-key*.pem
+
+# lockstep installer backups
+*.lockstep.bak
+
+# logs
+*.log
+npm-debug.log*
+
+# os
+.DS_Store
+
+# local Claude Code config
+.claude/

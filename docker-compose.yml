@@ -1,0 +1,48 @@
+# One compose file powers both modes:
+#  - managed cloud: run `core` (and `web`) against managed Postgres (override DATABASE_URL)
+#  - self-host:     run the whole stack on the customer's infra
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lockstep
+      POSTGRES_PASSWORD: lockstep
+      POSTGRES_DB: lockstep
+    ports:
+      - "5432:5432"
+    volumes:
+      - lockstep_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lockstep"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  core:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://lockstep:lockstep@db:5432/lockstep
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # the dashboard ships in the same compose for self-host:
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    environment:
+      LOCKSTEP_API_URL: http://core:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - core
+
+volumes:
+  lockstep_pgdata:

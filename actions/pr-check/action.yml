@@ -1,0 +1,12 @@
+name: "Lockstep PR Check"
+description: "Reconcile changed contract surfaces against the Lockstep ledger; fail if a binding decision is missing."
+inputs:
+  api-url:
+    description: "Lockstep core API URL"
+    required: true
+  token:
+    description: "Lockstep CI token (or use GitHub OIDC exchange — see docs)"
+    required: true
+runs:
+  using: "node20"
+  main: "index.mjs"

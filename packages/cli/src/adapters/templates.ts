@@ -1,0 +1,47 @@
+import type { ManagedHook, McpServerSpec } from "./merge.js";
+
+export const mcpSpec = (vendor: string): McpServerSpec => ({
+  command: "npx",
+  args: ["-y", "@lockstep/cli", "mcp"],
+  env: { LOCKSTEP_VENDOR: vendor },
+});
+
+export const captureHooks: ManagedHook[] = [
+  { event: "SessionStart", matcher: "*", args: ["-y", "@lockstep/cli", "capture", "--event", "SessionStart"], timeout: 20 },
+  {
+    event: "PostToolUse",
+    matcher: "Edit|Write|MultiEdit|NotebookEdit",
+    args: ["-y", "@lockstep/cli", "capture", "--event", "PostToolUse"],
+    timeout: 30,
+  },
+  { event: "Stop", matcher: "*", args: ["-y", "@lockstep/cli", "capture", "--event", "Stop"], timeout: 45 },
+];
+
+export const SKILL_MD = `---
+name: lockstep
+description: Keep this repo's coding agents in lockstep — read the shared ledger before coding, publish changes after.
+---
+
+# Lockstep
+
+This project uses Lockstep to coordinate multiple developers' coding agents on the same codebase.
+
+## On session start
+- Call \`inbox\` to see what changed, what's newly binding, and what's delegated to you.
+- Call \`decisions\` to load the binding rules for the areas you'll touch.
+
+## Before coding a shared/contract surface
+- Call \`query\` to check the ledger for existing decisions/contracts (answer instantly if known).
+- Respect any \`binding\` decision in scope.
+
+## After making a change
+- Summarize the change and call \`notify\` (include a contract delta for interface changes).
+- For any surface you call, record the dependency with \`register_dependency\`.
+
+## Coordinating
+- Use \`ask\` for code/repo questions (set \`urgent\` if you're blocked).
+- Use \`delegate\` / \`complete\` for handoffs. Propose binding rules with \`propose_decision\`.
+`;
+
+export const CLAUDE_BLOCK = `## Lockstep (team coordination)
+On session start, read your \`inbox\` and current \`decisions\`. Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). See the \`lockstep\` skill for detail.`;

@@ -1,0 +1,23 @@
+{
+  "name": "lockstep",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Neutral, cross-vendor system-of-record that keeps developers' coding agents in lockstep.",
+  "workspaces": [
+    "packages/*",
+    "actions/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:core": "npm run dev -w @lockstep/core",
+    "db:generate": "npm run db:generate -w @lockstep/core",
+    "db:migrate": "npm run db:migrate -w @lockstep/core",
+    "up": "docker compose up --build",
+    "down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

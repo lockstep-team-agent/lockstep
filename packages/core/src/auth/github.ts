@@ -1,0 +1,109 @@
+import { createSign } from "node:crypto";
+import { env } from "../env.js";
+
+const GH = "https://github.com";
+const API = "https://api.github.com";
+
+export interface DeviceCode {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  interval: number;
+  expires_in: number;
+}
+
+export interface GhUser {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+}
+
+function clientId(): string {
+  if (!env.GITHUB_APP_CLIENT_ID) throw new Error("GITHUB_APP_CLIENT_ID not configured");
+  return env.GITHUB_APP_CLIENT_ID;
+}
+
+/** Step 1 of device flow: request device + user codes. */
+export async function startDeviceFlow(): Promise<DeviceCode> {
+  const res = await fetch(`${GH}/login/device/code`, {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({ client_id: clientId() }),
+  });
+  if (!res.ok) throw new Error(`github device/code ${res.status}`);
+  return (await res.json()) as DeviceCode;
+}
+
+/** Step 2: poll for the user-to-server token. Returns { access_token } or { error }. */
+export async function pollDeviceFlow(
+  deviceCode: string,
+): Promise<{ access_token?: string; error?: string; interval?: number }> {
+  const res = await fetch(`${GH}/login/oauth/access_token`, {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: clientId(),
+      device_code: deviceCode,
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+    }),
+  });
+  return (await res.json()) as { access_token?: string; error?: string; interval?: number };
+}
+
+export async function getUser(userToken: string): Promise<GhUser> {
+  const res = await fetch(`${API}/user`, {
+    headers: { authorization: `Bearer ${userToken}`, accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`github /user ${res.status}`);
+  return (await res.json()) as GhUser;
+}
+
+/* ───────── App-level auth: installation tokens for reading CODEOWNERS (P2) ───────── */
+
+function appJwt(): string {
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
+    throw new Error("GitHub App (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY) not configured");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const header = enc({ alg: "RS256", typ: "JWT" });
+  const payload = enc({ iat: now - 60, exp: now + 540, iss: env.GITHUB_APP_ID });
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${payload}`);
+  const sig = signer.sign(env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n")).toString("base64url");
+  return `${header}.${payload}.${sig}`;
+}
+
+export async function installationToken(installationId: number): Promise<string> {
+  const res = await fetch(`${API}/app/installations/${installationId}/access_tokens`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${appJwt()}`, accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`installation token ${res.status}`);
+  return ((await res.json()) as { token: string }).token;
+}
+
+/** Read a single file (e.g. CODEOWNERS) via an installation token. Returns null on 404. */
+export async function getFile(
+  installationId: number,
+  owner: string,
+  repo: string,
+  path: string,
+  ref?: string,
+): Promise<{ content: string; sha: string } | null> {
+  const token = await installationToken(installationId);
+  const url = new URL(`${API}/repos/${owner}/${repo}/contents/${path}`);
+  if (ref) url.searchParams.set("ref", ref);
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`contents ${res.status}`);
+  const j = (await res.json()) as { content?: string; encoding?: string; sha?: string };
+  if (!j.content) return null;
+  return {
+    content: Buffer.from(j.content, (j.encoding as BufferEncoding) ?? "base64").toString("utf8"),
+    sha: j.sha ?? "",
+  };
+}
