@@ -1,20 +1,17 @@
 import type { ManagedHook, McpServerSpec } from "./merge.js";
 
+// Uses the globally-installed `lockstep` bin. (When the package is published to npm,
+// an installer flag can switch these to `npx @lockstep/cli` for zero-install teammates.)
 export const mcpSpec = (vendor: string): McpServerSpec => ({
-  command: "npx",
-  args: ["-y", "@lockstep/cli", "mcp"],
+  command: "lockstep",
+  args: ["mcp"],
   env: { LOCKSTEP_VENDOR: vendor },
 });
 
 export const captureHooks: ManagedHook[] = [
-  { event: "SessionStart", matcher: "*", args: ["-y", "@lockstep/cli", "capture", "--event", "SessionStart"], timeout: 20 },
-  {
-    event: "PostToolUse",
-    matcher: "Edit|Write|MultiEdit|NotebookEdit",
-    args: ["-y", "@lockstep/cli", "capture", "--event", "PostToolUse"],
-    timeout: 30,
-  },
-  { event: "Stop", matcher: "*", args: ["-y", "@lockstep/cli", "capture", "--event", "Stop"], timeout: 45 },
+  { event: "SessionStart", matcher: "*", args: ["capture", "--event", "SessionStart"], timeout: 20 },
+  { event: "PostToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit", args: ["capture", "--event", "PostToolUse"], timeout: 30 },
+  { event: "Stop", matcher: "*", args: ["capture", "--event", "Stop"], timeout: 45 },
 ];
 
 export const SKILL_MD = `---

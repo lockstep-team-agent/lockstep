@@ -7,7 +7,9 @@
  */
 type Json = Record<string, unknown>;
 
-const MARKER = "@lockstep/cli";
+// Identifies lockstep-owned hook entries (matches both the global-bin form `lockstep …`
+// and the legacy `npx @lockstep/cli …` form, so re-running init migrates old configs).
+const MARKER = "lockstep";
 
 export interface HookCommand {
   type: "command";

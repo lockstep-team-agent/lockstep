@@ -31,8 +31,8 @@ test("init writes config, is idempotent on disk, and preserves foreign config", 
   assert.ok(after1.settings.includes("my-linter"), "foreign hook preserved");
   assert.ok(after1.mcp.includes('"other"'), "foreign mcp server preserved");
   assert.ok(after1.claude.includes("hand-written notes"), "user CLAUDE.md content preserved");
-  assert.ok(after1.settings.includes("@lockstep/cli"), "our hooks installed");
-  assert.ok(after1.mcp.includes("@lockstep/cli"), "our mcp server installed");
+  assert.ok(after1.settings.includes("capture"), "our hooks installed");
+  assert.ok(after1.mcp.includes('"lockstep"'), "our mcp server installed");
 
   const v = await claudeAdapter.verify(dir, "project");
   assert.ok(v.ok, "verify passes after install");

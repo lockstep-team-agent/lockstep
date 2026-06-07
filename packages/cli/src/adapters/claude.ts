@@ -40,7 +40,7 @@ export const claudeAdapter: VendorAdapter = {
     const p = paths(cwd, scope);
     return [
       await applyFile(p.mcp, (cur) => mergeMcp(cur, "lockstep", mcpSpec("claude")), dryRun),
-      await applyFile(p.hooks, (cur) => mergeHooks(cur, captureHooks), dryRun),
+      await applyFile(p.hooks, (cur) => mergeHooks(cur, captureHooks, "lockstep"), dryRun),
       await applyFile(p.skill, () => SKILL_MD, dryRun),
       await applyFile(p.instructions, (cur) => upsertManagedBlock(cur, CLAUDE_BLOCK), dryRun),
     ];
@@ -50,8 +50,8 @@ export const claudeAdapter: VendorAdapter = {
     const p = paths(cwd, scope);
     const mcp = await readIfExists(p.mcp);
     const hooks = await readIfExists(p.hooks);
-    const mcpOk = !!mcp && mcp.includes("@lockstep/cli");
-    const hooksOk = !!hooks && hooks.includes("@lockstep/cli");
+    const mcpOk = !!mcp && mcp.includes('"lockstep"');
+    const hooksOk = !!hooks && hooks.includes("lockstep");
     return {
       ok: mcpOk && hooksOk,
       details: [`${mcpOk ? "✓" : "✗"} mcp server  (${p.mcp})`, `${hooksOk ? "✓" : "✗"} hooks       (${p.hooks})`],
