@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runInit, runStatus, runDoctor } from "./init.js";
 import { runLogin } from "./login.js";
+import { runConnect, runInvite } from "./connect.js";
 import type { Scope } from "./adapters/types.js";
 
 const argv = process.argv.slice(2);
@@ -20,6 +21,8 @@ usage: lockstep <command>
                                                     authenticate; --api saves your server (once), --dev for testing
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
+  connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
+  invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
   doctor                                            diagnose vendor config
   mcp                                               run the per-session MCP server (used by agents)
@@ -58,6 +61,16 @@ async function main(): Promise<void> {
         scope: (val("scope") as Scope) ?? "project",
         dryRun: has("dry-run"),
       });
+    case "connect":
+      return runConnect({ org: val("org"), project: val("project") });
+    case "invite": {
+      const handle = argv[1];
+      if (!handle) {
+        console.error("usage: lockstep invite <github-handle>");
+        process.exit(1);
+      }
+      return runInvite(handle);
+    }
     case "status":
       return runStatus();
     case "doctor":
