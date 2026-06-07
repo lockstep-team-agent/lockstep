@@ -1,15 +1,31 @@
 {
-  "name": "@lockstep/cli",
+  "name": "lockstep-cli",
   "version": "0.0.1",
+  "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/naman7474/lockstep",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/naman7474/lockstep.git",
+    "directory": "packages/cli"
+  },
+  "keywords": ["lockstep", "mcp", "claude-code", "codex", "ai-agents", "coordination", "codeowners"],
   "bin": {
     "lockstep": "dist/index.js"
   },
   "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build",
     "test": "node --test"
   },
   "dependencies": {
