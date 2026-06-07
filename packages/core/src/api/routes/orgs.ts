@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { createOrg, createProject, invite, listMemberships, connectRepo } from "../../auth/auth-service.js";
+import { createOrg, createProject, invite, listMemberships, connectRepo, connectOrJoin } from "../../auth/auth-service.js";
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {
@@ -35,6 +35,15 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     const b = req.body as { githubLogin?: string; role?: string } | undefined;
     if (!b?.githubLogin) return reply.code(400).send({ error: "githubLogin required" });
     return invite(p, orgId, projectId, b.githubLogin, b.role ?? "member");
+  });
+
+  // Smart connect: join-by-GitHub-access or create. The CLI's `lockstep connect` uses this.
+  app.post("/connect", async (req, reply) => {
+    const p = req.principal;
+    if (!p) return reply.code(401).send({ error: "unauthorized" });
+    const b = req.body as { gitRemote?: string; project?: string } | undefined;
+    if (!b?.gitRemote) return reply.code(400).send({ error: "gitRemote required" });
+    return connectOrJoin(p, b.gitRemote, b.project);
   });
 
   app.post("/orgs/:orgId/projects/:projectId/repos", async (req, reply) => {

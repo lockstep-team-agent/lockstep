@@ -59,6 +59,14 @@ export async function getUser(userToken: string): Promise<GhUser> {
   return (await res.json()) as GhUser;
 }
 
+/** True if this user's GitHub token can see the repo (GitHub returns 404 for no access). */
+export async function userCanAccessRepo(userToken: string, owner: string, repo: string): Promise<boolean> {
+  const res = await fetch(`${API}/repos/${owner}/${repo}`, {
+    headers: { authorization: `Bearer ${userToken}`, accept: "application/vnd.github+json" },
+  });
+  return res.ok;
+}
+
 /* ───────── App-level auth: installation tokens for reading CODEOWNERS (P2) ───────── */
 
 function appJwt(): string {

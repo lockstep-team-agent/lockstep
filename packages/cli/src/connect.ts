@@ -8,13 +8,18 @@ interface Me {
 interface Overview {
   projects: Array<{ id: string; name: string }>;
 }
-interface ProjectOverview {
-  repos: Array<{ gitRemote: string }>;
+interface ConnectResult {
+  orgId: string;
+  projectId: string;
+  projectName: string;
+  status: "already-connected" | "joined" | "created";
 }
 
 /**
- * Connect the current repo to a Lockstep project so agent sessions can register.
- * Creates an org/project on first use. Idempotent — re-running is a no-op.
+ * Connect the current repo. The server resolves the remote and either:
+ *  - joins you (if you have GitHub access to an already-connected repo — no approval needed),
+ *  - opens it (if you're already a member), or
+ *  - creates the project and connects it.
  */
 export async function runConnect(opts: { org?: string; project?: string }): Promise<void> {
   const remote = gitRemote(process.cwd());
@@ -23,32 +28,14 @@ export async function runConnect(opts: { org?: string; project?: string }): Prom
     process.exit(1);
   }
 
-  const me = await cloud.get<Me>("/me");
-  let orgId = me.memberships[0]?.orgId;
-  if (!orgId) {
-    const created = await cloud.post<{ orgId: string }>("/orgs", {
-      name: opts.org ?? `${me.principal.githubLogin}'s workspace`,
-    });
-    orgId = created.orgId;
-  }
-
-  const projectName = opts.project ?? remote.split("/").pop() ?? "default";
-  const overview = await cloud.get<Overview>(`/orgs/${orgId}/overview`);
-  let projectId = overview?.projects.find((p) => p.name === projectName)?.id;
-  if (!projectId) {
-    projectId = (await cloud.post<{ projectId: string }>(`/orgs/${orgId}/projects`, { name: projectName })).projectId;
-  }
-
-  const po = await cloud.get<ProjectOverview>(`/orgs/${orgId}/projects/${projectId}/overview`);
-  const already = po?.repos.some((r) => r.gitRemote === remote);
-  if (!already) {
-    await cloud.post(`/orgs/${orgId}/projects/${projectId}/repos`, { gitRemote: remote });
-  }
-
-  console.log(`✓ connected ${remote}`);
-  console.log(`  → project "${projectName}"  (org ${orgId.slice(0, 8)})`);
+  const r = await cloud.post<ConnectResult>("/connect", { gitRemote: remote, project: opts.project });
+  const verb =
+    r.status === "created" ? "created and connected" : r.status === "joined" ? "joined" : "already connected to";
+  console.log(`✓ ${verb} project "${r.projectName}"  (${remote})`);
   console.log(`\nOpen this repo in Claude Code — Lockstep registers the session automatically.`);
-  console.log(`Invite a teammate:  lockstep invite <github-handle>  (or via the dashboard)`);
+  if (r.status === "created") {
+    console.log(`Teammates with GitHub access can join by running \`lockstep connect\` in their clone.`);
+  }
 }
 
 /** Invite a teammate by GitHub handle to this repo's project. */

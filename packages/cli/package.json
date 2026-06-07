@@ -1,6 +1,6 @@
 {
   "name": "lockstep-cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
   "type": "module",
   "license": "MIT",
