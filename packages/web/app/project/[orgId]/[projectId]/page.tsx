@@ -1,175 +1,75 @@
 import Link from "next/link";
-import { apiGet } from "../../../lib/api";
-import { connectRepoAction, inviteAction } from "../../../actions";
+import { getOverview, timeAgo, humanizeAction } from "@/lib/data";
+import { PageHead, Stat, StatusPill, EmptyState } from "@/components/ui";
+import { IconDecisions, IconQuestions, IconTasks, IconDependencies, IconActivity } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
-interface Overview {
-  decisions: Array<{ id: string; scopeKind: string; scopeRef: string; status: string; version: number; ruleText: string }>;
-  questions: Array<{ id: string; body: string; status: string; scopeRef: string | null; urgent: boolean }>;
-  tasks: Array<{ id: string; title: string; runState: string; status: string }>;
-  repos: Array<{ id: string; gitRemote: string }>;
-  audit: Array<{ action: string; entityKind: string | null; createdAt: string }>;
-}
+export default async function Overview({ params }: { params: { orgId: string; projectId: string } }) {
+  const o = await getOverview(params.orgId, params.projectId);
+  const base = `/project/${params.orgId}/${params.projectId}`;
+  if (!o) return <EmptyState icon={<IconActivity />} title="Couldn't load this project" />;
 
-export default async function ProjectPage({ params }: { params: { orgId: string; projectId: string } }) {
-  const { orgId, projectId } = params;
-  const o = await apiGet<Overview>(`/orgs/${orgId}/projects/${projectId}/overview`);
-  if (!o) {
-    return (
-      <main>
-        <p>Not found or not authorized.</p>
-        <Link href="/">← back</Link>
-      </main>
-    );
-  }
+  const binding = o.decisions.filter((d) => d.status === "binding").length;
+  const openQ = o.questions.filter((q) => q.status !== "closed").length;
+  const activeT = o.tasks.filter((t) => t.status !== "closed").length;
 
   return (
-    <main>
-      <p>
-        <Link href="/">← workspace</Link>
-      </p>
-      <h1>Project {projectId.slice(0, 8)}</h1>
+    <>
+      <PageHead title="Overview" subtitle="Your team's shared record at a glance." />
 
-      <h2>Decisions</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Scope</th>
-            <th>Rule</th>
-            <th>Status</th>
-            <th>v</th>
-          </tr>
-        </thead>
-        <tbody>
-          {o.decisions.map((d) => (
-            <tr key={d.id}>
-              <td>{d.scopeRef}</td>
-              <td>{d.ruleText}</td>
-              <td>
-                <span className={`pill ${d.status}`}>{d.status}</span>
-              </td>
-              <td>{d.version}</td>
-            </tr>
-          ))}
-          {o.decisions.length === 0 && (
-            <tr>
-              <td colSpan={4} className="muted">
-                none
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="stats stagger">
+        <Stat n={binding} label="Binding decisions" icon={<IconDecisions />} />
+        <Stat n={openQ} label="Open questions" icon={<IconQuestions />} />
+        <Stat n={activeT} label="Active tasks" icon={<IconTasks />} />
+        <Stat n={o.dependencies.length} label="Dependencies" icon={<IconDependencies />} />
+      </div>
 
-      <h2>Questions</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Question</th>
-            <th>Scope</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {o.questions.map((q) => (
-            <tr key={q.id}>
-              <td>
-                {q.urgent ? "⚡ " : ""}
-                {q.body}
-              </td>
-              <td>{q.scopeRef ?? "—"}</td>
-              <td>
-                <span className={`pill ${q.status}`}>{q.status}</span>
-              </td>
-            </tr>
-          ))}
-          {o.questions.length === 0 && (
-            <tr>
-              <td colSpan={3} className="muted">
-                none
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <div className="section-title">Recent activity</div>
+      <div className="card animate-in">
+        {o.audit.length === 0 ? (
+          <div className="rows"><div className="row"><span className="muted" style={{ color: "var(--dim)" }}>No activity yet — make a change in a connected repo.</span></div></div>
+        ) : (
+          <div className="rows">
+            {o.audit.slice(0, 8).map((a, i) => (
+              <div className="row" key={i}>
+                <span className="avatar" style={{ width: 22, height: 22, borderRadius: 7, fontSize: 10 }}>
+                  <IconActivity style={{ width: 12, height: 12, color: "#08110f" }} />
+                </span>
+                <div className="body">
+                  <div className="title" style={{ fontSize: 13.5 }}>{humanizeAction(a.action)}</div>
+                  <div className="meta">
+                    {a.entityKind && <span className="code-ref">{a.entityKind}</span>}
+                    <span>{timeAgo(a.createdAt)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-      <h2>Tasks</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Task</th>
-            <th>Run state</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {o.tasks.map((t) => (
-            <tr key={t.id}>
-              <td>{t.title}</td>
-              <td>{t.runState}</td>
-              <td>
-                <span className={`pill ${t.status}`}>{t.status}</span>
-              </td>
-            </tr>
-          ))}
-          {o.tasks.length === 0 && (
-            <tr>
-              <td colSpan={3} className="muted">
-                none
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-
-      <h2>Repos</h2>
-      {o.repos.map((r) => (
-        <div key={r.id} className="muted">
-          {r.gitRemote}
-        </div>
-      ))}
-      <form action={connectRepoAction}>
-        <input type="hidden" name="orgId" value={orgId} />
-        <input type="hidden" name="projectId" value={projectId} />
-        <input name="gitRemote" placeholder="github.com/org/repo" style={{ width: 280 }} />
-        <button type="submit">Connect repo</button>
-      </form>
-
-      <h2>Invite a teammate</h2>
-      <form action={inviteAction}>
-        <input type="hidden" name="orgId" value={orgId} />
-        <input type="hidden" name="projectId" value={projectId} />
-        <input name="githubLogin" placeholder="github-handle" />
-        <button type="submit">Invite</button>
-      </form>
-
-      <h2>Audit trail</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Action</th>
-            <th>Entity</th>
-            <th>When</th>
-          </tr>
-        </thead>
-        <tbody>
-          {o.audit.map((a, i) => (
-            <tr key={i}>
-              <td>{a.action}</td>
-              <td>{a.entityKind ?? "—"}</td>
-              <td className="muted">{new Date(a.createdAt).toLocaleString()}</td>
-            </tr>
-          ))}
-          {o.audit.length === 0 && (
-            <tr>
-              <td colSpan={3} className="muted">
-                none
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </main>
+      <div className="section-title">Latest decisions</div>
+      <div className="card animate-in">
+        {o.decisions.length === 0 ? (
+          <div className="rows"><div className="row"><Link href={`${base}/decisions`} style={{ color: "var(--teal)" }}>No decisions yet →</Link></div></div>
+        ) : (
+          <div className="rows">
+            {o.decisions.slice(0, 5).map((d) => (
+              <div className="row" key={d.id}>
+                <div className="body">
+                  <div className="title">{d.ruleText || d.scopeRef}</div>
+                  <div className="meta">
+                    <span className="code-ref">{d.scopeRef}</span>
+                    <span>v{d.version}</span>
+                  </div>
+                </div>
+                <StatusPill status={d.status} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

@@ -9,7 +9,10 @@ import {
   auditEvents,
   decisions,
   decisionVersions,
+  dependencyEdges,
+  contracts,
 } from "../db/schema.js";
+import { inArray } from "drizzle-orm";
 
 export async function orgOverview(orgId: string): Promise<{
   projects: Array<{ id: string; name: string }>;
@@ -63,6 +66,29 @@ export async function projectOverview(orgId: string, projectId: string) {
       id: r.id,
       gitRemote: r.gitRemote,
     }));
+    const repoIds = rps.map((r) => r.id);
+    const deps = (
+      await tx
+        .select()
+        .from(dependencyEdges)
+        .where(and(eq(dependencyEdges.projectId, projectId), eq(dependencyEdges.active, true)))
+    ).map((d) => ({
+      id: d.id,
+      consumerRepoId: d.consumerRepoId,
+      producedRepoId: d.producedRepoId,
+      producedSurface: d.producedSurface,
+      source: d.source,
+    }));
+    const contractRows = repoIds.length
+      ? (await tx.select().from(contracts).where(inArray(contracts.repoId, repoIds))).map((c) => ({
+          id: c.id,
+          repoId: c.repoId,
+          surface: c.surface,
+          verified: c.verified,
+          verificationStatus: c.verificationStatus,
+          version: c.version,
+        }))
+      : [];
     const audit = (
       await tx
         .select()
@@ -71,6 +97,6 @@ export async function projectOverview(orgId: string, projectId: string) {
         .orderBy(desc(auditEvents.createdAt))
         .limit(50)
     ).map((a) => ({ action: a.action, entityKind: a.entityKind, createdAt: a.createdAt }));
-    return { decisions: decisionList, questions: qs, tasks: tks, repos: rps, audit };
+    return { decisions: decisionList, questions: qs, tasks: tks, repos: rps, dependencies: deps, contracts: contractRows, audit };
   });
 }

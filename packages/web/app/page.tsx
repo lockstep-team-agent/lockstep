@@ -1,84 +1,88 @@
 import Link from "next/link";
-import { hasToken, apiGet } from "./lib/api";
-import { loginAction, logoutAction, createOrgAction, createProjectAction } from "./actions";
+import { hasToken, apiGet } from "@/lib/api";
+import { loginAction, logoutAction } from "@/actions";
+import type { Me, OrgOverview } from "@/lib/types";
+import { IconArrow, IconRepo } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
-
-interface Me {
-  principal: { githubLogin: string };
-  memberships: Array<{ orgId: string }>;
-}
-interface OrgOverview {
-  projects: Array<{ id: string; name: string }>;
-  members: Array<{ id: string; githubLogin: string }>;
-}
 
 export default async function Home() {
   if (!hasToken()) {
     return (
-      <main>
-        <h1>Sign in</h1>
-        <p className="muted">
-          Paste a Lockstep session token (run <code>lockstep login</code> in your terminal). Web GitHub
-          sign-in is the next iteration.
-        </p>
-        <form action={loginAction}>
-          <input name="token" placeholder="lsk_..." style={{ width: 360 }} />
-          <button type="submit">Sign in</button>
-        </form>
-      </main>
+      <div className="center-screen">
+        <div className="auth-card card pad animate-in">
+          <div className="brand">
+            <span className="logo" /> Lockstep
+          </div>
+          <p style={{ color: "var(--muted)", fontSize: 13.5, textAlign: "center", margin: "0 0 18px" }}>
+            Paste your session token to sign in.
+            <br />
+            Get one with <span className="code-ref">lockstep login</span> in your terminal.
+          </p>
+          <form action={loginAction} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input className="input mono" name="token" placeholder="lsk_…" autoComplete="off" />
+            <button className="btn primary" type="submit" style={{ justifyContent: "center" }}>
+              Sign in
+            </button>
+          </form>
+        </div>
+      </div>
     );
   }
 
   const me = await apiGet<Me>("/me");
   if (!me) {
     return (
-      <main>
-        <p>Token invalid or API unreachable.</p>
-        <form action={logoutAction}>
-          <button type="submit">Sign out</button>
-        </form>
-      </main>
+      <div className="center-screen">
+        <div className="auth-card card pad animate-in">
+          <p style={{ color: "var(--muted)", marginBottom: 14 }}>Session expired or API unreachable.</p>
+          <form action={logoutAction}>
+            <button className="btn" type="submit">Sign out</button>
+          </form>
+        </div>
+      </div>
     );
   }
 
   const orgIds = [...new Set(me.memberships.map((m) => m.orgId))];
-  const overviews = await Promise.all(orgIds.map(async (id) => ({ id, data: await apiGet<OrgOverview>(`/orgs/${id}/overview`) })));
+  const orgs = await Promise.all(orgIds.map(async (id) => ({ id, data: await apiGet<OrgOverview>(`/orgs/${id}/overview`) })));
 
   return (
-    <main>
-      <h1>
-        {me.principal.githubLogin}'s workspace
-        <form action={logoutAction} style={{ display: "inline-flex", marginLeft: 16 }}>
-          <button type="submit">Sign out</button>
-        </form>
-      </h1>
-
-      <form action={createOrgAction}>
-        <input name="name" placeholder="New org name" />
-        <button type="submit">Create org</button>
-      </form>
-
-      {orgIds.length === 0 && <p className="muted">No orgs yet — create one above.</p>}
-
-      {overviews.map(({ id, data }) => (
-        <div key={id} className="card">
-          <h2>Org {id.slice(0, 8)}</h2>
-          <p className="muted">Members: {(data?.members ?? []).map((m) => m.githubLogin).join(", ") || "—"}</p>
-          <h2>Projects</h2>
-          {(data?.projects ?? []).map((p) => (
-            <div key={p.id} style={{ padding: "6px 0" }}>
-              <Link href={`/project/${id}/${p.id}`}>{p.name}</Link>
-            </div>
-          ))}
-          {(data?.projects ?? []).length === 0 && <p className="muted">No projects yet.</p>}
-          <form action={createProjectAction}>
-            <input type="hidden" name="orgId" value={id} />
-            <input name="name" placeholder="New project name" />
-            <button type="submit">Create project</button>
+    <div className="center-screen" style={{ alignItems: "flex-start", paddingTop: 64 }}>
+      <div style={{ width: "100%", maxWidth: 720 }}>
+        <div className="brand animate-in" style={{ marginBottom: 26 }}>
+          <span className="logo" /> Lockstep
+          <div className="spacer" style={{ flex: 1 }} />
+          <form action={logoutAction}>
+            <button className="btn ghost" type="submit">Sign out</button>
           </form>
         </div>
-      ))}
-    </main>
+
+        {orgIds.length === 0 && (
+          <div className="empty animate-in">
+            <div className="ico"><IconRepo /></div>
+            <h3>No workspace yet</h3>
+            <p>
+              Run <span className="code-ref">lockstep connect</span> inside a repo to create your workspace and link it.
+            </p>
+          </div>
+        )}
+
+        <div className="stagger" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {orgs.flatMap(({ id, data }) =>
+            (data?.projects ?? []).map((p) => (
+              <Link key={p.id} href={`/project/${id}/${p.id}`} className="card pad" style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <span className="avatar" style={{ borderRadius: 9 }}>{(p.name[0] ?? "?").toUpperCase()}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 650 }}>{p.name}</div>
+                  <div style={{ color: "var(--dim)", fontSize: 12.5 }}>{(data?.members ?? []).length} member(s)</div>
+                </div>
+                <IconArrow style={{ width: 18, height: 18, color: "var(--dim)" }} />
+              </Link>
+            )),
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
