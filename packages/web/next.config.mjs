@@ -1,6 +1,5 @@
 /** @type {import('next').NextConfig} */
-export default {
-  env: {
-    LOCKSTEP_API_URL: process.env.LOCKSTEP_API_URL ?? "http://localhost:8080",
-  },
-};
+// LOCKSTEP_API_URL is read at runtime by server components/actions (app/lib/api.ts),
+// so it must NOT be inlined here via the `env` block — set it as a runtime env var
+// on the web service instead.
+export default {};
