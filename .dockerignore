@@ -1,0 +1,7 @@
+.git
+**/node_modules
+**/dist
+**/.next
+**/*.log
+.env
+*.lockstep.bak
