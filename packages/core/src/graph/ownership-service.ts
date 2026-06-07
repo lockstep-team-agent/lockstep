@@ -1,7 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
-import { ownershipSnapshots, ownershipRules, ownershipRuleOwners, repos } from "../db/schema.js";
+import { ownershipSnapshots, ownershipRules, ownershipRuleOwners, repos, githubInstallations } from "../db/schema.js";
 import { parseCodeowners } from "./codeowners.js";
+import * as gh from "../auth/github.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -56,6 +57,49 @@ export async function refreshOwnership(
     await tx.update(repos).set({ codeownersSha: sha }).where(eq(repos.id, repoId));
     return { snapshotId: snap.id, ruleCount: rules.length };
   });
+}
+
+/**
+ * Best-effort: fetch CODEOWNERS for a repo via the GitHub App installation and ingest it.
+ * Returns {ingested:false} quietly if the App isn't installed, the host isn't GitHub, or
+ * no CODEOWNERS exists — never throws into the caller.
+ */
+export async function ingestCodeownersFromGitHub(
+  orgId: string,
+  repoId: string,
+  gitRemote: string,
+): Promise<{ ingested: boolean }> {
+  const parts = gitRemote.split("/");
+  if (parts[0] !== "github.com" || parts.length < 3) return { ingested: false };
+  const owner = parts[1]!;
+  const repo = parts[2]!;
+
+  let installationId: number;
+  try {
+    installationId = await gh.repoInstallationId(owner, repo);
+  } catch {
+    return { ingested: false };
+  }
+
+  await withOrg(orgId, async (tx) => {
+    const existing = (
+      await tx
+        .select()
+        .from(githubInstallations)
+        .where(and(eq(githubInstallations.orgId, orgId), eq(githubInstallations.installationId, installationId)))
+        .limit(1)
+    )[0];
+    if (!existing) await tx.insert(githubInstallations).values({ orgId, installationId, accountLogin: owner });
+  });
+
+  for (const path of [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"]) {
+    const file = await gh.getFile(installationId, owner, repo, path).catch(() => null);
+    if (file) {
+      await refreshOwnership(orgId, repoId, file.content, file.sha);
+      return { ingested: true };
+    }
+  }
+  return { ingested: false };
 }
 
 /** Resolve owners of a repo-relative path from the current snapshot (last match wins). */

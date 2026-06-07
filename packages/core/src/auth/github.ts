@@ -75,6 +75,15 @@ function appJwt(): string {
   return `${header}.${payload}.${sig}`;
 }
 
+/** Find the App installation id for a repo (App must be installed on it). */
+export async function repoInstallationId(owner: string, repo: string): Promise<number> {
+  const res = await fetch(`${API}/repos/${owner}/${repo}/installation`, {
+    headers: { authorization: `Bearer ${appJwt()}`, accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`installation lookup ${res.status}`);
+  return ((await res.json()) as { id: number }).id;
+}
+
 export async function installationToken(installationId: number): Promise<string> {
   const res = await fetch(`${API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",

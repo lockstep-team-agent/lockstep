@@ -5,6 +5,7 @@ import { issueTokenTx, type Principal } from "./tokens.js";
 import * as gh from "./github.js";
 import { encrypt } from "./crypto.js";
 import { env } from "../env.js";
+import { ingestCodeownersFromGitHub } from "../graph/ownership-service.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -169,10 +170,17 @@ export async function connectRepo(
   isMonorepo = false,
 ): Promise<{ repoId: string }> {
   await ensureMember(orgId, principal.id);
-  return withOrg(orgId, async (tx) => {
+  const { repoId } = await withOrg(orgId, async (tx) => {
     const r = one(await tx.insert(repos).values({ orgId, projectId, gitRemote, isMonorepo }).returning());
     return { repoId: r.id };
   });
+  // Best-effort: pull CODEOWNERS via the GitHub App so ownership routing works immediately.
+  try {
+    await ingestCodeownersFromGitHub(orgId, repoId, gitRemote);
+  } catch {
+    /* App not installed / no CODEOWNERS — fine, ownership graph just stays empty */
+  }
+  return { repoId };
 }
 
 export async function listMemberships(
