@@ -79,7 +79,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
       <div className="section-title">Onboard a teammate</div>
       <div className="card pad animate-in">
         <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>Have them run, from inside their repo:</p>
-        <pre className="mono" style={preStyle}>{`lockstep login --api ${api}
+        <pre className="mono" style={preStyle}>{`npm i -g lockstep-cli
+lockstep login --api ${api}
 lockstep init
 lockstep connect --project "${projectName}"`}</pre>
       </div>
