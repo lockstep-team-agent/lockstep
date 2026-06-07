@@ -1,6 +1,6 @@
 import { getToken } from "./auth/token-store.js";
 
-const API = process.env.LOCKSTEP_API_URL ?? "http://localhost:8080";
+const API = (process.env.LOCKSTEP_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 async function req<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const token = await getToken();

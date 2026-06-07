@@ -1,6 +1,6 @@
 import { getToken } from "../auth/token-store.js";
 
-const API = process.env.LOCKSTEP_API_URL ?? "http://localhost:8080";
+const API = (process.env.LOCKSTEP_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 /** Session-aware authed request: attaches the bearer token and the x-lockstep-session header. */
 export async function call<T = unknown>(

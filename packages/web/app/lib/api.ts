@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 
-const API = process.env.LOCKSTEP_API_URL ?? "http://localhost:8080";
+const API = (process.env.LOCKSTEP_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 function token(): string | undefined {
   return cookies().get("lockstep_token")?.value;
