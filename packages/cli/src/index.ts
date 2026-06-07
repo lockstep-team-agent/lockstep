@@ -16,7 +16,8 @@ function help(): void {
 
 usage: lockstep <command>
 
-  login [--dev --dev-id <n> --dev-login <handle>]   authenticate (GitHub device flow; --dev for testing)
+  login [--api <url>] [--dev --dev-id <n> --dev-login <handle>]
+                                                    authenticate; --api saves your server (once), --dev for testing
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
   status                                            show auth + config health
@@ -34,6 +35,12 @@ function notYet(name: string, phase: string): never {
 async function main(): Promise<void> {
   switch (cmd) {
     case "login": {
+      // Remember the server so the user never has to export anything again.
+      const api = val("api") ?? process.env.LOCKSTEP_API_URL;
+      if (api) {
+        const { setApiUrl } = await import("./config.js");
+        setApiUrl(api);
+      }
       if (has("dev")) {
         const id = Number(val("dev-id") ?? "0");
         const login = val("dev-login") ?? "";

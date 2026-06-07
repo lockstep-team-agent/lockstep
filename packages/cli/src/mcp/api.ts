@@ -1,6 +1,5 @@
 import { getToken } from "../auth/token-store.js";
-
-const API = (process.env.LOCKSTEP_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
+import { resolveApiUrl } from "../config.js";
 
 /** Session-aware authed request: attaches the bearer token and the x-lockstep-session header. */
 export async function call<T = unknown>(
@@ -9,11 +8,12 @@ export async function call<T = unknown>(
   sessionId: string | undefined,
   body?: unknown,
 ): Promise<T> {
+  const API = resolveApiUrl();
   const token = await getToken();
   const res = await fetch(`${API}${path}`, {
     method,
     headers: {
-      "content-type": "application/json",
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(sessionId ? { "x-lockstep-session": sessionId } : {}),
     },
