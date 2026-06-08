@@ -46,7 +46,10 @@ export default async function ProjectLayout({
         <Nav base={base} counts={counts} />
         <div className="sidebar-foot">
           <form action={logoutAction}>
-            <button className="nav-item" style={{ width: "100%", border: "none", background: "transparent", textAlign: "left" }}>
+            <button
+              className="nav-item"
+              style={{ width: "100%", border: "none", background: "transparent", textAlign: "left" }}
+            >
               <IconLogout /> Sign out
             </button>
           </form>

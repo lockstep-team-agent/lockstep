@@ -97,6 +97,14 @@ export async function projectOverview(orgId: string, projectId: string) {
         .orderBy(desc(auditEvents.createdAt))
         .limit(50)
     ).map((a) => ({ action: a.action, entityKind: a.entityKind, createdAt: a.createdAt }));
-    return { decisions: decisionList, questions: qs, tasks: tks, repos: rps, dependencies: deps, contracts: contractRows, audit };
+    return {
+      decisions: decisionList,
+      questions: qs,
+      tasks: tks,
+      repos: rps,
+      dependencies: deps,
+      contracts: contractRows,
+      audit,
+    };
   });
 }

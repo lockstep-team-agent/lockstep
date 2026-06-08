@@ -36,6 +36,8 @@ export async function connectRepoAction(formData: FormData): Promise<void> {
 export async function inviteAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");
-  await apiPost(`/orgs/${orgId}/projects/${projectId}/invite`, { githubLogin: String(formData.get("githubLogin") ?? "") });
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/invite`, {
+    githubLogin: String(formData.get("githubLogin") ?? ""),
+  });
   revalidatePath(`/project/${orgId}/${projectId}`);
 }

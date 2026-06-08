@@ -1,511 +1,1658 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lockstep — keep your team's coding agents in sync</title>
-<style>
-  :root{
-    --bg:#0b0e14; --panel:#131826; --panel2:#0f1420; --border:#232a3a;
-    --text:#e6edf3; --muted:#8b94a6; --dim:#5b6577;
-    --violet:#a78bfa; --teal:#2dd4bf; --green:#3fb950; --amber:#e3b341; --blue:#58a6ff; --red:#f85149;
-    --grad:linear-gradient(135deg,#a78bfa,#2dd4bf);
-    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth}
-  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
-  a{color:var(--teal);text-decoration:none}
-  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
-  .mono{font-family:var(--mono)}
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lockstep — keep your team's coding agents in sync</title>
+    <style>
+      :root {
+        --bg: #0b0e14;
+        --panel: #131826;
+        --panel2: #0f1420;
+        --border: #232a3a;
+        --text: #e6edf3;
+        --muted: #8b94a6;
+        --dim: #5b6577;
+        --violet: #a78bfa;
+        --teal: #2dd4bf;
+        --green: #3fb950;
+        --amber: #e3b341;
+        --blue: #58a6ff;
+        --red: #f85149;
+        --grad: linear-gradient(135deg, #a78bfa, #2dd4bf);
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a {
+        color: var(--teal);
+        text-decoration: none;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      .mono {
+        font-family: var(--mono);
+      }
 
-  /* nav */
-  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(11,14,20,.78);border-bottom:1px solid var(--border)}
-  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
-  .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.3px}
-  .logo .dot{width:22px;height:22px;border-radius:6px;background:var(--grad);display:inline-block;position:relative}
-  .logo .dot::after{content:"";position:absolute;inset:6px;border-radius:3px;background:var(--bg)}
-  .navlinks{display:flex;gap:22px;font-size:14px;color:var(--muted)}
-  .navlinks a{color:var(--muted)} .navlinks a:hover{color:var(--text)}
-  .badge{font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:999px;color:var(--muted);background:var(--panel)}
+      /* nav */
+      nav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        backdrop-filter: blur(12px);
+        background: rgba(11, 14, 20, 0.78);
+        border-bottom: 1px solid var(--border);
+      }
+      nav .wrap {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 60px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.3px;
+      }
+      .logo .dot {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--grad);
+        display: inline-block;
+        position: relative;
+      }
+      .logo .dot::after {
+        content: "";
+        position: absolute;
+        inset: 6px;
+        border-radius: 3px;
+        background: var(--bg);
+      }
+      .navlinks {
+        display: flex;
+        gap: 22px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+      .navlinks a {
+        color: var(--muted);
+      }
+      .navlinks a:hover {
+        color: var(--text);
+      }
+      .badge {
+        font-size: 11px;
+        padding: 3px 9px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--muted);
+        background: var(--panel);
+      }
 
-  /* hero */
-  .hero{padding:88px 0 60px;text-align:center;position:relative;overflow:hidden}
-  .hero::before{content:"";position:absolute;top:-200px;left:50%;transform:translateX(-50%);width:760px;height:520px;background:radial-gradient(ellipse at center,rgba(167,139,250,.18),transparent 62%);pointer-events:none}
-  .tag{display:inline-block;font-size:12.5px;color:var(--violet);border:1px solid rgba(167,139,250,.3);background:rgba(167,139,250,.08);padding:5px 13px;border-radius:999px;margin-bottom:22px}
-  h1{font-size:clamp(34px,6vw,58px);line-height:1.05;letter-spacing:-1.5px;font-weight:800;max-width:880px;margin:0 auto}
-  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .sub{font-size:clamp(16px,2.4vw,20px);color:var(--muted);max-width:640px;margin:22px auto 32px}
-  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-  .btn{font-size:14.5px;font-weight:600;padding:11px 20px;border-radius:10px;cursor:pointer;border:1px solid var(--border);background:var(--panel);color:var(--text);transition:.15s}
-  .btn:hover{border-color:var(--dim);transform:translateY(-1px)}
-  .btn.primary{background:var(--grad);color:#08110f;border:none}
-  .btn.primary:hover{filter:brightness(1.07)}
+      /* hero */
+      .hero {
+        padding: 88px 0 60px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        top: -200px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 760px;
+        height: 520px;
+        background: radial-gradient(ellipse at center, rgba(167, 139, 250, 0.18), transparent 62%);
+        pointer-events: none;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 12.5px;
+        color: var(--violet);
+        border: 1px solid rgba(167, 139, 250, 0.3);
+        background: rgba(167, 139, 250, 0.08);
+        padding: 5px 13px;
+        border-radius: 999px;
+        margin-bottom: 22px;
+      }
+      h1 {
+        font-size: clamp(34px, 6vw, 58px);
+        line-height: 1.05;
+        letter-spacing: -1.5px;
+        font-weight: 800;
+        max-width: 880px;
+        margin: 0 auto;
+      }
+      h1 .g {
+        background: var(--grad);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .sub {
+        font-size: clamp(16px, 2.4vw, 20px);
+        color: var(--muted);
+        max-width: 640px;
+        margin: 22px auto 32px;
+      }
+      .cta {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      .btn {
+        font-size: 14.5px;
+        font-weight: 600;
+        padding: 11px 20px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        transition: 0.15s;
+      }
+      .btn:hover {
+        border-color: var(--dim);
+        transform: translateY(-1px);
+      }
+      .btn.primary {
+        background: var(--grad);
+        color: #08110f;
+        border: none;
+      }
+      .btn.primary:hover {
+        filter: brightness(1.07);
+      }
 
-  section{padding:64px 0;border-top:1px solid var(--border)}
-  .eyebrow{font-size:13px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--teal);margin-bottom:12px}
-  h2{font-size:clamp(26px,4vw,38px);letter-spacing:-.8px;font-weight:800;margin-bottom:14px}
-  .lead{color:var(--muted);font-size:17px;max-width:680px;margin-bottom:34px}
+      section {
+        padding: 64px 0;
+        border-top: 1px solid var(--border);
+      }
+      .eyebrow {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: var(--teal);
+        margin-bottom: 12px;
+      }
+      h2 {
+        font-size: clamp(26px, 4vw, 38px);
+        letter-spacing: -0.8px;
+        font-weight: 800;
+        margin-bottom: 14px;
+      }
+      .lead {
+        color: var(--muted);
+        font-size: 17px;
+        max-width: 680px;
+        margin-bottom: 34px;
+      }
 
-  /* problem */
-  .prob{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center}
-  .pcard{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px}
-  .pcard h4{font-size:14px;color:var(--muted);font-weight:600;margin-bottom:10px;display:flex;gap:8px;align-items:center}
-  .pcard .body{font-family:var(--mono);font-size:12.5px;color:var(--dim);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px;min-height:84px}
-  .vs{font-size:22px;color:var(--dim);text-align:center}
-  .prob-note{text-align:center;margin-top:24px;color:var(--muted);font-size:15px}
-  .prob-note b{color:var(--text)}
+      /* problem */
+      .prob {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        gap: 18px;
+        align-items: center;
+      }
+      .pcard {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+      }
+      .pcard h4 {
+        font-size: 14px;
+        color: var(--muted);
+        font-weight: 600;
+        margin-bottom: 10px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .pcard .body {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--dim);
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 84px;
+      }
+      .vs {
+        font-size: 22px;
+        color: var(--dim);
+        text-align: center;
+      }
+      .prob-note {
+        text-align: center;
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .prob-note b {
+        color: var(--text);
+      }
 
-  /* demo / stepper */
-  .stage{background:var(--panel2);border:1px solid var(--border);border-radius:18px;padding:22px}
-  .grid3{display:grid;grid-template-columns:1fr 150px 1fr;gap:16px;align-items:stretch}
-  .term{background:#070a11;border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-height:300px;transition:.25s}
-  .term.active{border-color:var(--violet);box-shadow:0 0 0 1px rgba(167,139,250,.35),0 8px 30px rgba(167,139,250,.12)}
-  .term .head{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);background:#0c111b;font-size:12px;color:var(--muted)}
-  .term .head .who{margin-left:auto;font-size:11px;color:var(--dim)}
-  .term .head .vend{font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid var(--border);color:var(--muted)}
-  .traffic{display:flex;gap:5px} .traffic i{width:10px;height:10px;border-radius:50%;display:block}
-  .body-term{padding:14px;font-family:var(--mono);font-size:12.5px;line-height:1.7;flex:1;white-space:pre-wrap;word-break:break-word}
-  .line{opacity:0;transform:translateY(4px);animation:fade .35s forwards}
-  @keyframes fade{to{opacity:1;transform:none}}
-  .c-mut{color:var(--dim)} .c-grn{color:var(--green)} .c-vio{color:var(--violet)} .c-tea{color:var(--teal)}
-  .c-amb{color:var(--amber)} .c-blu{color:var(--blue)} .c-red{color:var(--red)} .c-txt{color:var(--text)}
-  .prompt{color:var(--teal)}
+      /* demo / stepper */
+      .stage {
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 22px;
+      }
+      .grid3 {
+        display: grid;
+        grid-template-columns: 1fr 150px 1fr;
+        gap: 16px;
+        align-items: stretch;
+      }
+      .term {
+        background: #070a11;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 300px;
+        transition: 0.25s;
+      }
+      .term.active {
+        border-color: var(--violet);
+        box-shadow:
+          0 0 0 1px rgba(167, 139, 250, 0.35),
+          0 8px 30px rgba(167, 139, 250, 0.12);
+      }
+      .term .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--border);
+        background: #0c111b;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .term .head .who {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .term .head .vend {
+        font-size: 10px;
+        padding: 2px 7px;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+      .traffic {
+        display: flex;
+        gap: 5px;
+      }
+      .traffic i {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: block;
+      }
+      .body-term {
+        padding: 14px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.7;
+        flex: 1;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .line {
+        opacity: 0;
+        transform: translateY(4px);
+        animation: fade 0.35s forwards;
+      }
+      @keyframes fade {
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .c-mut {
+        color: var(--dim);
+      }
+      .c-grn {
+        color: var(--green);
+      }
+      .c-vio {
+        color: var(--violet);
+      }
+      .c-tea {
+        color: var(--teal);
+      }
+      .c-amb {
+        color: var(--amber);
+      }
+      .c-blu {
+        color: var(--blue);
+      }
+      .c-red {
+        color: var(--red);
+      }
+      .c-txt {
+        color: var(--text);
+      }
+      .prompt {
+        color: var(--teal);
+      }
 
-  .broker{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;position:relative}
-  .bnode{width:100%;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 10px;text-align:center;transition:.25s}
-  .bnode.active{border-color:var(--teal);box-shadow:0 0 0 1px rgba(45,212,191,.4),0 8px 30px rgba(45,212,191,.12)}
-  .bnode .ico{width:30px;height:30px;border-radius:8px;background:var(--grad);margin:0 auto 8px;position:relative}
-  .bnode .ico::after{content:"";position:absolute;inset:8px;border-radius:3px;background:var(--panel)}
-  .bnode .t{font-size:11px;font-weight:700;letter-spacing:.5px}
-  .bnode .s{font-size:10px;color:var(--muted);margin-top:4px;min-height:26px}
-  .flowdot{font-size:18px;color:var(--dim);transition:.25s}
-  .flowdot.on{color:var(--teal)}
+      .broker {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        position: relative;
+      }
+      .bnode {
+        width: 100%;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px 10px;
+        text-align: center;
+        transition: 0.25s;
+      }
+      .bnode.active {
+        border-color: var(--teal);
+        box-shadow:
+          0 0 0 1px rgba(45, 212, 191, 0.4),
+          0 8px 30px rgba(45, 212, 191, 0.12);
+      }
+      .bnode .ico {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--grad);
+        margin: 0 auto 8px;
+        position: relative;
+      }
+      .bnode .ico::after {
+        content: "";
+        position: absolute;
+        inset: 8px;
+        border-radius: 3px;
+        background: var(--panel);
+      }
+      .bnode .t {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+      .bnode .s {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 4px;
+        min-height: 26px;
+      }
+      .flowdot {
+        font-size: 18px;
+        color: var(--dim);
+        transition: 0.25s;
+      }
+      .flowdot.on {
+        color: var(--teal);
+      }
 
-  .pr{margin-top:16px;background:#070a11;border:1px solid var(--border);border-radius:12px;padding:13px 16px;font-family:var(--mono);font-size:12.5px;display:flex;align-items:center;gap:12px;transition:.25s}
-  .pr.show{border-color:var(--border)} .pr.green{border-color:rgba(63,185,80,.4)} .pr.red{border-color:rgba(248,81,73,.4)}
-  .pr .icn{width:20px;height:20px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:12px}
-  .pr.green .icn{background:rgba(63,185,80,.15);color:var(--green)} .pr.red .icn{background:rgba(248,81,73,.15);color:var(--red)}
-  .pr.idle .icn{background:var(--panel);color:var(--dim)}
+      .pr {
+        margin-top: 16px;
+        background: #070a11;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 13px 16px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: 0.25s;
+      }
+      .pr.show {
+        border-color: var(--border);
+      }
+      .pr.green {
+        border-color: rgba(63, 185, 80, 0.4);
+      }
+      .pr.red {
+        border-color: rgba(248, 81, 73, 0.4);
+      }
+      .pr .icn {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        flex: none;
+        display: grid;
+        place-items: center;
+        font-size: 12px;
+      }
+      .pr.green .icn {
+        background: rgba(63, 185, 80, 0.15);
+        color: var(--green);
+      }
+      .pr.red .icn {
+        background: rgba(248, 81, 73, 0.15);
+        color: var(--red);
+      }
+      .pr.idle .icn {
+        background: var(--panel);
+        color: var(--dim);
+      }
 
-  .stepbar{display:flex;align-items:center;gap:14px;margin-top:20px;flex-wrap:wrap}
-  .stepdesc{flex:1;min-width:240px;color:var(--muted);font-size:14.5px}
-  .stepdesc b{color:var(--text)}
-  .dots{display:flex;gap:6px}
-  .dots i{width:8px;height:8px;border-radius:50%;background:var(--border);transition:.2s}
-  .dots i.on{background:var(--violet);width:20px;border-radius:4px}
-  .stepnum{font-size:12px;color:var(--dim);font-family:var(--mono)}
+      .stepbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 20px;
+        flex-wrap: wrap;
+      }
+      .stepdesc {
+        flex: 1;
+        min-width: 240px;
+        color: var(--muted);
+        font-size: 14.5px;
+      }
+      .stepdesc b {
+        color: var(--text);
+      }
+      .dots {
+        display: flex;
+        gap: 6px;
+      }
+      .dots i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+        transition: 0.2s;
+      }
+      .dots i.on {
+        background: var(--violet);
+        width: 20px;
+        border-radius: 4px;
+      }
+      .stepnum {
+        font-size: 12px;
+        color: var(--dim);
+        font-family: var(--mono);
+      }
 
-  /* dashboard */
-  .tabs{display:flex;gap:6px;margin-bottom:0;border:1px solid var(--border);border-bottom:none;border-radius:12px 12px 0 0;padding:8px 8px 0;background:var(--panel);overflow-x:auto}
-  .tab{font-size:13.5px;font-weight:600;color:var(--muted);padding:9px 14px;border-radius:8px 8px 0 0;cursor:pointer;white-space:nowrap;border:1px solid transparent;border-bottom:none}
-  .tab.active{color:var(--text);background:var(--panel2);border-color:var(--border)}
-  .panelbox{border:1px solid var(--border);border-radius:0 0 12px 12px;background:var(--panel2);padding:16px;min-height:260px}
-  .doc{display:flex;gap:13px;padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--panel);margin-bottom:10px}
-  .doc:last-child{margin-bottom:0}
-  .doc .st{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:11px;margin-top:1px}
-  .st.open{background:rgba(227,179,65,.15);color:var(--amber)} .st.closed{background:rgba(63,185,80,.15);color:var(--green)}
-  .st.bind{background:rgba(167,139,250,.15);color:var(--violet)} .st.wait{background:rgba(88,166,255,.15);color:var(--blue)}
-  .doc .main{flex:1}
-  .doc .title{font-size:14px;font-weight:600}
-  .doc .meta{font-size:12px;color:var(--dim);margin-top:3px;font-family:var(--mono)}
-  .doc .meta .pill{border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--muted);margin-right:5px}
+      /* dashboard */
+      .tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 0;
+        border: 1px solid var(--border);
+        border-bottom: none;
+        border-radius: 12px 12px 0 0;
+        padding: 8px 8px 0;
+        background: var(--panel);
+        overflow-x: auto;
+      }
+      .tab {
+        font-size: 13.5px;
+        font-weight: 600;
+        color: var(--muted);
+        padding: 9px 14px;
+        border-radius: 8px 8px 0 0;
+        cursor: pointer;
+        white-space: nowrap;
+        border: 1px solid transparent;
+        border-bottom: none;
+      }
+      .tab.active {
+        color: var(--text);
+        background: var(--panel2);
+        border-color: var(--border);
+      }
+      .panelbox {
+        border: 1px solid var(--border);
+        border-radius: 0 0 12px 12px;
+        background: var(--panel2);
+        padding: 16px;
+        min-height: 260px;
+      }
+      .doc {
+        display: flex;
+        gap: 13px;
+        padding: 13px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--panel);
+        margin-bottom: 10px;
+      }
+      .doc:last-child {
+        margin-bottom: 0;
+      }
+      .doc .st {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        flex: none;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        margin-top: 1px;
+      }
+      .st.open {
+        background: rgba(227, 179, 65, 0.15);
+        color: var(--amber);
+      }
+      .st.closed {
+        background: rgba(63, 185, 80, 0.15);
+        color: var(--green);
+      }
+      .st.bind {
+        background: rgba(167, 139, 250, 0.15);
+        color: var(--violet);
+      }
+      .st.wait {
+        background: rgba(88, 166, 255, 0.15);
+        color: var(--blue);
+      }
+      .doc .main {
+        flex: 1;
+      }
+      .doc .title {
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .doc .meta {
+        font-size: 12px;
+        color: var(--dim);
+        margin-top: 3px;
+        font-family: var(--mono);
+      }
+      .doc .meta .pill {
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1px 6px;
+        color: var(--muted);
+        margin-right: 5px;
+      }
 
-  /* routing visual */
-  .routing{background:var(--panel2);border:1px solid var(--border);border-radius:16px;padding:24px}
-  .rtop{text-align:center;font-family:var(--mono);font-size:13px;color:var(--muted);margin-bottom:6px}
-  .rtop b{color:var(--violet)}
-  .sessions{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px}
-  .sess{border:1px solid var(--border);border-radius:12px;padding:16px;background:var(--panel);text-align:center;transition:.25s;position:relative}
-  .sess.hit{border-color:rgba(63,185,80,.5);box-shadow:0 0 0 1px rgba(63,185,80,.25)}
-  .sess.miss{opacity:.5}
-  .sess .repo{font-family:var(--mono);font-size:13px;font-weight:700}
-  .sess .usr{font-size:11px;color:var(--dim);margin-top:3px}
-  .sess .res{margin-top:12px;font-size:12px;font-weight:600;font-family:var(--mono)}
-  .sess.hit .res{color:var(--green)} .sess.miss .res{color:var(--dim)}
-  .sess .tagdep{position:absolute;top:9px;right:9px;font-size:9px;padding:2px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted)}
+      /* routing visual */
+      .routing {
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+      }
+      .rtop {
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+      .rtop b {
+        color: var(--violet);
+      }
+      .sessions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+        margin-top: 22px;
+      }
+      .sess {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        background: var(--panel);
+        text-align: center;
+        transition: 0.25s;
+        position: relative;
+      }
+      .sess.hit {
+        border-color: rgba(63, 185, 80, 0.5);
+        box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.25);
+      }
+      .sess.miss {
+        opacity: 0.5;
+      }
+      .sess .repo {
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .sess .usr {
+        font-size: 11px;
+        color: var(--dim);
+        margin-top: 3px;
+      }
+      .sess .res {
+        margin-top: 12px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: var(--mono);
+      }
+      .sess.hit .res {
+        color: var(--green);
+      }
+      .sess.miss .res {
+        color: var(--dim);
+      }
+      .sess .tagdep {
+        position: absolute;
+        top: 9px;
+        right: 9px;
+        font-size: 9px;
+        padding: 2px 6px;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
 
-  /* features */
-  .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-  .fcard{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;transition:.18s}
-  .fcard:hover{border-color:var(--dim);transform:translateY(-2px)}
-  .fcard .fi{width:38px;height:38px;border-radius:10px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);display:grid;place-items:center;font-size:18px;margin-bottom:13px}
-  .fcard h4{font-size:15.5px;margin-bottom:7px}
-  .fcard p{font-size:13.5px;color:var(--muted)}
+      /* features */
+      .feat {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .fcard {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        transition: 0.18s;
+      }
+      .fcard:hover {
+        border-color: var(--dim);
+        transform: translateY(-2px);
+      }
+      .fcard .fi {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: rgba(167, 139, 250, 0.1);
+        border: 1px solid rgba(167, 139, 250, 0.25);
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+        margin-bottom: 13px;
+      }
+      .fcard h4 {
+        font-size: 15.5px;
+        margin-bottom: 7px;
+      }
+      .fcard p {
+        font-size: 13.5px;
+        color: var(--muted);
+      }
 
-  /* doubts / FAQ */
-  .ask{background:var(--panel2);border:1px solid var(--border);border-radius:16px;padding:24px}
-  .askbar{display:flex;gap:10px;align-items:center;background:#070a11;border:1px solid var(--border);border-radius:12px;padding:6px 6px 6px 16px}
-  .askbar:focus-within{border-color:var(--violet)}
-  .askbar .q{font-size:18px;color:var(--dim)}
-  .askbar input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:15px;padding:10px 0;font-family:var(--sans)}
-  .askbar input::placeholder{color:var(--dim)}
-  .askbar .go{background:var(--grad);color:#08110f;border:none;border-radius:9px;padding:10px 16px;font-weight:700;cursor:pointer;font-size:14px}
-  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-  .chip{font-size:12.5px;color:var(--muted);border:1px solid var(--border);background:var(--panel);border-radius:999px;padding:6px 13px;cursor:pointer;transition:.15s}
-  .chip:hover{border-color:var(--violet);color:var(--text)}
-  .answers{margin-top:20px;display:flex;flex-direction:column;gap:12px}
-  .ans{border:1px solid var(--border);border-radius:12px;background:var(--panel);overflow:hidden;animation:fade .3s forwards}
-  .ans .qh{display:flex;gap:10px;align-items:flex-start;padding:15px 17px;font-weight:600;font-size:14.5px}
-  .ans .qh .yn{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;flex:none;margin-top:1px}
-  .yn.yes{background:rgba(63,185,80,.15);color:var(--green)} .yn.partial{background:rgba(227,179,65,.15);color:var(--amber)} .yn.no{background:rgba(248,81,73,.15);color:var(--red)} .yn.info{background:rgba(88,166,255,.15);color:var(--blue)}
-  .ans .ab{padding:0 17px 16px 17px;color:var(--muted);font-size:13.5px}
-  .ans .ab .ref{display:inline-block;margin-top:9px;font-size:11.5px;font-family:var(--mono);color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:2px 8px}
-  .empty{color:var(--muted);font-size:14px;text-align:center;padding:24px;border:1px dashed var(--border);border-radius:12px}
+      /* doubts / FAQ */
+      .ask {
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px;
+      }
+      .askbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        background: #070a11;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 6px 6px 6px 16px;
+      }
+      .askbar:focus-within {
+        border-color: var(--violet);
+      }
+      .askbar .q {
+        font-size: 18px;
+        color: var(--dim);
+      }
+      .askbar input {
+        flex: 1;
+        background: none;
+        border: none;
+        outline: none;
+        color: var(--text);
+        font-size: 15px;
+        padding: 10px 0;
+        font-family: var(--sans);
+      }
+      .askbar input::placeholder {
+        color: var(--dim);
+      }
+      .askbar .go {
+        background: var(--grad);
+        color: #08110f;
+        border: none;
+        border-radius: 9px;
+        padding: 10px 16px;
+        font-weight: 700;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      .chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      .chip {
+        font-size: 12.5px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 999px;
+        padding: 6px 13px;
+        cursor: pointer;
+        transition: 0.15s;
+      }
+      .chip:hover {
+        border-color: var(--violet);
+        color: var(--text);
+      }
+      .answers {
+        margin-top: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .ans {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        overflow: hidden;
+        animation: fade 0.3s forwards;
+      }
+      .ans .qh {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 15px 17px;
+        font-weight: 600;
+        font-size: 14.5px;
+      }
+      .ans .qh .yn {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 9px;
+        border-radius: 999px;
+        flex: none;
+        margin-top: 1px;
+      }
+      .yn.yes {
+        background: rgba(63, 185, 80, 0.15);
+        color: var(--green);
+      }
+      .yn.partial {
+        background: rgba(227, 179, 65, 0.15);
+        color: var(--amber);
+      }
+      .yn.no {
+        background: rgba(248, 81, 73, 0.15);
+        color: var(--red);
+      }
+      .yn.info {
+        background: rgba(88, 166, 255, 0.15);
+        color: var(--blue);
+      }
+      .ans .ab {
+        padding: 0 17px 16px 17px;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      .ans .ab .ref {
+        display: inline-block;
+        margin-top: 9px;
+        font-size: 11.5px;
+        font-family: var(--mono);
+        color: var(--dim);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 2px 8px;
+      }
+      .empty {
+        color: var(--muted);
+        font-size: 14px;
+        text-align: center;
+        padding: 24px;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+      }
 
-  footer{border-top:1px solid var(--border);padding:40px 0 60px;color:var(--dim);font-size:13px;text-align:center}
-  .disc{max-width:620px;margin:0 auto 18px;color:var(--muted);font-size:13px}
+      footer {
+        border-top: 1px solid var(--border);
+        padding: 40px 0 60px;
+        color: var(--dim);
+        font-size: 13px;
+        text-align: center;
+      }
+      .disc {
+        max-width: 620px;
+        margin: 0 auto 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
 
-  @media(max-width:780px){
-    .navlinks{display:none}
-    .prob{grid-template-columns:1fr;gap:12px}.vs{transform:rotate(90deg)}
-    .grid3{grid-template-columns:1fr;gap:14px}.broker{flex-direction:row}
-    .feat,.sessions{grid-template-columns:1fr}
-  }
-</style>
-</head>
-<body>
-
-<nav><div class="wrap">
-  <div class="logo"><span class="dot"></span>Lockstep</div>
-  <div class="navlinks">
-    <a href="#demo">How it works</a>
-    <a href="#dashboard">The ledger</a>
-    <a href="#routing">Routing</a>
-    <a href="#ask">Clear your doubts</a>
-  </div>
-  <span class="badge">Concept · v4</span>
-</div></nav>
-
-<header class="hero"><div class="wrap">
-  <span class="tag">A system-of-record for your team's coding agents</span>
-  <h1>Keep two developers' <span class="g">AI agents in lockstep</span> — without sharing a line of source code.</h1>
-  <p class="sub">When your teammate's Claude (or Codex, or Gemini) changes an API, your agent finds out, knows what changed and why, and stops building on stale assumptions — automatically.</p>
-  <div class="cta">
-    <a class="btn primary" href="#demo">▶ Watch it work</a>
-    <a class="btn" href="#ask">Ask it anything</a>
-  </div>
-</div></header>
-
-<!-- PROBLEM -->
-<section><div class="wrap">
-  <div class="eyebrow">The problem</div>
-  <h2>Code syncs. Understanding doesn't.</h2>
-  <p class="lead">Two devs, two coding agents, one codebase. Git shares the files — but each agent learns the code in isolation. Decisions, intent, and the contract between services live in one person's head and never reach the other's agent.</p>
-  <div class="prob">
-    <div class="pcard">
-      <h4>🧑‍💻 Naman · order-service · Claude Code</h4>
-      <div class="body">changed POST /orders
-→ now needs idempotencyKey
-(friend's agent has no idea)</div>
-    </div>
-    <div class="vs">⟷</div>
-    <div class="pcard">
-      <h4>🧑‍💻 Friend · product-service · Codex</h4>
-      <div class="body">building call to /orders…
-→ guessing the shape
-→ ships against the old contract 💥</div>
-    </div>
-  </div>
-  <p class="prob-note"><b>The fix isn't more chat.</b> It's a shared, verified record both agents read and write — automatically.</p>
-</div></section>
-
-<!-- DEMO -->
-<section id="demo"><div class="wrap">
-  <div class="eyebrow">How it works</div>
-  <h2>One change, fully coordinated.</h2>
-  <p class="lead">Step through a real flow: Naman changes the orders API, and Friend's agent stays in sync — no Slack, no re-explaining, no stale code at merge time.</p>
-
-  <div class="stage">
-    <div class="grid3">
-      <!-- left -->
-      <div class="term" id="termL">
-        <div class="head"><div class="traffic"><i style="background:#f85149"></i><i style="background:#e3b341"></i><i style="background:#3fb950"></i></div>
-          order-service <span class="who">Naman</span><span class="vend">Claude Code</span></div>
-        <div class="body-term" id="bodyL"></div>
-      </div>
-      <!-- broker -->
-      <div class="broker">
-        <div class="flowdot" id="flowL">⟶</div>
-        <div class="bnode" id="bnode">
-          <div class="ico"></div>
-          <div class="t">LOCKSTEP</div>
-          <div class="s" id="bstate">idle · metadata only</div>
+      @media (max-width: 780px) {
+        .navlinks {
+          display: none;
+        }
+        .prob {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+        .vs {
+          transform: rotate(90deg);
+        }
+        .grid3 {
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+        .broker {
+          flex-direction: row;
+        }
+        .feat,
+        .sessions {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <div class="wrap">
+        <div class="logo"><span class="dot"></span>Lockstep</div>
+        <div class="navlinks">
+          <a href="#demo">How it works</a>
+          <a href="#dashboard">The ledger</a>
+          <a href="#routing">Routing</a>
+          <a href="#ask">Clear your doubts</a>
         </div>
-        <div class="flowdot" id="flowR">⟶</div>
+        <span class="badge">Concept · v4</span>
       </div>
-      <!-- right -->
-      <div class="term" id="termR">
-        <div class="head"><div class="traffic"><i style="background:#f85149"></i><i style="background:#e3b341"></i><i style="background:#3fb950"></i></div>
-          product-service <span class="who">Friend</span><span class="vend">Codex</span></div>
-        <div class="body-term" id="bodyR"></div>
+    </nav>
+
+    <header class="hero">
+      <div class="wrap">
+        <span class="tag">A system-of-record for your team's coding agents</span>
+        <h1>
+          Keep two developers' <span class="g">AI agents in lockstep</span> — without sharing a line of source code.
+        </h1>
+        <p class="sub">
+          When your teammate's Claude (or Codex, or Gemini) changes an API, your agent finds out, knows what changed and
+          why, and stops building on stale assumptions — automatically.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="#demo">▶ Watch it work</a>
+          <a class="btn" href="#ask">Ask it anything</a>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <div class="pr idle" id="prbox">
-      <span class="icn" id="pricn">○</span>
-      <span class="mono" id="prtext" style="color:var(--dim)">Pull-request check — idle</span>
-    </div>
-
-    <div class="stepbar">
-      <button class="btn" id="prev">← Back</button>
-      <button class="btn primary" id="next">Next →</button>
-      <span class="stepnum" id="stepnum">1 / 8</span>
-      <div class="stepdesc" id="stepdesc"></div>
-      <div class="dots" id="dots"></div>
-    </div>
-  </div>
-</div></section>
-
-<!-- DASHBOARD -->
-<section id="dashboard"><div class="wrap">
-  <div class="eyebrow">The ledger</div>
-  <h2>A durable, GitHub-style record both agents obey.</h2>
-  <p class="lead">Every decision, question, and task is a versioned, attributed document — not an ephemeral chat message. Your agent reads it at session start and is bound by it.</p>
-
-  <div class="tabs" id="tabs">
-    <div class="tab active" data-t="dec">📌 Decisions</div>
-    <div class="tab" data-t="q">❓ Questions</div>
-    <div class="tab" data-t="task">✅ Tasks</div>
-  </div>
-  <div class="panelbox" id="panelbox"></div>
-</div></section>
-
-<!-- ROUTING -->
-<section id="routing"><div class="wrap">
-  <div class="eyebrow">Smart routing</div>
-  <h2>Only the people who care get pinged.</h2>
-  <p class="lead">Friend has three agents open. Naman changes <span class="mono">POST /orders</span>. Lockstep checks the dependency graph and notifies <i>only the services that actually consume it</i> — no broadcast, no noise.</p>
-
-  <div class="routing">
-    <div class="rtop">change published: <b>POST /orders</b> &nbsp;→&nbsp; dependency graph lookup → who consumes it?</div>
-    <div class="sessions">
-      <div class="sess hit">
-        <span class="tagdep">depends ✓</span>
-        <div class="repo">product-service</div><div class="usr">Friend · session #771</div>
-        <div class="res">✉ notified</div>
+    <!-- PROBLEM -->
+    <section>
+      <div class="wrap">
+        <div class="eyebrow">The problem</div>
+        <h2>Code syncs. Understanding doesn't.</h2>
+        <p class="lead">
+          Two devs, two coding agents, one codebase. Git shares the files — but each agent learns the code in isolation.
+          Decisions, intent, and the contract between services live in one person's head and never reach the other's
+          agent.
+        </p>
+        <div class="prob">
+          <div class="pcard">
+            <h4>🧑‍💻 Naman · order-service · Claude Code</h4>
+            <div class="body">changed POST /orders → now needs idempotencyKey (friend's agent has no idea)</div>
+          </div>
+          <div class="vs">⟷</div>
+          <div class="pcard">
+            <h4>🧑‍💻 Friend · product-service · Codex</h4>
+            <div class="body">building call to /orders… → guessing the shape → ships against the old contract 💥</div>
+          </div>
+        </div>
+        <p class="prob-note">
+          <b>The fix isn't more chat.</b> It's a shared, verified record both agents read and write — automatically.
+        </p>
       </div>
-      <div class="sess hit">
-        <span class="tagdep">depends ✓</span>
-        <div class="repo">cart-service</div><div class="usr">Friend · session #772</div>
-        <div class="res">✉ notified</div>
+    </section>
+
+    <!-- DEMO -->
+    <section id="demo">
+      <div class="wrap">
+        <div class="eyebrow">How it works</div>
+        <h2>One change, fully coordinated.</h2>
+        <p class="lead">
+          Step through a real flow: Naman changes the orders API, and Friend's agent stays in sync — no Slack, no
+          re-explaining, no stale code at merge time.
+        </p>
+
+        <div class="stage">
+          <div class="grid3">
+            <!-- left -->
+            <div class="term" id="termL">
+              <div class="head">
+                <div class="traffic">
+                  <i style="background: #f85149"></i><i style="background: #e3b341"></i
+                  ><i style="background: #3fb950"></i>
+                </div>
+                order-service <span class="who">Naman</span><span class="vend">Claude Code</span>
+              </div>
+              <div class="body-term" id="bodyL"></div>
+            </div>
+            <!-- broker -->
+            <div class="broker">
+              <div class="flowdot" id="flowL">⟶</div>
+              <div class="bnode" id="bnode">
+                <div class="ico"></div>
+                <div class="t">LOCKSTEP</div>
+                <div class="s" id="bstate">idle · metadata only</div>
+              </div>
+              <div class="flowdot" id="flowR">⟶</div>
+            </div>
+            <!-- right -->
+            <div class="term" id="termR">
+              <div class="head">
+                <div class="traffic">
+                  <i style="background: #f85149"></i><i style="background: #e3b341"></i
+                  ><i style="background: #3fb950"></i>
+                </div>
+                product-service <span class="who">Friend</span><span class="vend">Codex</span>
+              </div>
+              <div class="body-term" id="bodyR"></div>
+            </div>
+          </div>
+
+          <div class="pr idle" id="prbox">
+            <span class="icn" id="pricn">○</span>
+            <span class="mono" id="prtext" style="color: var(--dim)">Pull-request check — idle</span>
+          </div>
+
+          <div class="stepbar">
+            <button class="btn" id="prev">← Back</button>
+            <button class="btn primary" id="next">Next →</button>
+            <span class="stepnum" id="stepnum">1 / 8</span>
+            <div class="stepdesc" id="stepdesc"></div>
+            <div class="dots" id="dots"></div>
+          </div>
+        </div>
       </div>
-      <div class="sess miss">
-        <span class="tagdep">no edge</span>
-        <div class="repo">payment-service</div><div class="usr">Friend · session #773</div>
-        <div class="res">⊘ skipped</div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="dashboard">
+      <div class="wrap">
+        <div class="eyebrow">The ledger</div>
+        <h2>A durable, GitHub-style record both agents obey.</h2>
+        <p class="lead">
+          Every decision, question, and task is a versioned, attributed document — not an ephemeral chat message. Your
+          agent reads it at session start and is bound by it.
+        </p>
+
+        <div class="tabs" id="tabs">
+          <div class="tab active" data-t="dec">📌 Decisions</div>
+          <div class="tab" data-t="q">❓ Questions</div>
+          <div class="tab" data-t="task">✅ Tasks</div>
+        </div>
+        <div class="panelbox" id="panelbox"></div>
       </div>
-    </div>
-    <p class="prob-note" style="margin-top:20px">Offline? It waits in that repo's inbox and replays the moment Friend opens that folder. Urgent? It also pings Slack.</p>
-  </div>
-</div></section>
+    </section>
 
-<!-- FEATURES -->
-<section><div class="wrap">
-  <div class="eyebrow">Why it's different</div>
-  <h2>Built for collaborators, not one power-user.</h2>
-  <div class="feat" style="margin-top:8px">
-    <div class="fcard"><div class="fi">🔒</div><h4>Source never leaves</h4><p>Only metadata crosses the wire — summaries, contracts, decisions. Your actual code stays on your machine. The reason agency↔client work is even possible.</p></div>
-    <div class="fcard"><div class="fi">🔀</div><h4>Cross-vendor</h4><p>Claude Code, Codex, Gemini CLI — all speak to the same record via hooks + MCP. The one thing a single model vendor can't serve.</p></div>
-    <div class="fcard"><div class="fi">✓</div><h4>Verified, not asserted</h4><p>The shared contract is checked against your real local types before it's published — so teammates build on truth, not on an agent's guess.</p></div>
-    <div class="fcard"><div class="fi">🧭</div><h4>Ownership routing</h4><p>CODEOWNERS decides who owns what. Changes route to consumers; questions route to owners. No @-mention guesswork.</p></div>
-    <div class="fcard"><div class="fi">🛡️</div><h4>Enforced at the PR</h4><p>A CI check reconciles your diff against the ledger. Break a binding decision and the merge is blocked — soft coordination becomes a hard gate.</p></div>
-    <div class="fcard"><div class="fi">🧠</div><h4>Ask the record</h4><p>“Why do we use idempotency keys?” Your agent queries the ledger first and answers instantly — only escalating to a human when it's genuinely new.</p></div>
-  </div>
-</div></section>
+    <!-- ROUTING -->
+    <section id="routing">
+      <div class="wrap">
+        <div class="eyebrow">Smart routing</div>
+        <h2>Only the people who care get pinged.</h2>
+        <p class="lead">
+          Friend has three agents open. Naman changes <span class="mono">POST /orders</span>. Lockstep checks the
+          dependency graph and notifies <i>only the services that actually consume it</i> — no broadcast, no noise.
+        </p>
 
-<!-- ASK / DOUBTS -->
-<section id="ask"><div class="wrap">
-  <div class="eyebrow">Clear your doubts</div>
-  <h2>Ask the product anything.</h2>
-  <p class="lead">Type a question the way you'd validate it — “does my code leave my machine?”, “does it work with Cursor?”, “what if two of us edit the same API?”. Answers come straight from the design.</p>
+        <div class="routing">
+          <div class="rtop">
+            change published: <b>POST /orders</b> &nbsp;→&nbsp; dependency graph lookup → who consumes it?
+          </div>
+          <div class="sessions">
+            <div class="sess hit">
+              <span class="tagdep">depends ✓</span>
+              <div class="repo">product-service</div>
+              <div class="usr">Friend · session #771</div>
+              <div class="res">✉ notified</div>
+            </div>
+            <div class="sess hit">
+              <span class="tagdep">depends ✓</span>
+              <div class="repo">cart-service</div>
+              <div class="usr">Friend · session #772</div>
+              <div class="res">✉ notified</div>
+            </div>
+            <div class="sess miss">
+              <span class="tagdep">no edge</span>
+              <div class="repo">payment-service</div>
+              <div class="usr">Friend · session #773</div>
+              <div class="res">⊘ skipped</div>
+            </div>
+          </div>
+          <p class="prob-note" style="margin-top: 20px">
+            Offline? It waits in that repo's inbox and replays the moment Friend opens that folder. Urgent? It also
+            pings Slack.
+          </p>
+        </div>
+      </div>
+    </section>
 
-  <div class="ask">
-    <div class="askbar">
-      <span class="q">🔍</span>
-      <input id="askinput" type="text" placeholder="e.g. does my source code get uploaded?" autocomplete="off">
-      <button class="go" id="askgo">Ask</button>
-    </div>
-    <div class="chips" id="chips"></div>
-    <div class="answers" id="answers"></div>
-  </div>
-</div></section>
+    <!-- FEATURES -->
+    <section>
+      <div class="wrap">
+        <div class="eyebrow">Why it's different</div>
+        <h2>Built for collaborators, not one power-user.</h2>
+        <div class="feat" style="margin-top: 8px">
+          <div class="fcard">
+            <div class="fi">🔒</div>
+            <h4>Source never leaves</h4>
+            <p>
+              Only metadata crosses the wire — summaries, contracts, decisions. Your actual code stays on your machine.
+              The reason agency↔client work is even possible.
+            </p>
+          </div>
+          <div class="fcard">
+            <div class="fi">🔀</div>
+            <h4>Cross-vendor</h4>
+            <p>
+              Claude Code, Codex, Gemini CLI — all speak to the same record via hooks + MCP. The one thing a single
+              model vendor can't serve.
+            </p>
+          </div>
+          <div class="fcard">
+            <div class="fi">✓</div>
+            <h4>Verified, not asserted</h4>
+            <p>
+              The shared contract is checked against your real local types before it's published — so teammates build on
+              truth, not on an agent's guess.
+            </p>
+          </div>
+          <div class="fcard">
+            <div class="fi">🧭</div>
+            <h4>Ownership routing</h4>
+            <p>
+              CODEOWNERS decides who owns what. Changes route to consumers; questions route to owners. No @-mention
+              guesswork.
+            </p>
+          </div>
+          <div class="fcard">
+            <div class="fi">🛡️</div>
+            <h4>Enforced at the PR</h4>
+            <p>
+              A CI check reconciles your diff against the ledger. Break a binding decision and the merge is blocked —
+              soft coordination becomes a hard gate.
+            </p>
+          </div>
+          <div class="fcard">
+            <div class="fi">🧠</div>
+            <h4>Ask the record</h4>
+            <p>
+              “Why do we use idempotency keys?” Your agent queries the ledger first and answers instantly — only
+              escalating to a human when it's genuinely new.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
 
-<footer><div class="wrap">
-  <p class="disc">This is an interactive concept built to validate the idea — not a live product yet. Everything answered above reflects locked-in design decisions from the PRD. Share it, poke holes in it, and tell us where it breaks.</p>
-  <div class="logo" style="justify-content:center"><span class="dot"></span>Lockstep</div>
-  <p style="margin-top:10px">Neutral, cross-vendor system-of-record for coding agents · concept v4</p>
-</div></footer>
+    <!-- ASK / DOUBTS -->
+    <section id="ask">
+      <div class="wrap">
+        <div class="eyebrow">Clear your doubts</div>
+        <h2>Ask the product anything.</h2>
+        <p class="lead">
+          Type a question the way you'd validate it — “does my code leave my machine?”, “does it work with Cursor?”,
+          “what if two of us edit the same API?”. Answers come straight from the design.
+        </p>
 
-<script>
-/* ---------- WALKTHROUGH ---------- */
-const L=document.getElementById('bodyL'), R=document.getElementById('bodyR');
-const termL=document.getElementById('termL'), termR=document.getElementById('termR');
-const bnode=document.getElementById('bnode'), bstate=document.getElementById('bstate');
-const flowL=document.getElementById('flowL'), flowR=document.getElementById('flowR');
-const prbox=document.getElementById('prbox'), prtext=document.getElementById('prtext'), pricn=document.getElementById('pricn');
-const stepdesc=document.getElementById('stepdesc'), stepnum=document.getElementById('stepnum'), dotsEl=document.getElementById('dots');
+        <div class="ask">
+          <div class="askbar">
+            <span class="q">🔍</span>
+            <input id="askinput" type="text" placeholder="e.g. does my source code get uploaded?" autocomplete="off" />
+            <button class="go" id="askgo">Ask</button>
+          </div>
+          <div class="chips" id="chips"></div>
+          <div class="answers" id="answers"></div>
+        </div>
+      </div>
+    </section>
 
-function ln(arr){return arr.map((l,i)=>`<div class="line" style="animation-delay:${i*60}ms">${l}</div>`).join('')}
+    <footer>
+      <div class="wrap">
+        <p class="disc">
+          This is an interactive concept built to validate the idea — not a live product yet. Everything answered above
+          reflects locked-in design decisions from the PRD. Share it, poke holes in it, and tell us where it breaks.
+        </p>
+        <div class="logo" style="justify-content: center"><span class="dot"></span>Lockstep</div>
+        <p style="margin-top: 10px">Neutral, cross-vendor system-of-record for coding agents · concept v4</p>
+      </div>
+    </footer>
 
-const steps=[
- { d:"<b>Both agents are connected</b> to the same Lockstep project. Naman owns <code>order-service</code>, Friend owns <code>product-service</code>. Source stays on each machine.",
-   L:['<span class="c-mut">~/order-service · Claude Code</span>','<span class="prompt">›</span> <span class="c-txt">ready</span>','<span class="c-mut">connected to project: Shopify</span>'],
-   R:['<span class="c-mut">~/product-service · Codex</span>','<span class="prompt">›</span> <span class="c-txt">ready</span>','<span class="c-mut">connected to project: Shopify</span>'],
-   b:'idle · metadata only', act:'none' },
+    <script>
+      /* ---------- WALKTHROUGH ---------- */
+      const L = document.getElementById("bodyL"),
+        R = document.getElementById("bodyR");
+      const termL = document.getElementById("termL"),
+        termR = document.getElementById("termR");
+      const bnode = document.getElementById("bnode"),
+        bstate = document.getElementById("bstate");
+      const flowL = document.getElementById("flowL"),
+        flowR = document.getElementById("flowR");
+      const prbox = document.getElementById("prbox"),
+        prtext = document.getElementById("prtext"),
+        pricn = document.getElementById("pricn");
+      const stepdesc = document.getElementById("stepdesc"),
+        stepnum = document.getElementById("stepnum"),
+        dotsEl = document.getElementById("dots");
 
- { d:"<b>Naman makes a change.</b> His agent edits the orders API to require an idempotency key.",
-   L:['<span class="prompt">›</span> add idempotency to order creation','<span class="c-mut">editing order-service/routes/orders.ts…</span>','<span class="c-grn">+ requires idempotencyKey</span>','<span class="c-grn">+ returns {id, status}</span>'],
-   R:['<span class="c-mut">~/product-service · Codex</span>','<span class="prompt">›</span> <span class="c-txt">idle</span>'],
-   b:'idle · metadata only', act:'L' },
+      function ln(arr) {
+        return arr.map((l, i) => `<div class="line" style="animation-delay:${i * 60}ms">${l}</div>`).join("");
+      }
 
- { d:"<b>Capture + local verify.</b> A hook summarizes the change and checks it against the <i>real</i> local types before anything leaves the machine.",
-   L:['<span class="c-mut">[hook] PostToolUse → capture</span>','<span class="c-tea">drafting contract delta…</span>','<span class="c-grn">✓ verified against local types</span>','<span class="c-amb">shared surface → publish? [y]</span> y'],
-   R:['<span class="c-mut">~/product-service · Codex</span>','<span class="prompt">›</span> <span class="c-txt">idle</span>'],
-   b:'receiving…', act:'L' },
+      const steps = [
+        {
+          d: "<b>Both agents are connected</b> to the same Lockstep project. Naman owns <code>order-service</code>, Friend owns <code>product-service</code>. Source stays on each machine.",
+          L: [
+            '<span class="c-mut">~/order-service · Claude Code</span>',
+            '<span class="prompt">›</span> <span class="c-txt">ready</span>',
+            '<span class="c-mut">connected to project: Shopify</span>',
+          ],
+          R: [
+            '<span class="c-mut">~/product-service · Codex</span>',
+            '<span class="prompt">›</span> <span class="c-txt">ready</span>',
+            '<span class="c-mut">connected to project: Shopify</span>',
+          ],
+          b: "idle · metadata only",
+          act: "none",
+        },
 
- { d:"<b>Published to the ledger.</b> Lockstep records a verified, versioned contract delta — never the source code, just the interface and the why.",
-   L:['<span class="c-grn">✓ published to Lockstep</span>','<span class="c-mut">POST /orders · v2 · verified</span>'],
-   R:['<span class="c-mut">~/product-service · Codex</span>','<span class="prompt">›</span> <span class="c-txt">idle</span>'],
-   b:'change on POST /orders', act:'B' },
+        {
+          d: "<b>Naman makes a change.</b> His agent edits the orders API to require an idempotency key.",
+          L: [
+            '<span class="prompt">›</span> add idempotency to order creation',
+            '<span class="c-mut">editing order-service/routes/orders.ts…</span>',
+            '<span class="c-grn">+ requires idempotencyKey</span>',
+            '<span class="c-grn">+ returns {id, status}</span>',
+          ],
+          R: [
+            '<span class="c-mut">~/product-service · Codex</span>',
+            '<span class="prompt">›</span> <span class="c-txt">idle</span>',
+          ],
+          b: "idle · metadata only",
+          act: "L",
+        },
 
- { d:"<b>Routing.</b> The broker checks the dependency graph: product-service consumes <code>/orders</code> → notify Friend. payment-service doesn't → skip it.",
-   L:['<span class="c-grn">✓ published</span>'],
-   R:['<span class="c-mut">~/product-service · Codex</span>','<span class="prompt">›</span> <span class="c-txt">idle</span>','<span class="c-mut">(notification queued in inbox)</span>'],
-   b:'routing → product-service ✉', act:'BR' },
+        {
+          d: "<b>Capture + local verify.</b> A hook summarizes the change and checks it against the <i>real</i> local types before anything leaves the machine.",
+          L: [
+            '<span class="c-mut">[hook] PostToolUse → capture</span>',
+            '<span class="c-tea">drafting contract delta…</span>',
+            '<span class="c-grn">✓ verified against local types</span>',
+            '<span class="c-amb">shared surface → publish? [y]</span> y',
+          ],
+          R: [
+            '<span class="c-mut">~/product-service · Codex</span>',
+            '<span class="prompt">›</span> <span class="c-txt">idle</span>',
+          ],
+          b: "receiving…",
+          act: "L",
+        },
 
- { d:"<b>Friend opens their agent.</b> The session-start replay greets Codex with exactly what changed, what needs an ack, and what may now be stale.",
-   L:['<span class="c-grn">✓ published</span>'],
-   R:['<span class="c-mut">[session start] inbox replay</span>','<span class="c-blu">📥 POST /orders changed (Naman)</span>','<span class="c-vio">📌 decision needs your ack</span>','<span class="c-amb">⚠ your /orders call may be stale</span>'],
-   b:'delivered ✓', act:'R' },
+        {
+          d: "<b>Published to the ledger.</b> Lockstep records a verified, versioned contract delta — never the source code, just the interface and the why.",
+          L: [
+            '<span class="c-grn">✓ published to Lockstep</span>',
+            '<span class="c-mut">POST /orders · v2 · verified</span>',
+          ],
+          R: [
+            '<span class="c-mut">~/product-service · Codex</span>',
+            '<span class="prompt">›</span> <span class="c-txt">idle</span>',
+          ],
+          b: "change on POST /orders",
+          act: "B",
+        },
 
- { d:"<b>Friend's agent acks & fixes.</b> It updates the product-service call against the <i>verified</i> contract — having never seen Naman's handler code.",
-   R:['<span class="prompt">›</span> ack & update call','<span class="c-grn">✓ ack_decision (v2)</span>','<span class="c-mut">patching product-service/orders.client.ts…</span>','<span class="c-grn">+ idempotencyKey added</span>'],
-   L:['<span class="c-grn">✓ published</span>'],
-   b:'decision acked by Friend', act:'R' },
+        {
+          d: "<b>Routing.</b> The broker checks the dependency graph: product-service consumes <code>/orders</code> → notify Friend. payment-service doesn't → skip it.",
+          L: ['<span class="c-grn">✓ published</span>'],
+          R: [
+            '<span class="c-mut">~/product-service · Codex</span>',
+            '<span class="prompt">›</span> <span class="c-txt">idle</span>',
+            '<span class="c-mut">(notification queued in inbox)</span>',
+          ],
+          b: "routing → product-service ✉",
+          act: "BR",
+        },
 
- { d:"<b>The hard gate.</b> Friend opens a PR. CI reconciles the diff against the ledger — contract matches the acked decision. Merge allowed. Nothing shipped stale.",
-   L:['<span class="c-grn">✓ published</span>'],
-   R:['<span class="prompt">›</span> git push → open PR','<span class="c-mut">[lockstep] reconcile diff ↔ ledger…</span>','<span class="c-grn">✓ contract matches acked decision</span>'],
-   b:'reconciled ✓', act:'PR' }
-];
+        {
+          d: "<b>Friend opens their agent.</b> The session-start replay greets Codex with exactly what changed, what needs an ack, and what may now be stale.",
+          L: ['<span class="c-grn">✓ published</span>'],
+          R: [
+            '<span class="c-mut">[session start] inbox replay</span>',
+            '<span class="c-blu">📥 POST /orders changed (Naman)</span>',
+            '<span class="c-vio">📌 decision needs your ack</span>',
+            '<span class="c-amb">⚠ your /orders call may be stale</span>',
+          ],
+          b: "delivered ✓",
+          act: "R",
+        },
 
-let cur=0;
-function render(){
-  const s=steps[cur];
-  if(s.L) L.innerHTML=ln(s.L);
-  if(s.R) R.innerHTML=ln(s.R);
-  bstate.textContent=s.b;
-  stepdesc.innerHTML=s.d;
-  stepnum.textContent=(cur+1)+' / '+steps.length;
-  termL.classList.toggle('active', s.act.includes('L'));
-  termR.classList.toggle('active', s.act.includes('R'));
-  bnode.classList.toggle('active', s.act.includes('B'));
-  flowL.classList.toggle('on', s.act.includes('B')||s.act.includes('L'));
-  flowR.classList.toggle('on', s.act.includes('BR')||s.act.includes('R')||s.act.includes('PR'));
-  // PR box
-  prbox.className='pr '+(s.act.includes('PR')?'green':'idle');
-  if(s.act.includes('PR')){pricn.textContent='✓';prtext.textContent='PR check passed — diff matches the ledger · merge allowed';prtext.style.color='var(--green)';}
-  else{pricn.textContent='○';prtext.textContent='Pull-request check — idle';prtext.style.color='var(--dim)';}
-  dotsEl.innerHTML=steps.map((_,i)=>`<i class="${i===cur?'on':''}"></i>`).join('');
-  document.getElementById('prev').disabled=cur===0;
-}
-document.getElementById('next').onclick=()=>{cur=(cur+1)%steps.length;render()};
-document.getElementById('prev').onclick=()=>{if(cur>0){cur--;render()}};
-render();
+        {
+          d: "<b>Friend's agent acks & fixes.</b> It updates the product-service call against the <i>verified</i> contract — having never seen Naman's handler code.",
+          R: [
+            '<span class="prompt">›</span> ack & update call',
+            '<span class="c-grn">✓ ack_decision (v2)</span>',
+            '<span class="c-mut">patching product-service/orders.client.ts…</span>',
+            '<span class="c-grn">+ idempotencyKey added</span>',
+          ],
+          L: ['<span class="c-grn">✓ published</span>'],
+          b: "decision acked by Friend",
+          act: "R",
+        },
 
-/* ---------- DASHBOARD ---------- */
-const docs={
-  dec:[
-    {st:'bind',cls:'bind',t:'Orders use idempotency keys',m:['<span class="pill">binding</span>','scope: shared/contracts','by @naman · v2 · acked @friend']},
-    {st:'bind',cls:'bind',t:'Product images are CDN-only',m:['<span class="pill">binding</span>','scope: product-service','by @friend · v1']},
-    {st:'wait',cls:'wait',t:'All services use UTC timestamps',m:['<span class="pill">awaiting ack</span>','scope: shared/contracts','by @naman · needs @friend']},
-  ],
-  q:[
-    {st:'✓',cls:'closed',t:'Does product-service expose stock count?',m:['<span class="pill">closed</span>','answered from ledger · instant','no human needed']},
-    {st:'?',cls:'open',t:'Does order-service emit a webhook on cancel?',m:['<span class="pill">open · urgent</span>','routed to @naman (owner)','asked by @friend']},
-    {st:'✓',cls:'closed',t:'What\'s our error-handling convention?',m:['<span class="pill">closed</span>','scope: repo','answer written back to ledger']},
-  ],
-  task:[
-    {st:'✓',cls:'closed',t:'Wire orders form → POST /orders',m:['<span class="pill">done</span>','delegated @naman → @friend','completed']},
-    {st:'●',cls:'wait',t:'Update cart-service /orders call',m:['<span class="pill">in progress</span>','triggered by contract v2','owner @friend']},
-    {st:'○',cls:'open',t:'Add idempotency retry test',m:['<span class="pill">assigned</span>','approver @friend','awaiting start']},
-  ]
-};
-function paintDocs(t){
-  document.getElementById('panelbox').innerHTML=docs[t].map(d=>`
+        {
+          d: "<b>The hard gate.</b> Friend opens a PR. CI reconciles the diff against the ledger — contract matches the acked decision. Merge allowed. Nothing shipped stale.",
+          L: ['<span class="c-grn">✓ published</span>'],
+          R: [
+            '<span class="prompt">›</span> git push → open PR',
+            '<span class="c-mut">[lockstep] reconcile diff ↔ ledger…</span>',
+            '<span class="c-grn">✓ contract matches acked decision</span>',
+          ],
+          b: "reconciled ✓",
+          act: "PR",
+        },
+      ];
+
+      let cur = 0;
+      function render() {
+        const s = steps[cur];
+        if (s.L) L.innerHTML = ln(s.L);
+        if (s.R) R.innerHTML = ln(s.R);
+        bstate.textContent = s.b;
+        stepdesc.innerHTML = s.d;
+        stepnum.textContent = cur + 1 + " / " + steps.length;
+        termL.classList.toggle("active", s.act.includes("L"));
+        termR.classList.toggle("active", s.act.includes("R"));
+        bnode.classList.toggle("active", s.act.includes("B"));
+        flowL.classList.toggle("on", s.act.includes("B") || s.act.includes("L"));
+        flowR.classList.toggle("on", s.act.includes("BR") || s.act.includes("R") || s.act.includes("PR"));
+        // PR box
+        prbox.className = "pr " + (s.act.includes("PR") ? "green" : "idle");
+        if (s.act.includes("PR")) {
+          pricn.textContent = "✓";
+          prtext.textContent = "PR check passed — diff matches the ledger · merge allowed";
+          prtext.style.color = "var(--green)";
+        } else {
+          pricn.textContent = "○";
+          prtext.textContent = "Pull-request check — idle";
+          prtext.style.color = "var(--dim)";
+        }
+        dotsEl.innerHTML = steps.map((_, i) => `<i class="${i === cur ? "on" : ""}"></i>`).join("");
+        document.getElementById("prev").disabled = cur === 0;
+      }
+      document.getElementById("next").onclick = () => {
+        cur = (cur + 1) % steps.length;
+        render();
+      };
+      document.getElementById("prev").onclick = () => {
+        if (cur > 0) {
+          cur--;
+          render();
+        }
+      };
+      render();
+
+      /* ---------- DASHBOARD ---------- */
+      const docs = {
+        dec: [
+          {
+            st: "bind",
+            cls: "bind",
+            t: "Orders use idempotency keys",
+            m: ['<span class="pill">binding</span>', "scope: shared/contracts", "by @naman · v2 · acked @friend"],
+          },
+          {
+            st: "bind",
+            cls: "bind",
+            t: "Product images are CDN-only",
+            m: ['<span class="pill">binding</span>', "scope: product-service", "by @friend · v1"],
+          },
+          {
+            st: "wait",
+            cls: "wait",
+            t: "All services use UTC timestamps",
+            m: ['<span class="pill">awaiting ack</span>', "scope: shared/contracts", "by @naman · needs @friend"],
+          },
+        ],
+        q: [
+          {
+            st: "✓",
+            cls: "closed",
+            t: "Does product-service expose stock count?",
+            m: ['<span class="pill">closed</span>', "answered from ledger · instant", "no human needed"],
+          },
+          {
+            st: "?",
+            cls: "open",
+            t: "Does order-service emit a webhook on cancel?",
+            m: ['<span class="pill">open · urgent</span>', "routed to @naman (owner)", "asked by @friend"],
+          },
+          {
+            st: "✓",
+            cls: "closed",
+            t: "What's our error-handling convention?",
+            m: ['<span class="pill">closed</span>', "scope: repo", "answer written back to ledger"],
+          },
+        ],
+        task: [
+          {
+            st: "✓",
+            cls: "closed",
+            t: "Wire orders form → POST /orders",
+            m: ['<span class="pill">done</span>', "delegated @naman → @friend", "completed"],
+          },
+          {
+            st: "●",
+            cls: "wait",
+            t: "Update cart-service /orders call",
+            m: ['<span class="pill">in progress</span>', "triggered by contract v2", "owner @friend"],
+          },
+          {
+            st: "○",
+            cls: "open",
+            t: "Add idempotency retry test",
+            m: ['<span class="pill">assigned</span>', "approver @friend", "awaiting start"],
+          },
+        ],
+      };
+      function paintDocs(t) {
+        document.getElementById("panelbox").innerHTML = docs[t]
+          .map(
+            (d) => `
     <div class="doc">
       <span class="st ${d.cls}">${d.st}</span>
       <div class="main"><div class="title">${d.t}</div>
-      <div class="meta">${d.m.join(' ')}</div></div>
-    </div>`).join('');
-}
-document.getElementById('tabs').addEventListener('click',e=>{
-  const tab=e.target.closest('.tab'); if(!tab)return;
-  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-  tab.classList.add('active'); paintDocs(tab.dataset.t);
-});
-paintDocs('dec');
+      <div class="meta">${d.m.join(" ")}</div></div>
+    </div>`,
+          )
+          .join("");
+      }
+      document.getElementById("tabs").addEventListener("click", (e) => {
+        const tab = e.target.closest(".tab");
+        if (!tab) return;
+        document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+        tab.classList.add("active");
+        paintDocs(tab.dataset.t);
+      });
+      paintDocs("dec");
 
-/* ---------- ASK / DOUBTS ---------- */
-const FAQ=[
- {q:"Does my source code leave my machine?",yn:["No","no"],tags:"source code leave machine upload privacy ip secret local diff",a:"No. Only <b>coordination metadata</b> crosses the wire — change summaries, contract deltas, decisions, questions, tasks, ownership and dependency edges. Your actual source and diffs never leave the machine they live on.",ref:"§6 · metadata-only core"},
- {q:"Does it work if my teammate uses Cursor / Codex / Gemini?",yn:["Yes","yes"],tags:"cursor codex gemini vendor cross other tool agent works heterogeneous claude",a:"Yes — this is the core bet. Claude Code, Codex CLI and Gemini CLI all expose lifecycle hooks + MCP + an instructions file, so they all read and write the same neutral record. Mixed-tool teams are exactly who we serve.",ref:"§15 · Spike 0 (passed)"},
- {q:"How does it know which teammate to notify?",yn:["Auto","info"],tags:"who notify route routing know recipient address whom target",a:"You never pick a recipient. You publish a change tagged with its <b>surface</b>; the broker looks up the <b>dependency graph</b> (who consumes it) and notifies those people. Questions route by the <b>ownership graph</b> (CODEOWNERS) instead.",ref:"§8 · Routing"},
- {q:"If I have 5 agents open, do all of them get the message?",yn:["No","no"],tags:"multiple sessions open many agents windows all broadcast specific which folder repo desktop",a:"No — only the sessions whose repo actually <b>depends on</b> the changed surface. Each running agent registers (user, repo, project) from its folder + git remote, so a change to /orders hits product-service & cart-service but skips payment-service and any unrelated folder.",ref:"§8 · Scoping"},
- {q:"What happens if my teammate is offline?",yn:["Handled","info"],tags:"offline asleep not running away later inbox replay miss vacation",a:"The notification waits in that repo's inbox and is <b>replayed the moment they open that folder</b> in any agent (via the session-start hook). If it's marked urgent, it also fires a Slack ping so they know to look now.",ref:"§8 · Deliver"},
- {q:"Is it real-time?",yn:["Mostly","partial"],tags:"real time live instant speed latency async when fast",a:"Two tiers. <b>Soft real-time</b> while an agent is running (hooks capture as you work). <b>Hard reconciliation</b> at the pull request (CI catches anything missed). It's best-effort lockstep in-session, guaranteed at merge — honestly, not magic instant sync.",ref:"§7 · Two-tier model"},
- {q:"What if two of us edit the same API at the same time?",yn:["Escalates","info"],tags:"conflict same time concurrent both edit collision merge race contract",a:"Most surfaces have one owner (CODEOWNERS = write-sharding), so most conflicts are impossible. For shared surfaces we use version-stamps (compare-and-swap); a true collision is never auto-merged — it raises an explicit conflict and routes a decision doc for you to resolve.",ref:"§10 · Conflict model"},
- {q:"What if the agent makes up / hallucinates the contract?",yn:["Caught","yes"],tags:"hallucinate wrong lie verify asserted fake incorrect contract trust accurate",a:"Before a contract is published, the capture step diffs the agent's <b>asserted</b> contract against the <b>real local types / signatures / OpenAPI</b>. Mismatch → blocked or flagged. Teammates build on verified truth, not a claim. (Dynamic languages we mark 'asserted, unverified'.)",ref:"§7 · Local verification"},
- {q:"Can I ask it questions about the codebase?",yn:["Yes","yes"],tags:"ask question query search knowledge doubt why how convention ledger record",a:"Yes. Your agent runs <code>query()</code> against the ledger first — decisions, contracts, prior answers — and answers instantly if it's known. Only genuinely new questions escalate to a human, and that answer is written back so the next ask is free. Scope is the code/repo, not general chat.",ref:"§8 · Asking & querying"},
- {q:"Doesn't Claude Code already do this with Agent Teams?",yn:["No","no"],tags:"anthropic agent teams already exist claude native competitor same compete",a:"Agent Teams coordinates <b>one person's many agents on one machine</b>. Lockstep coordinates <b>different people's agents across machines and across vendors</b>, with a durable record that outlives sessions. Different layer — we sell the record + neutrality, not the messaging.",ref:"§5 · Platform risk"},
- {q:"Who can make a binding decision?",yn:["Owner","info"],tags:"decision binding who make rule authority owner approve ack shared",a:"The owner of an area sets binding rules for that area. Anything touching shared/contract surfaces needs all affected owners to <b>ack</b> before it binds. Every binding decision is injected into both agents at session start.",ref:"§9 · Decision doc"},
- {q:"What if I edit in my plain editor with no agent open?",yn:["Caught at PR","info"],tags:"editor no agent manual plain vscode without hook miss bypass",a:"The <b>pull-request check</b> catches it. At merge time CI reconciles the actual diff against the ledger regardless of how the code was written — agent, editor, copy-paste or teammate. The PR is the universal backstop.",ref:"§7 · Tier 2"},
- {q:"What stops someone from just ignoring a binding decision?",yn:["The PR gate","info"],tags:"ignore enforce binding override bypass disobey hard gate block merge",a:"The PR check is a hard gate: violate a binding decision and the merge is blocked. That moves enforcement from 'the agent's goodwill' to 'the build breaks' — which is what makes decisions actually binding.",ref:"§7 · Tier 2 · enforcement"},
- {q:"Does it integrate with GitHub?",yn:["Yes","yes"],tags:"github integrate issues pr mirror codeowners sync",a:"Yes. Ownership comes from your CODEOWNERS file; the enforcement gate is a CI status check on PRs; and decisions/questions can optionally mirror to GitHub Issues. It's standalone but plays nicely with GitHub.",ref:"§14 · What we borrow"},
- {q:"Can I use it solo if my teammate doesn't install it?",yn:["Yes","yes"],tags:"solo single player one sided alone teammate doesn't install adopt client",a:"Yes — single-player value is a design requirement. You still get a verified, queryable record of your own side, and Lockstep publishes outward through channels the other party already uses: a synced OpenAPI spec, a mirrored GitHub PR/issue, or an emailed contract delta. No install needed from them.",ref:"§12 · Single-player variant"},
- {q:"What exactly crosses the wire?",yn:["Metadata","info"],tags:"data wire send transmit what crosses network exactly payload",a:"Change summaries, verified contract deltas (interface only), decisions, questions, tasks, the ownership map, and dependency edges. Never source code, never diffs of your implementation.",ref:"§6 · data boundary"},
- {q:"Does it support a monorepo?",yn:["Yes","yes"],tags:"monorepo mono single repo multiple services folders one",a:"Yes. In a monorepo one root session receives the repo's notifications, and CODEOWNERS path-scoping filters which are relevant ('this touches product-service/ which you own'). Multi-repo projects target per-repo instead.",ref:"§8 · Monorepo nuance"},
- {q:"How is a team / project created?",yn:["GitHub OAuth","info"],tags:"team create project setup onboard join org member invite identity start",a:"Sign in with GitHub. An Org (e.g. your company) holds Projects; a Project spans the repos/services for one codebase. Invite teammates by GitHub handle — which lines up 1:1 with CODEOWNERS, so routing just works.",ref:"§3 / appendix · onboarding"},
- {q:"How are tasks delegated between agents?",yn:["With approval","info"],tags:"delegate task assign handoff queue approve give work",a:"Your agent can delegate a task to a teammate; it lands on their board and waits for that human to approve before their agent runs it. Humans stay in the loop — no agent silently edits code on someone else's behalf.",ref:"appendix · delegation"},
- {q:"How does it stay accurate and not rot like a wiki?",yn:["Auto-capture","info"],tags:"rot stale outdated maintain fresh accurate wiki update trust durable",a:"It's written automatically as a byproduct of work — a skill + a hook capture changes as you code, and the PR check reconciles against reality at merge. Nobody hand-maintains it, so it doesn't go stale the way ADRs and wikis do.",ref:"§7 · capture"},
- {q:"Does this replace Slack?",yn:["No","no"],tags:"slack replace chat communication messaging general talk",a:"No. The only communication it owns is <b>structured and tied to code or a decision</b> — change notices, contract acks, code/repo questions. General team chat stays in Slack; that's deliberately not our turf.",ref:"§16 · north star"},
- {q:"Can it be self-hosted?",yn:["Planned","partial"],tags:"self host on premise private cloud security compliance host own infra",a:"It's on the roadmap, especially for the cross-org case where two companies may not want a third party holding the shared record. The core is metadata-only by design, but a self-host / customer-managed-key path is a known requirement for that wedge.",ref:"§17 · open questions"},
- {q:"What does it cost?",yn:["TBD","partial"],tags:"price cost pricing pay money plan subscription free",a:"Not decided yet — likely per-seat or per-project, with the cross-org / compliance use case as a paid tier. Pricing is an open question while we validate the wedge.",ref:"§3 · monetization"},
- {q:"What if a dependency was never registered — does it still warn me?",yn:["Only if known","partial"],tags:"dependency stale impact warn register graph know detect",a:"Stale-impact warnings come from the dependency graph, populated when a consumer codes against a surface (explicitly or by local inference). If an edge was never recorded, the broker can't know to warn — so dependency capture quality directly drives warning quality. The PR check is the safety net.",ref:"§9 · Dependency"},
- {q:"What's a 'contract' here, exactly?",yn:["The interface","info"],tags:"contract what mean definition interface api type schema surface",a:"The verified interface of a surface — its endpoints, request/response shapes, types and signatures — plus the 'why' in prose. It's the part a teammate must code against, not your implementation.",ref:"§9 · Contract"},
-];
+      /* ---------- ASK / DOUBTS ---------- */
+      const FAQ = [
+        {
+          q: "Does my source code leave my machine?",
+          yn: ["No", "no"],
+          tags: "source code leave machine upload privacy ip secret local diff",
+          a: "No. Only <b>coordination metadata</b> crosses the wire — change summaries, contract deltas, decisions, questions, tasks, ownership and dependency edges. Your actual source and diffs never leave the machine they live on.",
+          ref: "§6 · metadata-only core",
+        },
+        {
+          q: "Does it work if my teammate uses Cursor / Codex / Gemini?",
+          yn: ["Yes", "yes"],
+          tags: "cursor codex gemini vendor cross other tool agent works heterogeneous claude",
+          a: "Yes — this is the core bet. Claude Code, Codex CLI and Gemini CLI all expose lifecycle hooks + MCP + an instructions file, so they all read and write the same neutral record. Mixed-tool teams are exactly who we serve.",
+          ref: "§15 · Spike 0 (passed)",
+        },
+        {
+          q: "How does it know which teammate to notify?",
+          yn: ["Auto", "info"],
+          tags: "who notify route routing know recipient address whom target",
+          a: "You never pick a recipient. You publish a change tagged with its <b>surface</b>; the broker looks up the <b>dependency graph</b> (who consumes it) and notifies those people. Questions route by the <b>ownership graph</b> (CODEOWNERS) instead.",
+          ref: "§8 · Routing",
+        },
+        {
+          q: "If I have 5 agents open, do all of them get the message?",
+          yn: ["No", "no"],
+          tags: "multiple sessions open many agents windows all broadcast specific which folder repo desktop",
+          a: "No — only the sessions whose repo actually <b>depends on</b> the changed surface. Each running agent registers (user, repo, project) from its folder + git remote, so a change to /orders hits product-service & cart-service but skips payment-service and any unrelated folder.",
+          ref: "§8 · Scoping",
+        },
+        {
+          q: "What happens if my teammate is offline?",
+          yn: ["Handled", "info"],
+          tags: "offline asleep not running away later inbox replay miss vacation",
+          a: "The notification waits in that repo's inbox and is <b>replayed the moment they open that folder</b> in any agent (via the session-start hook). If it's marked urgent, it also fires a Slack ping so they know to look now.",
+          ref: "§8 · Deliver",
+        },
+        {
+          q: "Is it real-time?",
+          yn: ["Mostly", "partial"],
+          tags: "real time live instant speed latency async when fast",
+          a: "Two tiers. <b>Soft real-time</b> while an agent is running (hooks capture as you work). <b>Hard reconciliation</b> at the pull request (CI catches anything missed). It's best-effort lockstep in-session, guaranteed at merge — honestly, not magic instant sync.",
+          ref: "§7 · Two-tier model",
+        },
+        {
+          q: "What if two of us edit the same API at the same time?",
+          yn: ["Escalates", "info"],
+          tags: "conflict same time concurrent both edit collision merge race contract",
+          a: "Most surfaces have one owner (CODEOWNERS = write-sharding), so most conflicts are impossible. For shared surfaces we use version-stamps (compare-and-swap); a true collision is never auto-merged — it raises an explicit conflict and routes a decision doc for you to resolve.",
+          ref: "§10 · Conflict model",
+        },
+        {
+          q: "What if the agent makes up / hallucinates the contract?",
+          yn: ["Caught", "yes"],
+          tags: "hallucinate wrong lie verify asserted fake incorrect contract trust accurate",
+          a: "Before a contract is published, the capture step diffs the agent's <b>asserted</b> contract against the <b>real local types / signatures / OpenAPI</b>. Mismatch → blocked or flagged. Teammates build on verified truth, not a claim. (Dynamic languages we mark 'asserted, unverified'.)",
+          ref: "§7 · Local verification",
+        },
+        {
+          q: "Can I ask it questions about the codebase?",
+          yn: ["Yes", "yes"],
+          tags: "ask question query search knowledge doubt why how convention ledger record",
+          a: "Yes. Your agent runs <code>query()</code> against the ledger first — decisions, contracts, prior answers — and answers instantly if it's known. Only genuinely new questions escalate to a human, and that answer is written back so the next ask is free. Scope is the code/repo, not general chat.",
+          ref: "§8 · Asking & querying",
+        },
+        {
+          q: "Doesn't Claude Code already do this with Agent Teams?",
+          yn: ["No", "no"],
+          tags: "anthropic agent teams already exist claude native competitor same compete",
+          a: "Agent Teams coordinates <b>one person's many agents on one machine</b>. Lockstep coordinates <b>different people's agents across machines and across vendors</b>, with a durable record that outlives sessions. Different layer — we sell the record + neutrality, not the messaging.",
+          ref: "§5 · Platform risk",
+        },
+        {
+          q: "Who can make a binding decision?",
+          yn: ["Owner", "info"],
+          tags: "decision binding who make rule authority owner approve ack shared",
+          a: "The owner of an area sets binding rules for that area. Anything touching shared/contract surfaces needs all affected owners to <b>ack</b> before it binds. Every binding decision is injected into both agents at session start.",
+          ref: "§9 · Decision doc",
+        },
+        {
+          q: "What if I edit in my plain editor with no agent open?",
+          yn: ["Caught at PR", "info"],
+          tags: "editor no agent manual plain vscode without hook miss bypass",
+          a: "The <b>pull-request check</b> catches it. At merge time CI reconciles the actual diff against the ledger regardless of how the code was written — agent, editor, copy-paste or teammate. The PR is the universal backstop.",
+          ref: "§7 · Tier 2",
+        },
+        {
+          q: "What stops someone from just ignoring a binding decision?",
+          yn: ["The PR gate", "info"],
+          tags: "ignore enforce binding override bypass disobey hard gate block merge",
+          a: "The PR check is a hard gate: violate a binding decision and the merge is blocked. That moves enforcement from 'the agent's goodwill' to 'the build breaks' — which is what makes decisions actually binding.",
+          ref: "§7 · Tier 2 · enforcement",
+        },
+        {
+          q: "Does it integrate with GitHub?",
+          yn: ["Yes", "yes"],
+          tags: "github integrate issues pr mirror codeowners sync",
+          a: "Yes. Ownership comes from your CODEOWNERS file; the enforcement gate is a CI status check on PRs; and decisions/questions can optionally mirror to GitHub Issues. It's standalone but plays nicely with GitHub.",
+          ref: "§14 · What we borrow",
+        },
+        {
+          q: "Can I use it solo if my teammate doesn't install it?",
+          yn: ["Yes", "yes"],
+          tags: "solo single player one sided alone teammate doesn't install adopt client",
+          a: "Yes — single-player value is a design requirement. You still get a verified, queryable record of your own side, and Lockstep publishes outward through channels the other party already uses: a synced OpenAPI spec, a mirrored GitHub PR/issue, or an emailed contract delta. No install needed from them.",
+          ref: "§12 · Single-player variant",
+        },
+        {
+          q: "What exactly crosses the wire?",
+          yn: ["Metadata", "info"],
+          tags: "data wire send transmit what crosses network exactly payload",
+          a: "Change summaries, verified contract deltas (interface only), decisions, questions, tasks, the ownership map, and dependency edges. Never source code, never diffs of your implementation.",
+          ref: "§6 · data boundary",
+        },
+        {
+          q: "Does it support a monorepo?",
+          yn: ["Yes", "yes"],
+          tags: "monorepo mono single repo multiple services folders one",
+          a: "Yes. In a monorepo one root session receives the repo's notifications, and CODEOWNERS path-scoping filters which are relevant ('this touches product-service/ which you own'). Multi-repo projects target per-repo instead.",
+          ref: "§8 · Monorepo nuance",
+        },
+        {
+          q: "How is a team / project created?",
+          yn: ["GitHub OAuth", "info"],
+          tags: "team create project setup onboard join org member invite identity start",
+          a: "Sign in with GitHub. An Org (e.g. your company) holds Projects; a Project spans the repos/services for one codebase. Invite teammates by GitHub handle — which lines up 1:1 with CODEOWNERS, so routing just works.",
+          ref: "§3 / appendix · onboarding",
+        },
+        {
+          q: "How are tasks delegated between agents?",
+          yn: ["With approval", "info"],
+          tags: "delegate task assign handoff queue approve give work",
+          a: "Your agent can delegate a task to a teammate; it lands on their board and waits for that human to approve before their agent runs it. Humans stay in the loop — no agent silently edits code on someone else's behalf.",
+          ref: "appendix · delegation",
+        },
+        {
+          q: "How does it stay accurate and not rot like a wiki?",
+          yn: ["Auto-capture", "info"],
+          tags: "rot stale outdated maintain fresh accurate wiki update trust durable",
+          a: "It's written automatically as a byproduct of work — a skill + a hook capture changes as you code, and the PR check reconciles against reality at merge. Nobody hand-maintains it, so it doesn't go stale the way ADRs and wikis do.",
+          ref: "§7 · capture",
+        },
+        {
+          q: "Does this replace Slack?",
+          yn: ["No", "no"],
+          tags: "slack replace chat communication messaging general talk",
+          a: "No. The only communication it owns is <b>structured and tied to code or a decision</b> — change notices, contract acks, code/repo questions. General team chat stays in Slack; that's deliberately not our turf.",
+          ref: "§16 · north star",
+        },
+        {
+          q: "Can it be self-hosted?",
+          yn: ["Planned", "partial"],
+          tags: "self host on premise private cloud security compliance host own infra",
+          a: "It's on the roadmap, especially for the cross-org case where two companies may not want a third party holding the shared record. The core is metadata-only by design, but a self-host / customer-managed-key path is a known requirement for that wedge.",
+          ref: "§17 · open questions",
+        },
+        {
+          q: "What does it cost?",
+          yn: ["TBD", "partial"],
+          tags: "price cost pricing pay money plan subscription free",
+          a: "Not decided yet — likely per-seat or per-project, with the cross-org / compliance use case as a paid tier. Pricing is an open question while we validate the wedge.",
+          ref: "§3 · monetization",
+        },
+        {
+          q: "What if a dependency was never registered — does it still warn me?",
+          yn: ["Only if known", "partial"],
+          tags: "dependency stale impact warn register graph know detect",
+          a: "Stale-impact warnings come from the dependency graph, populated when a consumer codes against a surface (explicitly or by local inference). If an edge was never recorded, the broker can't know to warn — so dependency capture quality directly drives warning quality. The PR check is the safety net.",
+          ref: "§9 · Dependency",
+        },
+        {
+          q: "What's a 'contract' here, exactly?",
+          yn: ["The interface", "info"],
+          tags: "contract what mean definition interface api type schema surface",
+          a: "The verified interface of a surface — its endpoints, request/response shapes, types and signatures — plus the 'why' in prose. It's the part a teammate must code against, not your implementation.",
+          ref: "§9 · Contract",
+        },
+      ];
 
-const answersEl=document.getElementById('answers'), input=document.getElementById('askinput');
-const chipQs=["Does my code leave my machine?","Does it work with Cursor?","What if two of us edit the same API?","Is it real-time?","Doesn't Claude already do this?","Can it be self-hosted?"];
-document.getElementById('chips').innerHTML=chipQs.map(c=>`<span class="chip">${c}</span>`).join('');
-document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{input.value=c.textContent;search();});
+      const answersEl = document.getElementById("answers"),
+        input = document.getElementById("askinput");
+      const chipQs = [
+        "Does my code leave my machine?",
+        "Does it work with Cursor?",
+        "What if two of us edit the same API?",
+        "Is it real-time?",
+        "Doesn't Claude already do this?",
+        "Can it be self-hosted?",
+      ];
+      document.getElementById("chips").innerHTML = chipQs.map((c) => `<span class="chip">${c}</span>`).join("");
+      document.querySelectorAll(".chip").forEach(
+        (c) =>
+          (c.onclick = () => {
+            input.value = c.textContent;
+            search();
+          }),
+      );
 
-function render1(f){return `<div class="ans"><div class="qh"><span class="yn ${f.yn[1]}">${f.yn[0]}</span><span>${f.q}</span></div><div class="ab">${f.a}<br><span class="ref">${f.ref}</span></div></div>`;}
+      function render1(f) {
+        return `<div class="ans"><div class="qh"><span class="yn ${f.yn[1]}">${f.yn[0]}</span><span>${f.q}</span></div><div class="ab">${f.a}<br><span class="ref">${f.ref}</span></div></div>`;
+      }
 
-function search(){
-  const raw=input.value.trim().toLowerCase();
-  if(!raw){ // show a helpful default set
-    answersEl.innerHTML=FAQ.slice(0,4).map(render1).join('');
-    return;
-  }
-  const toks=raw.split(/[^a-z0-9]+/).filter(t=>t.length>2);
-  const scored=FAQ.map(f=>{
-    const hay=(f.q+' '+f.tags+' '+f.a).toLowerCase();
-    let s=0; toks.forEach(t=>{ if(hay.includes(t)) s+= (f.q.toLowerCase().includes(t)?2:1); });
-    return {f,s};
-  }).filter(x=>x.s>0).sort((a,b)=>b.s-a.s);
-  if(!scored.length){
-    answersEl.innerHTML=`<div class="empty">No exact match yet — but the idea is to answer code &amp; repo questions about <b>this product</b>. Try keywords like <i>code, vendor, offline, conflict, verify, PR, query, cost</i>. <br><br>Showing the most common questions instead:</div>`+FAQ.slice(0,4).map(render1).join('');
-    return;
-  }
-  answersEl.innerHTML=scored.slice(0,4).map(x=>render1(x.f)).join('');
-}
-input.addEventListener('input',search);
-document.getElementById('askgo').onclick=search;
-input.addEventListener('keydown',e=>{if(e.key==='Enter')search();});
-search(); // initial
-</script>
-</body>
+      function search() {
+        const raw = input.value.trim().toLowerCase();
+        if (!raw) {
+          // show a helpful default set
+          answersEl.innerHTML = FAQ.slice(0, 4).map(render1).join("");
+          return;
+        }
+        const toks = raw.split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+        const scored = FAQ.map((f) => {
+          const hay = (f.q + " " + f.tags + " " + f.a).toLowerCase();
+          let s = 0;
+          toks.forEach((t) => {
+            if (hay.includes(t)) s += f.q.toLowerCase().includes(t) ? 2 : 1;
+          });
+          return { f, s };
+        })
+          .filter((x) => x.s > 0)
+          .sort((a, b) => b.s - a.s);
+        if (!scored.length) {
+          answersEl.innerHTML =
+            `<div class="empty">No exact match yet — but the idea is to answer code &amp; repo questions about <b>this product</b>. Try keywords like <i>code, vendor, offline, conflict, verify, PR, query, cost</i>. <br><br>Showing the most common questions instead:</div>` +
+            FAQ.slice(0, 4).map(render1).join("");
+          return;
+        }
+        answersEl.innerHTML = scored
+          .slice(0, 4)
+          .map((x) => render1(x.f))
+          .join("");
+      }
+      input.addEventListener("input", search);
+      document.getElementById("askgo").onclick = search;
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") search();
+      });
+      search(); // initial
+    </script>
+  </body>
 </html>

@@ -28,7 +28,13 @@ export default async function Overview({ params }: { params: { orgId: string; pr
       <div className="section-title">Recent activity</div>
       <div className="card animate-in">
         {o.audit.length === 0 ? (
-          <div className="rows"><div className="row"><span className="muted" style={{ color: "var(--dim)" }}>No activity yet — make a change in a connected repo.</span></div></div>
+          <div className="rows">
+            <div className="row">
+              <span className="muted" style={{ color: "var(--dim)" }}>
+                No activity yet — make a change in a connected repo.
+              </span>
+            </div>
+          </div>
         ) : (
           <div className="rows">
             {o.audit.slice(0, 8).map((a, i) => (
@@ -37,7 +43,9 @@ export default async function Overview({ params }: { params: { orgId: string; pr
                   <IconActivity style={{ width: 12, height: 12, color: "#08110f" }} />
                 </span>
                 <div className="body">
-                  <div className="title" style={{ fontSize: 13.5 }}>{humanizeAction(a.action)}</div>
+                  <div className="title" style={{ fontSize: 13.5 }}>
+                    {humanizeAction(a.action)}
+                  </div>
                   <div className="meta">
                     {a.entityKind && <span className="code-ref">{a.entityKind}</span>}
                     <span>{timeAgo(a.createdAt)}</span>
@@ -52,7 +60,13 @@ export default async function Overview({ params }: { params: { orgId: string; pr
       <div className="section-title">Latest decisions</div>
       <div className="card animate-in">
         {o.decisions.length === 0 ? (
-          <div className="rows"><div className="row"><Link href={`${base}/decisions`} style={{ color: "var(--teal)" }}>No decisions yet →</Link></div></div>
+          <div className="rows">
+            <div className="row">
+              <Link href={`${base}/decisions`} style={{ color: "var(--teal)" }}>
+                No decisions yet →
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="rows">
             {o.decisions.slice(0, 5).map((d) => (

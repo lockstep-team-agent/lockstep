@@ -55,7 +55,13 @@ export async function fanoutChangeTx(tx: Tx, orgId: string, args: FanoutArgs): P
       const inboxId = await ensureInbox(tx, orgId, m.id, repoId, args.projectId);
       await tx
         .insert(inboxItems)
-        .values({ orgId, inboxId, kind: "change", refId: args.changeId, reason: { surface: args.surface, consumerRepoId: repoId } })
+        .values({
+          orgId,
+          inboxId,
+          kind: "change",
+          refId: args.changeId,
+          reason: { surface: args.surface, consumerRepoId: repoId },
+        })
         .onConflictDoNothing();
       delivered++;
     }

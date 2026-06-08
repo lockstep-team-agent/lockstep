@@ -10,9 +10,16 @@ test("init writes config, is idempotent on disk, and preserves foreign config", 
   await mkdir(join(dir, ".claude"), { recursive: true });
   await writeFile(
     join(dir, ".claude", "settings.json"),
-    JSON.stringify({ hooks: { PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "my-linter" }] }] } }, null, 2),
+    JSON.stringify(
+      { hooks: { PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "my-linter" }] }] } },
+      null,
+      2,
+    ),
   );
-  await writeFile(join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { other: { command: "x", args: [] } } }, null, 2));
+  await writeFile(
+    join(dir, ".mcp.json"),
+    JSON.stringify({ mcpServers: { other: { command: "x", args: [] } } }, null, 2),
+  );
   await writeFile(join(dir, "CLAUDE.md"), "# Project\n\nhand-written notes\n");
 
   const read = async () => ({

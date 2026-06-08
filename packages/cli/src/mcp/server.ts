@@ -56,10 +56,13 @@ export async function runMcpServer(): Promise<void> {
   server.tool(
     "ack_decision",
     { decisionId: z.string(), version: z.number(), verdict: z.string().optional() },
-    async (a) => ok(await call("POST", `/decisions/${a.decisionId}/ack`, sid, { version: a.version, verdict: a.verdict })),
+    async (a) =>
+      ok(await call("POST", `/decisions/${a.decisionId}/ack`, sid, { version: a.version, verdict: a.verdict })),
   );
-  server.tool("register_dependency", { producedSurface: z.string(), producedRepoId: z.string().optional() }, async (a) =>
-    ok(await call("POST", "/dependencies", sid, a)),
+  server.tool(
+    "register_dependency",
+    { producedSurface: z.string(), producedRepoId: z.string().optional() },
+    async (a) => ok(await call("POST", "/dependencies", sid, a)),
   );
   server.tool("decisions", { scope: z.string().optional() }, async (a) =>
     ok(await call("GET", `/decisions${a.scope ? `?scope=${encodeURIComponent(a.scope)}` : ""}`, sid)),

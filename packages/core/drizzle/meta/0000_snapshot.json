@@ -1556,9 +1556,7 @@
         "principals_github_user_id_unique": {
           "name": "principals_github_user_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "github_user_id"
-          ]
+          "columns": ["github_user_id"]
         }
       },
       "policies": {},

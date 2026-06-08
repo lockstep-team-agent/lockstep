@@ -22,9 +22,7 @@ async function main(): Promise<void> {
       console.log("[migrate] applying Drizzle migrations…");
       await migrate(db, { migrationsFolder: drizzleDir });
     } else {
-      console.warn(
-        "[migrate] no Drizzle migrations found — run `npm run db:generate -w @lockstep/core` first.",
-      );
+      console.warn("[migrate] no Drizzle migrations found — run `npm run db:generate -w @lockstep/core` first.");
       process.exit(1);
     }
     for (const file of ["0001_rls.sql", "0002_append_only.sql"]) {

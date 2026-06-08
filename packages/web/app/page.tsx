@@ -37,7 +37,9 @@ export default async function Home() {
         <div className="auth-card card pad animate-in">
           <p style={{ color: "var(--muted)", marginBottom: 14 }}>Session expired or API unreachable.</p>
           <form action={logoutAction}>
-            <button className="btn" type="submit">Sign out</button>
+            <button className="btn" type="submit">
+              Sign out
+            </button>
           </form>
         </div>
       </div>
@@ -45,7 +47,9 @@ export default async function Home() {
   }
 
   const orgIds = [...new Set(me.memberships.map((m) => m.orgId))];
-  const orgs = await Promise.all(orgIds.map(async (id) => ({ id, data: await apiGet<OrgOverview>(`/orgs/${id}/overview`) })));
+  const orgs = await Promise.all(
+    orgIds.map(async (id) => ({ id, data: await apiGet<OrgOverview>(`/orgs/${id}/overview`) })),
+  );
 
   return (
     <div className="center-screen" style={{ alignItems: "flex-start", paddingTop: 64 }}>
@@ -54,13 +58,17 @@ export default async function Home() {
           <span className="logo" /> Lockstep
           <div className="spacer" style={{ flex: 1 }} />
           <form action={logoutAction}>
-            <button className="btn ghost" type="submit">Sign out</button>
+            <button className="btn ghost" type="submit">
+              Sign out
+            </button>
           </form>
         </div>
 
         {orgIds.length === 0 && (
           <div className="empty animate-in">
-            <div className="ico"><IconRepo /></div>
+            <div className="ico">
+              <IconRepo />
+            </div>
             <h3>No workspace yet</h3>
             <p>
               Run <span className="code-ref">lockstep connect</span> inside a repo to create your workspace and link it.
@@ -71,8 +79,15 @@ export default async function Home() {
         <div className="stagger" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {orgs.flatMap(({ id, data }) =>
             (data?.projects ?? []).map((p) => (
-              <Link key={p.id} href={`/project/${id}/${p.id}`} className="card pad" style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                <span className="avatar" style={{ borderRadius: 9 }}>{(p.name[0] ?? "?").toUpperCase()}</span>
+              <Link
+                key={p.id}
+                href={`/project/${id}/${p.id}`}
+                className="card pad"
+                style={{ display: "flex", alignItems: "center", gap: 14 }}
+              >
+                <span className="avatar" style={{ borderRadius: 9 }}>
+                  {(p.name[0] ?? "?").toUpperCase()}
+                </span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 650 }}>{p.name}</div>
                   <div style={{ color: "var(--dim)", fontSize: 12.5 }}>{(data?.members ?? []).length} member(s)</div>

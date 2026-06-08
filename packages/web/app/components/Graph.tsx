@@ -40,8 +40,12 @@ export function DependencyGraph({
   return (
     <div className="graph animate-in">
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Dependency graph">
-        <text className="glabel" x={leftX} y={20}>CONSUMERS</text>
-        <text className="glabel" x={rightX} y={20}>PRODUCED SURFACES</text>
+        <text className="glabel" x={leftX} y={20}>
+          CONSUMERS
+        </text>
+        <text className="glabel" x={rightX} y={20}>
+          PRODUCED SURFACES
+        </text>
 
         {dependencies.map((d) => {
           const y1 = consumerY(d.consumerRepoId) + NODE_H / 2;
@@ -49,13 +53,7 @@ export function DependencyGraph({
           const x1 = leftX + COL_W;
           const x2 = rightX;
           const mx = (x1 + x2) / 2;
-          return (
-            <path
-              key={d.id}
-              className="gedge"
-              d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
-            />
-          );
+          return <path key={d.id} className="gedge" d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`} />;
         })}
 
         {consumers.map((id, i) => {
@@ -63,8 +61,12 @@ export function DependencyGraph({
           return (
             <g className="gnode" key={id} transform={`translate(${leftX},${y})`}>
               <rect width={COL_W} height={NODE_H} />
-              <text x={14} y={20}>{repoName.get(id) ?? "repo"}</text>
-              <text className="sub" x={14} y={36}>consumer</text>
+              <text x={14} y={20}>
+                {repoName.get(id) ?? "repo"}
+              </text>
+              <text className="sub" x={14} y={36}>
+                consumer
+              </text>
             </g>
           );
         })}
@@ -75,8 +77,12 @@ export function DependencyGraph({
           return (
             <g className="gnode gsurface" key={s} transform={`translate(${rightX},${y})`}>
               <rect width={COL_W} height={NODE_H} />
-              <text x={14} y={20}>{s}</text>
-              <text className="sub" x={14} y={36}>{producer ? repoName.get(producer) ?? "service" : "external"}</text>
+              <text x={14} y={20}>
+                {s}
+              </text>
+              <text className="sub" x={14} y={36}>
+                {producer ? (repoName.get(producer) ?? "service") : "external"}
+              </text>
             </g>
           );
         })}

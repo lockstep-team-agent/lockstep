@@ -21,7 +21,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
                   <IconActivity style={{ width: 12, height: 12, color: "#08110f" }} />
                 </span>
                 <div className="body">
-                  <div className="title" style={{ fontSize: 13.5 }}>{humanizeAction(a.action)}</div>
+                  <div className="title" style={{ fontSize: 13.5 }}>
+                    {humanizeAction(a.action)}
+                  </div>
                   <div className="meta">{a.entityKind && <span className="code-ref">{a.entityKind}</span>}</div>
                 </div>
                 <span style={{ color: "var(--dim)", fontSize: 12 }}>{timeAgo(a.createdAt)}</span>

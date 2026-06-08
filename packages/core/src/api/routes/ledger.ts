@@ -69,7 +69,13 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/decisions", async (req, reply) => {
     const c = await ctx(req, reply);
     if (!c) return;
-    const b = req.body as { scopeKind?: string; scopeRef?: string; ruleText?: string; baseVersion?: number; provenance?: unknown };
+    const b = req.body as {
+      scopeKind?: string;
+      scopeRef?: string;
+      ruleText?: string;
+      baseVersion?: number;
+      provenance?: unknown;
+    };
     if (!b?.scopeKind || !b?.scopeRef || !b?.ruleText || b.baseVersion === undefined) {
       return reply.code(400).send({ error: "scopeKind, scopeRef, ruleText, baseVersion required" });
     }
@@ -149,7 +155,13 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     if (!c) return;
     const b = req.body as { question?: string; scope?: string; urgent?: boolean };
     if (!b?.question) return reply.code(400).send({ error: "question required" });
-    return askQuestion(c.orgId, { projectId: c.projectId, memberId: c.memberId, body: b.question, scopeRef: b.scope, urgent: b.urgent });
+    return askQuestion(c.orgId, {
+      projectId: c.projectId,
+      memberId: c.memberId,
+      body: b.question,
+      scopeRef: b.scope,
+      urgent: b.urgent,
+    });
   });
 
   // answer(question_id, response)

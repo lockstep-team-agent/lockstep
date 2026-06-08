@@ -16,8 +16,7 @@ async function req<T = unknown>(method: string, path: string, body?: unknown): P
     });
   } catch {
     throw new Error(
-      `Cannot reach the Lockstep API at ${API}\n` +
-        `Set your server once with:  lockstep login --api <url>`,
+      `Cannot reach the Lockstep API at ${API}\n` + `Set your server once with:  lockstep login --api <url>`,
     );
   }
   const text = await res.text();

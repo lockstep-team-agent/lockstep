@@ -27,16 +27,13 @@ async function upsertPrincipal(
   name: string | null,
   email: string | null,
 ): Promise<string> {
-  const existing = (
-    await tx.select().from(principals).where(eq(principals.githubUserId, githubUserId)).limit(1)
-  )[0];
+  const existing = (await tx.select().from(principals).where(eq(principals.githubUserId, githubUserId)).limit(1))[0];
   if (existing) {
     await tx.update(principals).set({ githubLogin }).where(eq(principals.id, existing.id));
     return existing.id;
   }
-  return one(
-    await tx.insert(principals).values({ githubUserId, githubLogin, displayName: name, email }).returning(),
-  ).id;
+  return one(await tx.insert(principals).values({ githubUserId, githubLogin, displayName: name, email }).returning())
+    .id;
 }
 
 /** Match pending invites by login → create member rows + flip to active. */
@@ -131,11 +128,7 @@ export async function createOrg(principal: Principal, name: string): Promise<{ o
   });
 }
 
-export async function createProject(
-  principal: Principal,
-  orgId: string,
-  name: string,
-): Promise<{ projectId: string }> {
+export async function createProject(principal: Principal, orgId: string, name: string): Promise<{ projectId: string }> {
   const me = await ensureMember(orgId, principal.id);
   return withOrg(orgId, async (tx) => {
     const p = one(await tx.insert(projects).values({ orgId, name, createdBy: me.id }).returning());
@@ -200,7 +193,11 @@ async function getGithubToken(principalId: string): Promise<string | null> {
 async function isMemberOf(orgId: string, principalId: string): Promise<boolean> {
   return withSystem(async (tx) => {
     const m = (
-      await tx.select().from(members).where(and(eq(members.orgId, orgId), eq(members.principalId, principalId))).limit(1)
+      await tx
+        .select()
+        .from(members)
+        .where(and(eq(members.orgId, orgId), eq(members.principalId, principalId)))
+        .limit(1)
     )[0];
     return !!m;
   });
@@ -234,7 +231,12 @@ export async function connectOrJoin(
   // already a member of a connected org → open it
   for (const repo of candidates) {
     if (await isMemberOf(repo.orgId, principal.id)) {
-      return { orgId: repo.orgId, projectId: repo.projectId, projectName: await projectNameOf(repo.orgId, repo.projectId), status: "already-connected" };
+      return {
+        orgId: repo.orgId,
+        projectId: repo.projectId,
+        projectName: await projectNameOf(repo.orgId, repo.projectId),
+        status: "already-connected",
+      };
     }
   }
 
@@ -255,11 +257,18 @@ export async function connectOrJoin(
             displayName: principal.githubLogin,
           });
         });
-        return { orgId: repo.orgId, projectId: repo.projectId, projectName: await projectNameOf(repo.orgId, repo.projectId), status: "joined" };
+        return {
+          orgId: repo.orgId,
+          projectId: repo.projectId,
+          projectName: await projectNameOf(repo.orgId, repo.projectId),
+          status: "joined",
+        };
       }
     }
     throw Object.assign(
-      new Error("This repo is connected to a Lockstep project, but we couldn't verify your GitHub access. Re-run `lockstep login`, or ask the owner to `lockstep invite` you."),
+      new Error(
+        "This repo is connected to a Lockstep project, but we couldn't verify your GitHub access. Re-run `lockstep login`, or ask the owner to `lockstep invite` you.",
+      ),
       { statusCode: 403 },
     );
   }
@@ -274,11 +283,19 @@ export async function connectOrJoin(
   const pname = projectName ?? gitRemote.split("/").pop() ?? "project";
   const projectId = await withOrg(orgId, async (tx) => {
     const existing = (
-      await tx.select().from(projects).where(and(eq(projects.orgId, orgId!), eq(projects.name, pname))).limit(1)
+      await tx
+        .select()
+        .from(projects)
+        .where(and(eq(projects.orgId, orgId!), eq(projects.name, pname)))
+        .limit(1)
     )[0];
     if (existing) return existing.id;
     const me = (
-      await tx.select().from(members).where(and(eq(members.orgId, orgId!), eq(members.principalId, principal.id))).limit(1)
+      await tx
+        .select()
+        .from(members)
+        .where(and(eq(members.orgId, orgId!), eq(members.principalId, principal.id)))
+        .limit(1)
     )[0];
     return one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning()).id;
   });

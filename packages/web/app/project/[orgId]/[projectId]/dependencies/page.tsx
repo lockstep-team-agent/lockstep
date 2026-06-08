@@ -13,7 +13,10 @@ export default async function Page({ params }: { params: { orgId: string; projec
 
   return (
     <>
-      <PageHead title="Dependencies" subtitle="Which services consume which surfaces — this is what routes a change to the right teammate." />
+      <PageHead
+        title="Dependencies"
+        subtitle="Which services consume which surfaces — this is what routes a change to the right teammate."
+      />
       {deps.length === 0 ? (
         <EmptyState icon={<IconDependencies />} title="No dependencies yet">
           When an agent codes against another service's surface, it records the edge via{" "}
@@ -30,7 +33,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
                   <div className="body" style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span className="code-ref">{repoName.get(d.consumerRepoId) ?? "consumer"}</span>
                     <IconArrow style={{ width: 15, height: 15, color: "var(--dim)" }} />
-                    <span className="mono" style={{ color: "var(--violet)" }}>{d.producedSurface}</span>
+                    <span className="mono" style={{ color: "var(--violet)" }}>
+                      {d.producedSurface}
+                    </span>
                   </div>
                   <span className="pill plain">{d.source}</span>
                 </div>

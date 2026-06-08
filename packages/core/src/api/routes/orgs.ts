@@ -1,5 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { createOrg, createProject, invite, listMemberships, connectRepo, connectOrJoin } from "../../auth/auth-service.js";
+import {
+  createOrg,
+  createProject,
+  invite,
+  listMemberships,
+  connectRepo,
+  connectOrJoin,
+} from "../../auth/auth-service.js";
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {

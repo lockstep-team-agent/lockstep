@@ -51,19 +51,25 @@ export default async function Page({ params }: { params: { orgId: string; projec
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="projectId" value={projectId} />
         <input className="input" name="githubLogin" placeholder="github-handle" style={{ maxWidth: 240 }} />
-        <button className="btn primary" type="submit">Invite teammate</button>
+        <button className="btn primary" type="submit">
+          Invite teammate
+        </button>
       </form>
 
       <div className="section-title">Connected repos</div>
       <div className="card animate-in">
         <div className="rows stagger">
           {repos.length === 0 ? (
-            <div className="row"><span style={{ color: "var(--dim)" }}>No repos connected yet.</span></div>
+            <div className="row">
+              <span style={{ color: "var(--dim)" }}>No repos connected yet.</span>
+            </div>
           ) : (
             repos.map((r) => (
               <div className="row" key={r.id}>
                 <IconRepo style={{ width: 18, height: 18, color: "var(--dim)" }} />
-                <div className="body"><div className="title mono">{r.gitRemote}</div></div>
+                <div className="body">
+                  <div className="title mono">{r.gitRemote}</div>
+                </div>
               </div>
             ))
           )}
@@ -73,12 +79,16 @@ export default async function Page({ params }: { params: { orgId: string; projec
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="projectId" value={projectId} />
         <input className="input mono" name="gitRemote" placeholder="github.com/org/repo" style={{ maxWidth: 320 }} />
-        <button className="btn" type="submit">Connect repo</button>
+        <button className="btn" type="submit">
+          Connect repo
+        </button>
       </form>
 
       <div className="section-title">Onboard a teammate</div>
       <div className="card pad animate-in">
-        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>Have them run, from inside their repo:</p>
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>
+          Have them run, from inside their repo:
+        </p>
         <pre className="mono" style={preStyle}>{`npm i -g lockstep-cli
 lockstep login --api ${api}
 lockstep init

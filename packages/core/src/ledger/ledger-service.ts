@@ -152,7 +152,9 @@ export async function listDecisions(
   orgId: string,
   projectId: string,
   scopeRef?: string,
-): Promise<Array<{ id: string; scopeKind: string; scopeRef: string; status: string; version: number; ruleText: string }>> {
+): Promise<
+  Array<{ id: string; scopeKind: string; scopeRef: string; status: string; version: number; ruleText: string }>
+> {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select().from(decisions).where(eq(decisions.projectId, projectId));
     const out = [];
@@ -180,7 +182,14 @@ export async function listDecisions(
 
 export async function registerDependency(
   orgId: string,
-  input: { projectId: string; memberId: string; consumerRepoId: string; producedSurface: string; producedRepoId?: string | null; source?: string },
+  input: {
+    projectId: string;
+    memberId: string;
+    consumerRepoId: string;
+    producedSurface: string;
+    producedRepoId?: string | null;
+    source?: string;
+  },
 ): Promise<{ edgeId: string }> {
   return withOrg(orgId, async (tx) => {
     const edge = one(
@@ -313,7 +322,14 @@ export async function askQuestion(
         })
         .returning(),
     );
-    await writeAudit(tx, { orgId, projectId: input.projectId, actorMemberId: input.memberId, action: "question.asked", entityKind: "question", entityId: q.id });
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      actorMemberId: input.memberId,
+      action: "question.asked",
+      entityKind: "question",
+      entityId: q.id,
+    });
     return { questionId: q.id, status: q.status };
   });
 }
@@ -327,9 +343,18 @@ export async function answerQuestion(
   return withOrg(orgId, async (tx) => {
     const q = (await tx.select().from(questions).where(eq(questions.id, questionId)).limit(1))[0];
     if (!q) throw Object.assign(new Error("question not found"), { statusCode: 404 });
-    const ans = one(await tx.insert(answers).values({ orgId, questionId, body: response, answeredBy: memberId }).returning());
+    const ans = one(
+      await tx.insert(answers).values({ orgId, questionId, body: response, answeredBy: memberId }).returning(),
+    );
     await tx.update(questions).set({ status: "answered" }).where(eq(questions.id, questionId));
-    await writeAudit(tx, { orgId, projectId: q.projectId, actorMemberId: memberId, action: "question.answered", entityKind: "question", entityId: questionId });
+    await writeAudit(tx, {
+      orgId,
+      projectId: q.projectId,
+      actorMemberId: memberId,
+      action: "question.answered",
+      entityKind: "question",
+      entityId: questionId,
+    });
     return { answerId: ans.id, status: "answered" };
   });
 }
@@ -344,7 +369,11 @@ export async function createTask(
     let delegatedTo: string | null = null;
     if (input.to) {
       const m = (
-        await tx.select().from(members).where(and(eq(members.orgId, orgId), eq(members.githubLogin, input.to))).limit(1)
+        await tx
+          .select()
+          .from(members)
+          .where(and(eq(members.orgId, orgId), eq(members.githubLogin, input.to)))
+          .limit(1)
       )[0];
       delegatedTo = m?.id ?? null;
     }
@@ -364,21 +393,31 @@ export async function createTask(
         })
         .returning(),
     );
-    await writeAudit(tx, { orgId, projectId: input.projectId, actorMemberId: input.memberId, action: "task.delegated", entityKind: "task", entityId: t.id });
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      actorMemberId: input.memberId,
+      action: "task.delegated",
+      entityKind: "task",
+      entityId: t.id,
+    });
     return { taskId: t.id, runState: t.runState };
   });
 }
 
-export async function completeTask(
-  orgId: string,
-  taskId: string,
-  memberId: string,
-): Promise<{ status: string }> {
+export async function completeTask(orgId: string, taskId: string, memberId: string): Promise<{ status: string }> {
   return withOrg(orgId, async (tx) => {
     const t = (await tx.select().from(tasks).where(eq(tasks.id, taskId)).limit(1))[0];
     if (!t) throw Object.assign(new Error("task not found"), { statusCode: 404 });
     await tx.update(tasks).set({ runState: "done", status: "closed" }).where(eq(tasks.id, taskId));
-    await writeAudit(tx, { orgId, projectId: t.projectId, actorMemberId: memberId, action: "task.completed", entityKind: "task", entityId: taskId });
+    await writeAudit(tx, {
+      orgId,
+      projectId: t.projectId,
+      actorMemberId: memberId,
+      action: "task.completed",
+      entityKind: "task",
+      entityId: taskId,
+    });
     return { status: "done" };
   });
 }
@@ -448,7 +487,10 @@ export async function queryLedger(
         .limit(20)
     ).filter((c) => `${c.summary} ${c.surface ?? ""}`.toLowerCase().includes(needle));
     const answeredQuestions = (
-      await tx.select().from(questions).where(and(eq(questions.projectId, projectId), eq(questions.status, "answered")))
+      await tx
+        .select()
+        .from(questions)
+        .where(and(eq(questions.projectId, projectId), eq(questions.status, "answered")))
     ).filter((qq) => qq.body.toLowerCase().includes(needle));
     return { decisions: decRows, changes, answeredQuestions };
   });

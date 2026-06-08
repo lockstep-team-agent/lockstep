@@ -20,9 +20,12 @@ export async function runLogin(opts: { dev?: { id: number; login: string } }): P
     return;
   }
 
-  const start = await cloud.post<{ verification_uri: string; user_code: string; device_code: string; interval?: number }>(
-    "/auth/device/start",
-  );
+  const start = await cloud.post<{
+    verification_uri: string;
+    user_code: string;
+    device_code: string;
+    interval?: number;
+  }>("/auth/device/start");
   console.log(`\nOpen ${start.verification_uri} and enter code:  ${start.user_code}\n`);
   const interval = (start.interval ?? 5) * 1000;
   for (;;) {

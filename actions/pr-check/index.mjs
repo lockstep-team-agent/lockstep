@@ -57,7 +57,9 @@ async function main() {
     process.exit(1);
   }
   sh(["fetch", "origin", BASE, "--depth", "1"]);
-  const files = sh(["diff", `origin/${BASE}...HEAD`, "--name-only"]).split("\n").filter(Boolean);
+  const files = sh(["diff", `origin/${BASE}...HEAD`, "--name-only"])
+    .split("\n")
+    .filter(Boolean);
   const surfaces = files.filter(isContractSurface);
   if (surfaces.length === 0) {
     console.log("Lockstep: no contract surfaces changed — pass.");
@@ -71,7 +73,9 @@ async function main() {
     console.log(`⚠ ${s.surface} is consumed by ${s.consumers.length} repo(s) — ensure they're updated.`);
   }
   if (!result.ok) {
-    console.error(`❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}`);
+    console.error(
+      `❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}`,
+    );
     console.error("   Propose + ack a decision (e.g. via your agent's propose_decision) before merging.");
     process.exit(1);
   }

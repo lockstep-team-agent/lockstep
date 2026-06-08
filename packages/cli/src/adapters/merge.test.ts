@@ -3,8 +3,18 @@ import assert from "node:assert/strict";
 import { mergeHooks, mergeMcp, upsertManagedBlock, type ManagedHook } from "./merge.js";
 
 const HOOKS: ManagedHook[] = [
-  { event: "SessionStart", matcher: "*", args: ["-y", "@lockstep/cli", "capture", "--event", "SessionStart"], timeout: 20 },
-  { event: "PostToolUse", matcher: "Edit|Write", args: ["-y", "@lockstep/cli", "capture", "--event", "PostToolUse"], timeout: 30 },
+  {
+    event: "SessionStart",
+    matcher: "*",
+    args: ["-y", "@lockstep/cli", "capture", "--event", "SessionStart"],
+    timeout: 20,
+  },
+  {
+    event: "PostToolUse",
+    matcher: "Edit|Write",
+    args: ["-y", "@lockstep/cli", "capture", "--event", "PostToolUse"],
+    timeout: 30,
+  },
 ];
 
 test("mergeHooks is idempotent (run twice = byte-identical)", () => {

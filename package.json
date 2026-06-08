@@ -2,6 +2,7 @@
   "name": "lockstep",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "description": "Neutral, cross-vendor system-of-record that keeps developers' coding agents in lockstep.",
   "workspaces": [
     "packages/*",
@@ -14,10 +15,20 @@
     "dev:core": "npm run dev -w @lockstep/core",
     "db:generate": "npm run db:generate -w @lockstep/core",
     "db:migrate": "npm run db:migrate -w @lockstep/core",
+    "lint": "eslint packages/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "up": "docker compose up --build",
     "down": "docker compose down"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.60.1",
+    "@typescript-eslint/parser": "^8.60.1",
+    "eslint": "^10.4.1",
+    "prettier": "^3.8.3"
   }
 }

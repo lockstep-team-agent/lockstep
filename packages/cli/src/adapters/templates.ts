@@ -10,7 +10,12 @@ export const mcpSpec = (vendor: string): McpServerSpec => ({
 
 export const captureHooks: ManagedHook[] = [
   { event: "SessionStart", matcher: "*", args: ["capture", "--event", "SessionStart"], timeout: 20 },
-  { event: "PostToolUse", matcher: "Edit|Write|MultiEdit|NotebookEdit", args: ["capture", "--event", "PostToolUse"], timeout: 30 },
+  {
+    event: "PostToolUse",
+    matcher: "Edit|Write|MultiEdit|NotebookEdit",
+    args: ["capture", "--event", "PostToolUse"],
+    timeout: 30,
+  },
   { event: "Stop", matcher: "*", args: ["capture", "--event", "Stop"], timeout: 45 },
 ];
 

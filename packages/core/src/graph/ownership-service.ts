@@ -124,10 +124,7 @@ export async function whoowns(orgId: string, repoId: string, path: string): Prom
       if (new RegExp(r.patternRegex).test(path)) matchedId = r.id;
     }
     if (!matchedId) return [];
-    const owners = await tx
-      .select()
-      .from(ownershipRuleOwners)
-      .where(eq(ownershipRuleOwners.ruleId, matchedId));
+    const owners = await tx.select().from(ownershipRuleOwners).where(eq(ownershipRuleOwners.ruleId, matchedId));
     return owners.map((o) => o.ownerLogin);
   });
 }

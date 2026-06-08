@@ -18,5 +18,4 @@ export function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export const humanizeAction = (a: string): string =>
-  a.replace(/[._]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+export const humanizeAction = (a: string): string => a.replace(/[._]/g, " ").replace(/^\w/, (c) => c.toUpperCase());

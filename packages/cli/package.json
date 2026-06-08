@@ -10,11 +10,21 @@
     "url": "git+https://github.com/naman7474/lockstep.git",
     "directory": "packages/cli"
   },
-  "keywords": ["lockstep", "mcp", "claude-code", "codex", "ai-agents", "coordination", "codeowners"],
+  "keywords": [
+    "lockstep",
+    "mcp",
+    "claude-code",
+    "codex",
+    "ai-agents",
+    "coordination",
+    "codeowners"
+  ],
   "bin": {
     "lockstep": "dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -26,7 +36,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "node --test"
+    "test": "node --import tsx --test 'src/**/*.test.ts' 'src/*.test.ts'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

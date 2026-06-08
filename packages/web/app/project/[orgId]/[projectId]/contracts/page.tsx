@@ -10,7 +10,10 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const repoName = new Map((o?.repos ?? []).map((r) => [r.id, r.gitRemote.split("/").pop() ?? r.gitRemote]));
   return (
     <>
-      <PageHead title="Contracts" subtitle="Interface deltas published by agents — verified locally against real code where possible." />
+      <PageHead
+        title="Contracts"
+        subtitle="Interface deltas published by agents — verified locally against real code where possible."
+      />
       {items.length === 0 ? (
         <EmptyState icon={<IconContracts />} title="No contracts captured yet">
           When an agent changes an API surface, the verified contract delta appears here.
