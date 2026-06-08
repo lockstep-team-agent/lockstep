@@ -36,7 +36,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "node --import tsx --test 'src/**/*.test.ts' 'src/*.test.ts'"
+    "test": "find src -name '*.test.ts' | xargs node --import tsx --test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

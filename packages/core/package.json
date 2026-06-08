@@ -12,7 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:reset": "tsx src/db/reset.ts",
-    "test": "node --import tsx --test 'src/**/*.test.ts' 'src/*.test.ts'"
+    "test": "find src -name '*.test.ts' | xargs node --import tsx --test"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
