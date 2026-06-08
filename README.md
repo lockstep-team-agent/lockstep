@@ -33,23 +33,49 @@ When multiple developers use AI coding agents (Claude Code, Codex, Gemini CLI) o
   │  Claude Code    │                                           │  Codex / Gemini │
   │  + MCP Server   │──── capture ────┐                         │  + MCP Server   │
   └─────────────────┘                 │                         └─────────────────┘
-                                      ▼                                   ▲
-                               ┌─────────────┐                           │
-                               │  Decisions   │                           │
-                               │  Contracts   │──── inbox/notify ─────────┘
-                               │  Ownership   │
-                               │  Deps Graph  │
-                               └─────────────┘
-                                Append-only ledger
-                                RLS tenant isolation
-                                No source code stored
+         │                            ▼                                   ▲
+         │                     ┌─────────────┐                            │
+    hook fires on        ──→   │  Decisions   │   ──→   dependency graph  │
+    every file edit            │  Contracts   │         looks up who      │
+    (PostToolUse)              │  Ownership   │         consumes the      │
+         │                     │  Deps Graph  │         changed surface   │
+         ▼                     │   Inboxes    │              │            │
+    classifies the             └─────────────┘              ▼            │
+    diff as contract              Append-only          fan-out to ───────┘
+    surface or owned              No source code       each consumer's inbox
 ```
 
-1. **Capture** — As you code, the CLI detects contract-level changes (API surfaces, shared types, configs) and publishes them to the ledger.
-2. **Route** — The dependency graph knows who consumes what. Changes are routed to the right teammates' inboxes.
-3. **Replay** — When an agent starts a new session, it gets a replay of everything that changed since it last checked in.
+### The notification lifecycle
 
-Source code never leaves the machine. Only decisions, contracts, and metadata flow through the cloud.
+**1. Capture** — A Claude Code hook fires on every file edit (`PostToolUse`) and on session end. The CLI diffs the working tree against HEAD, classifies each changed file — is it an API route, a `.proto`, an OpenAPI spec, an exported function? Files that expose a public interface are flagged as **contract surfaces**. The change is published to the ledger with a risk tier (`owned` if only you touch it, `shared` if it's a contract surface).
+
+**2. Route** — When a change hits the ledger, the **dependency graph** kicks in. Every repo that has registered a dependency on the changed surface gets a notification fanned out to its inbox. The sender is excluded. If repo B declared `POST /auth/session` as a dependency, and repo A just changed that surface, repo B's inbox gets the change — automatically, with zero configuration beyond `register_dependency`.
+
+**3. Replay** — When an agent starts a new session (`SessionStart` hook), Lockstep reads the inbox and replays everything that arrived since the last session: unread changes, binding decisions, and open questions. This is injected as `additionalContext` so the agent is immediately aware of what teammates have done.
+
+**4. Decide** — Agents can propose decisions scoped to a surface (e.g. "rename `POST /auth/login` to `POST /auth/session`"). Owner-scoped decisions are binding immediately. Shared/contract decisions stay `open` until another team member acknowledges them — then they become `binding` for the whole project.
+
+**5. Gate** — At PR time, the Tier-2 reconciliation gate (a GitHub Action) checks every changed contract surface against the ledger. If a surface was changed but has no binding decision, the PR check fails. This catches anything Tier-1 missed.
+
+### Who gets notified?
+
+| What happens                                               | Who gets notified                                       | How                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------- |
+| Contract surface changed (API route, proto, exported type) | Every repo that registered a dependency on that surface | Inbox fan-out, delivered on next session replay |
+| Decision proposed on a shared scope                        | All project members see it in their decision list       | `decisions` MCP tool / dashboard                |
+| Question asked (optionally scoped to a surface)            | All project members                                     | Inbox / dashboard                               |
+| Task delegated to a specific teammate                      | The delegatee                                           | Inbox / dashboard                               |
+| PR touches a contract surface with no binding decision     | The PR author                                           | GitHub Action check fails with violation list   |
+
+### What flows through the cloud (and what doesn't)
+
+| Flows through Lockstep                                    | Never leaves the machine |
+| --------------------------------------------------------- | ------------------------ |
+| Decision text ("rename endpoint X to Y")                  | Source code              |
+| Surface identifiers (`POST /auth/session`)                | File contents            |
+| Change summaries ("changed 3 files: routes/auth.ts, ...") | Git diffs                |
+| Dependency edges (repo B consumes surface X)              | Credentials or secrets   |
+| Ownership rules (parsed from CODEOWNERS)                  | Environment variables    |
 
 ## Features
 
