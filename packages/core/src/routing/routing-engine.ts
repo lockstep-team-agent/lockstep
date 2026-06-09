@@ -72,7 +72,7 @@ export async function fanoutChangeTx(tx: Tx, orgId: string, args: FanoutArgs): P
 export interface ProjectFanoutArgs {
   projectId: string;
   refId: string;
-  kind: "question" | "task";
+  kind: "question" | "task" | "decision";
   senderMemberId: string;
   reason?: unknown;
   /** For tasks: deliver only to this member (if set). */

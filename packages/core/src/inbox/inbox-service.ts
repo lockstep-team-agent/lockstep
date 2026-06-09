@@ -1,12 +1,13 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
-import { inboxes, inboxItems, changeFeedEntries, questions, tasks } from "../db/schema.js";
+import { inboxes, inboxItems, changeFeedEntries, questions, tasks, decisions, decisionVersions } from "../db/schema.js";
 
 export interface InboxView {
   unread: number;
   changes: Array<{ id: string; summary: string; surface: string | null; riskTier: string }>;
   questions: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
   tasks: Array<{ id: string; title: string; runState: string; status: string }>;
+  decisions: Array<{ id: string; scopeRef: string; ruleText: string; status: string }>;
 }
 
 /**
@@ -27,7 +28,7 @@ export async function readInbox(
         )
         .limit(1)
     )[0];
-    if (!inbox) return { unread: 0, changes: [], questions: [], tasks: [] };
+    if (!inbox) return { unread: 0, changes: [], questions: [], tasks: [], decisions: [] };
 
     const items = await tx
       .select()
@@ -37,6 +38,7 @@ export async function readInbox(
     const changeIds = items.filter((i) => i.kind === "change").map((i) => i.refId);
     const questionIds = items.filter((i) => i.kind === "question").map((i) => i.refId);
     const taskIds = items.filter((i) => i.kind === "task").map((i) => i.refId);
+    const decisionIds = items.filter((i) => i.kind === "decision").map((i) => i.refId);
 
     const changeRows = changeIds.length
       ? await tx.select().from(changeFeedEntries).where(inArray(changeFeedEntries.id, changeIds))
@@ -47,6 +49,21 @@ export async function readInbox(
       : [];
 
     const taskRows = taskIds.length ? await tx.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
+
+    const decisionRows: Array<{ id: string; scopeRef: string; ruleText: string; status: string }> = [];
+    if (decisionIds.length) {
+      const ds = await tx.select().from(decisions).where(inArray(decisions.id, decisionIds));
+      for (const d of ds) {
+        const v = (
+          await tx
+            .select()
+            .from(decisionVersions)
+            .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
+            .limit(1)
+        )[0];
+        decisionRows.push({ id: d.id, scopeRef: d.scopeRef, ruleText: v?.ruleText ?? "", status: d.status });
+      }
+    }
 
     return {
       unread: items.length,
@@ -59,6 +76,7 @@ export async function readInbox(
         status: q.status,
       })),
       tasks: taskRows.map((t) => ({ id: t.id, title: t.title, runState: t.runState, status: t.status })),
+      decisions: decisionRows,
     };
   });
 }
@@ -107,6 +125,7 @@ export interface InboxPeek {
   questions: number;
   tasks: number;
   changes: number;
+  decisions: number;
 }
 
 /**
@@ -127,7 +146,7 @@ export async function peekInbox(
         )
         .limit(1)
     )[0];
-    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0 };
+    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
 
     const items = await tx
       .select()
@@ -139,6 +158,7 @@ export async function peekInbox(
       questions: items.filter((i) => i.kind === "question").length,
       tasks: items.filter((i) => i.kind === "task").length,
       changes: items.filter((i) => i.kind === "change").length,
+      decisions: items.filter((i) => i.kind === "decision").length,
     };
   });
 }

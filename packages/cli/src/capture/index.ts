@@ -11,6 +11,7 @@ interface InboxResp {
   changes?: Array<{ summary: string; surface: string | null }>;
   questions?: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
   tasks?: Array<{ id: string; title: string; runState: string; status: string }>;
+  decisions?: Array<{ id: string; scopeRef: string; ruleText: string; status: string }>;
 }
 interface DecisionsResp {
   decisions?: Array<{ scopeRef: string; status: string; ruleText: string }>;
@@ -33,6 +34,11 @@ function formatReplay(inbox: InboxResp | null, decisions: DecisionsResp | null):
     lines.push(`📋 ${ts.length} task(s) assigned to you:`);
     for (const t of ts.slice(0, 8)) lines.push(`  • ${t.title}`);
   }
+  const pendingDecisions = (inbox?.decisions ?? []).filter((d) => d.status === "open");
+  if (pendingDecisions.length) {
+    lines.push(`⚖️ ${pendingDecisions.length} decision(s) pending your acknowledgment:`);
+    for (const d of pendingDecisions.slice(0, 8)) lines.push(`  • [${d.scopeRef}] ${d.ruleText}`);
+  }
   const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding");
   if (binding.length) {
     lines.push(`📌 ${binding.length} binding decision(s) in effect:`);
@@ -46,6 +52,7 @@ interface PeekResp {
   questions?: number;
   tasks?: number;
   changes?: number;
+  decisions?: number;
 }
 
 /** Format a short badge from inbox peek counts. Returns null if nothing new. */
@@ -54,6 +61,7 @@ function formatPeek(peek: PeekResp | null): string | null {
   const parts: string[] = [];
   if (peek.questions) parts.push(`${peek.questions} question${peek.questions > 1 ? "s" : ""}`);
   if (peek.tasks) parts.push(`${peek.tasks} task${peek.tasks > 1 ? "s" : ""}`);
+  if (peek.decisions) parts.push(`${peek.decisions} decision${peek.decisions > 1 ? "s" : ""} to review`);
   if (peek.changes) parts.push(`${peek.changes} change${peek.changes > 1 ? "s" : ""}`);
   if (parts.length === 0) return null;
   return `[Lockstep] ${peek.unread} new message${peek.unread > 1 ? "s" : ""} (${parts.join(", ")}). Check your inbox.`;
@@ -125,6 +133,23 @@ export async function runCapture(event: string): Promise<void> {
       diffHash,
     }).catch(() => {});
     process.stderr.write(`[lockstep] published change (${riskTier})\n`);
+
+    // Auto-propose a decision when a contract surface is modified
+    if (riskTier === "shared" && surfaces.length > 0) {
+      for (const surface of surfaces.slice(0, 3)) {
+        const ruleText = `${event}: modified contract surface ${surface} (${files.length} file(s) changed)`;
+        await call("POST", "/decisions", session.sessionId, {
+          scopeKind: "surface",
+          scopeRef: surface,
+          ruleText,
+          baseVersion: 0,
+          provenance: { source: "auto-capture", vendor, diffHash },
+        }).catch(() => {
+          // 409 = decision already exists for this scope, which is fine
+        });
+      }
+      process.stderr.write(`[lockstep] proposed decision for ${surfaces.length} contract surface(s)\n`);
+    }
 
     // Peek at inbox (without marking as read) — notify the agent if there are unread items
     const peek = await call<PeekResp>("GET", "/inbox/peek", session.sessionId).catch(() => null);

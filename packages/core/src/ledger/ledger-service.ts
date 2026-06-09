@@ -113,6 +113,16 @@ export async function proposeDecision(
       entityVersion: version,
       payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, status },
     });
+    // Fan out shared decisions to all project members so they see it in their inbox
+    if (shared) {
+      await fanoutToProjectTx(tx, orgId, {
+        projectId: input.projectId,
+        refId: decisionId,
+        kind: "decision",
+        senderMemberId: input.memberId,
+        reason: { scopeRef: input.scopeRef, ruleText: input.ruleText },
+      });
+    }
     return { decisionId, version, status };
   });
 }
