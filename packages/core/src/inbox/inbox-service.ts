@@ -69,3 +69,44 @@ export async function readInbox(
     };
   });
 }
+
+export interface InboxPeek {
+  unread: number;
+  questions: number;
+  tasks: number;
+  changes: number;
+}
+
+/**
+ * Peek at a session's inbox — return unread counts without marking anything as read.
+ * Used for mid-session "you have N new messages" notifications.
+ */
+export async function peekInbox(
+  orgId: string,
+  ctx: { memberId: string; repoId: string; projectId: string },
+): Promise<InboxPeek> {
+  return withOrg(orgId, async (tx) => {
+    const inbox = (
+      await tx
+        .select()
+        .from(inboxes)
+        .where(
+          and(eq(inboxes.memberId, ctx.memberId), eq(inboxes.repoId, ctx.repoId), eq(inboxes.projectId, ctx.projectId)),
+        )
+        .limit(1)
+    )[0];
+    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0 };
+
+    const items = await tx
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread")));
+
+    return {
+      unread: items.length,
+      questions: items.filter((i) => i.kind === "question").length,
+      tasks: items.filter((i) => i.kind === "task").length,
+      changes: items.filter((i) => i.kind === "change").length,
+    };
+  });
+}

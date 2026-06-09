@@ -41,6 +41,24 @@ function formatReplay(inbox: InboxResp | null, decisions: DecisionsResp | null):
   return lines.length ? `Lockstep:\n${lines.join("\n")}` : "Lockstep: nothing new.";
 }
 
+interface PeekResp {
+  unread?: number;
+  questions?: number;
+  tasks?: number;
+  changes?: number;
+}
+
+/** Format a short badge from inbox peek counts. Returns null if nothing new. */
+function formatPeek(peek: PeekResp | null): string | null {
+  if (!peek || !peek.unread) return null;
+  const parts: string[] = [];
+  if (peek.questions) parts.push(`${peek.questions} question${peek.questions > 1 ? "s" : ""}`);
+  if (peek.tasks) parts.push(`${peek.tasks} task${peek.tasks > 1 ? "s" : ""}`);
+  if (peek.changes) parts.push(`${peek.changes} change${peek.changes > 1 ? "s" : ""}`);
+  if (parts.length === 0) return null;
+  return `[Lockstep] ${peek.unread} new message${peek.unread > 1 ? "s" : ""} (${parts.join(", ")}). Check your inbox.`;
+}
+
 /**
  * Hook entrypoint. Resilient by design — never break the agent: on any error it exits 0.
  *  SessionStart → replay inbox + binding decisions as additionalContext.
@@ -102,6 +120,17 @@ export async function runCapture(event: string): Promise<void> {
       diffHash,
     }).catch(() => {});
     process.stderr.write(`[lockstep] published change (${riskTier})\n`);
+
+    // Peek at inbox (without marking as read) — notify the agent if there are unread items
+    const peek = await call<PeekResp>("GET", "/inbox/peek", session.sessionId).catch(() => null);
+    const badge = formatPeek(peek);
+    if (badge) {
+      process.stdout.write(
+        JSON.stringify({
+          hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: badge },
+        }),
+      );
+    }
   } catch {
     process.exit(0);
   }

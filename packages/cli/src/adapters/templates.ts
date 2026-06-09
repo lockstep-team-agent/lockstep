@@ -31,6 +31,7 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 ## On session start
 - Call \`inbox\` to see what changed, what's newly binding, and what's delegated to you.
 - Call \`decisions\` to load the binding rules for the areas you'll touch.
+- If you see open questions or tasks in the inbox, tell the user about them.
 
 ## Before coding a shared/contract surface
 - Call \`query\` to check the ledger for existing decisions/contracts (answer instantly if known).
@@ -43,7 +44,11 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 ## Coordinating
 - Use \`ask\` for code/repo questions (set \`urgent\` if you're blocked).
 - Use \`delegate\` / \`complete\` for handoffs. Propose binding rules with \`propose_decision\`.
+
+## Incoming messages
+- When you see a "[Lockstep]" notification, inform the user about the pending message(s).
+- The user decides whether to respond — don't auto-answer on their behalf.
 `;
 
 export const CLAUDE_BLOCK = `## Lockstep (team coordination)
-On session start, read your \`inbox\` and current \`decisions\`. Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). See the \`lockstep\` skill for detail.`;
+On session start, read your \`inbox\` and current \`decisions\`. Tell the user about any open questions or tasks. Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. See the \`lockstep\` skill for detail.`;

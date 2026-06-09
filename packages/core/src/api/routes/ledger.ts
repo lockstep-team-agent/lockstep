@@ -14,7 +14,7 @@ import {
   reconcile,
 } from "../../ledger/ledger-service.js";
 import { whoowns, refreshOwnership } from "../../graph/ownership-service.js";
-import { readInbox } from "../../inbox/inbox-service.js";
+import { readInbox, peekInbox } from "../../inbox/inbox-service.js";
 
 /** Resolve the session context from the x-lockstep-session header (set by the MCP server). */
 async function ctx(req: FastifyRequest, reply: FastifyReply): Promise<SessionContext | null> {
@@ -129,6 +129,13 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     const c = await ctx(req, reply);
     if (!c) return;
     return readInbox(c.orgId, { memberId: c.memberId, repoId: c.repoId, projectId: c.projectId });
+  });
+
+  // inbox/peek — unread counts without marking as read
+  app.get("/inbox/peek", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    return peekInbox(c.orgId, { memberId: c.memberId, repoId: c.repoId, projectId: c.projectId });
   });
 
   // query(question, scope?)
