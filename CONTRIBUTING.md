@@ -35,9 +35,25 @@ curl localhost:8080/readyz   # { ok: true, db: "up" }
 The `.env.example` already has dev-login enabled (`LOCKSTEP_DEV_LOGIN=1`), so after copying it to `.env`, you can authenticate without a GitHub App:
 
 ```bash
+npm i -g lockstep-cli
+lockstep login --api http://localhost:8080 --dev --dev-id 1 --dev-login dev
+```
+
+Or via curl:
+
+```bash
 curl -X POST localhost:8080/auth/dev-login \
   -H 'Content-Type: application/json' \
   -d '{"githubUserId": 1, "githubLogin": "dev"}'
+```
+
+To sign in to the dashboard at http://localhost:3000, retrieve the token:
+
+```bash
+# macOS
+security find-generic-password -s lockstep -a session-token -w
+# Linux / fallback
+cat ~/.lockstep/credentials.json
 ```
 
 ### Project Structure

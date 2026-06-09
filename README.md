@@ -94,47 +94,84 @@ When multiple developers use AI coding agents (Claude Code, Codex, Gemini CLI) o
 
 ## Quick Start
 
-Get a working local setup in under 3 minutes — no GitHub App keys needed.
+Get a working local setup in under 5 minutes — no GitHub App keys needed.
 
-### 1. Start the backend
+### 1. Start the stack
 
 ```bash
 git clone https://github.com/naman7474/lockstep.git
 cd lockstep
-npm install
-cp .env.example .env
-docker compose up --build
+cp .env.example .env       # dev-login is enabled by default
+docker compose up --build   # starts Postgres + API + dashboard
 ```
 
-The `.env.example` defaults already include dev-mode settings. Postgres, the API, and the dashboard will start automatically.
-
-### 2. Verify it's running
+Wait for `lockstep-core listening on :8080` in the logs. Verify:
 
 ```bash
 curl http://localhost:8080/readyz
 # => { "ok": true, "db": "up", "deployment": "self-host" }
 ```
 
-### 3. Install the CLI & log in (dev mode)
+This gives you:
+
+- **API** at http://localhost:8080
+- **Dashboard** at http://localhost:3000
+- **Postgres** at localhost:5432
+
+### 2. Install the CLI & log in
 
 ```bash
 npm i -g lockstep-cli
-lockstep login --dev --dev-id 1 --dev-login alice
+
+# Point the CLI at your local server (saved permanently — only needed once)
+lockstep login --api http://localhost:8080 --dev --dev-id 1 --dev-login alice
 ```
 
-### 4. Wire up your repo
+> **Important**: The `--api` flag tells the CLI where the backend is. Without it, the CLI defaults to `http://localhost:8080`. For a deployed server, use `lockstep login --api https://your-server.example.com`.
+
+### 3. Connect your repo
 
 ```bash
-cd your-project
-lockstep init                        # installs MCP server + hooks
-lockstep connect --project "my-team" # creates/joins a shared project
+cd your-project              # any git repo with an origin remote
+lockstep init                # installs MCP server + hooks into the repo
+lockstep connect --project "my-team"   # creates a project and links this repo
 ```
 
-### 5. Open your AI agent
+### 4. Open the dashboard
 
-Start Claude Code (or any MCP-compatible agent) in the repo. On session start, the agent receives a Lockstep replay. As you work, contract changes are captured and routed to teammates.
+Open http://localhost:3000 in your browser. To sign in, you need the session token. Get it with:
 
-> **Production setup**: For real GitHub-based auth, register a GitHub App and fill in the keys in `.env`. See [DEPLOY.md](./DEPLOY.md) for Railway/cloud deployment.
+```bash
+# macOS (token stored in keychain)
+security find-generic-password -s lockstep -a session-token -w
+
+# Linux / fallback (token stored in file)
+cat ~/.lockstep/credentials.json
+```
+
+Paste the `lsk_...` token into the dashboard sign-in field.
+
+### 5. Add a teammate
+
+Your teammate runs (on their machine):
+
+```bash
+npm i -g lockstep-cli
+lockstep login --api http://localhost:8080 --dev --dev-id 2 --dev-login bob
+cd their-project
+lockstep init
+lockstep connect --project "my-team"   # joins the existing project
+```
+
+Both developers are now in the same project. They'll see each other on the Members page in the dashboard.
+
+### 6. Start coding with your AI agent
+
+Open Claude Code (or any MCP-compatible agent) in the repo. On session start, the agent receives a Lockstep replay of everything that happened since the last session — changes, binding decisions, open questions, and assigned tasks.
+
+As you work, contract changes are captured automatically and routed to teammates' inboxes.
+
+> **Production setup**: For real GitHub-based auth (no `--dev` flag needed), register a GitHub App and fill in the keys in `.env`. Set `NODE_ENV=production` and `LOCKSTEP_DEV_LOGIN=0`. See [DEPLOY.md](./DEPLOY.md) for Railway/cloud deployment.
 
 ## Project Structure
 
