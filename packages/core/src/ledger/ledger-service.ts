@@ -13,7 +13,7 @@ import {
   members,
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
-import { fanoutChangeTx } from "../routing/routing-engine.js";
+import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -330,6 +330,13 @@ export async function askQuestion(
       entityKind: "question",
       entityId: q.id,
     });
+    await fanoutToProjectTx(tx, orgId, {
+      projectId: input.projectId,
+      refId: q.id,
+      kind: "question",
+      senderMemberId: input.memberId,
+      reason: { body: input.body, scopeRef: input.scopeRef ?? null, urgent: input.urgent ?? false },
+    });
     return { questionId: q.id, status: q.status };
   });
 }
@@ -400,6 +407,14 @@ export async function createTask(
       action: "task.delegated",
       entityKind: "task",
       entityId: t.id,
+    });
+    await fanoutToProjectTx(tx, orgId, {
+      projectId: input.projectId,
+      refId: t.id,
+      kind: "task",
+      senderMemberId: input.memberId,
+      targetMemberId: delegatedTo,
+      reason: { title: input.title, to: input.to ?? null },
     });
     return { taskId: t.id, runState: t.runState };
   });

@@ -9,6 +9,8 @@ import { isContractSurface, riskTierFor } from "./classify.js";
 interface InboxResp {
   unread?: number;
   changes?: Array<{ summary: string; surface: string | null }>;
+  questions?: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
+  tasks?: Array<{ id: string; title: string; runState: string; status: string }>;
 }
 interface DecisionsResp {
   decisions?: Array<{ scopeRef: string; status: string; ruleText: string }>;
@@ -20,6 +22,16 @@ function formatReplay(inbox: InboxResp | null, decisions: DecisionsResp | null):
   if (changes.length) {
     lines.push(`📥 ${changes.length} change(s) since you were last here:`);
     for (const c of changes.slice(0, 8)) lines.push(`  • ${c.summary}${c.surface ? ` (${c.surface})` : ""}`);
+  }
+  const qs = (inbox?.questions ?? []).filter((q) => q.status === "open");
+  if (qs.length) {
+    lines.push(`❓ ${qs.length} open question(s) for you:`);
+    for (const q of qs.slice(0, 8)) lines.push(`  • ${q.urgent ? "[URGENT] " : ""}${q.body}`);
+  }
+  const ts = (inbox?.tasks ?? []).filter((t) => t.status === "open");
+  if (ts.length) {
+    lines.push(`📋 ${ts.length} task(s) assigned to you:`);
+    for (const t of ts.slice(0, 8)) lines.push(`  • ${t.title}`);
   }
   const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding");
   if (binding.length) {
