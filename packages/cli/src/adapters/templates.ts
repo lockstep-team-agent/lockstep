@@ -51,4 +51,5 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 `;
 
 export const CLAUDE_BLOCK = `## Lockstep (team coordination)
-On session start, read your \`inbox\` and current \`decisions\`. Tell the user about any open questions or tasks. Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. See the \`lockstep\` skill for detail.`;
+IMPORTANT: On session start, BEFORE doing anything else, call \`inbox\` and \`decisions\`. If there are any open questions, tasks, or changes, you MUST tell the user immediately — do not skip this. Example: "You have 1 new question from a teammate: [question text]". Then proceed with the user's request.
+Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. See the \`lockstep\` skill for detail.`;

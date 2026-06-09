@@ -10,8 +10,8 @@ export interface InboxView {
 }
 
 /**
- * Read a session's inbox (its (member, repo, project) queue): return unread change,
- * question, and task items hydrated, then mark them read.
+ * Read a session's inbox — return unread items WITHOUT marking them as read.
+ * Items stay unread until explicitly acknowledged via ackInbox.
  */
 export async function readInbox(
   orgId: string,
@@ -48,13 +48,6 @@ export async function readInbox(
 
     const taskRows = taskIds.length ? await tx.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
 
-    if (items.length > 0) {
-      await tx
-        .update(inboxItems)
-        .set({ state: "read" })
-        .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread")));
-    }
-
     return {
       unread: items.length,
       changes: changeRows.map((c) => ({ id: c.id, summary: c.summary, surface: c.surface, riskTier: c.riskTier })),
@@ -67,6 +60,45 @@ export async function readInbox(
       })),
       tasks: taskRows.map((t) => ({ id: t.id, title: t.title, runState: t.runState, status: t.status })),
     };
+  });
+}
+
+/**
+ * Acknowledge inbox items — mark them as read. Call this after the user has seen the messages.
+ * If itemIds is empty, marks ALL unread items as read.
+ */
+export async function ackInbox(
+  orgId: string,
+  ctx: { memberId: string; repoId: string; projectId: string },
+  itemIds?: string[],
+): Promise<{ acknowledged: number }> {
+  return withOrg(orgId, async (tx) => {
+    const inbox = (
+      await tx
+        .select()
+        .from(inboxes)
+        .where(
+          and(eq(inboxes.memberId, ctx.memberId), eq(inboxes.repoId, ctx.repoId), eq(inboxes.projectId, ctx.projectId)),
+        )
+        .limit(1)
+    )[0];
+    if (!inbox) return { acknowledged: 0 };
+
+    if (itemIds && itemIds.length > 0) {
+      const result = await tx
+        .update(inboxItems)
+        .set({ state: "read" })
+        .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread"), inArray(inboxItems.refId, itemIds)))
+        .returning();
+      return { acknowledged: result.length };
+    }
+
+    const result = await tx
+      .update(inboxItems)
+      .set({ state: "read" })
+      .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread")))
+      .returning();
+    return { acknowledged: result.length };
   });
 }
 

@@ -79,11 +79,16 @@ export async function runCapture(event: string): Promise<void> {
     if (event === "SessionStart") {
       const inbox = await call<InboxResp>("GET", "/inbox", session.sessionId).catch(() => null);
       const decisions = await call<DecisionsResp>("GET", "/decisions", session.sessionId).catch(() => null);
+      const replay = formatReplay(inbox, decisions);
       process.stdout.write(
         JSON.stringify({
-          hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: formatReplay(inbox, decisions) },
+          hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: replay },
         }),
       );
+      // Also write to stderr so it's visible in the terminal
+      if ((inbox?.unread ?? 0) > 0) {
+        process.stderr.write(`\n${replay}\n\n`);
+      }
       return;
     }
 

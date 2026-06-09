@@ -31,6 +31,9 @@ export async function runMcpServer(): Promise<void> {
     async (a) => ok(await call("POST", "/changes", sid, a)),
   );
   server.tool("inbox", {}, async () => ok(await call("GET", "/inbox", sid)));
+  server.tool("ack_inbox", { itemIds: z.array(z.string()).optional() }, async (a) =>
+    ok(await call("POST", "/inbox/ack", sid, { itemIds: a.itemIds })),
+  );
   server.tool("query", { question: z.string(), scope: z.string().optional() }, async (a) =>
     ok(await call("POST", "/query", sid, a)),
   );
