@@ -1,6 +1,17 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
-import { inboxes, inboxItems, changeFeedEntries, questions, tasks, decisions, decisionVersions } from "../db/schema.js";
+import {
+  inboxes,
+  inboxItems,
+  changeFeedEntries,
+  questions,
+  tasks,
+  decisions,
+  decisionVersions,
+  repos,
+  members,
+} from "../db/schema.js";
+import { withSystem } from "../db/rls.js";
 
 export interface InboxView {
   unread: number;
@@ -143,6 +154,54 @@ export async function peekInbox(
         .from(inboxes)
         .where(
           and(eq(inboxes.memberId, ctx.memberId), eq(inboxes.repoId, ctx.repoId), eq(inboxes.projectId, ctx.projectId)),
+        )
+        .limit(1)
+    )[0];
+    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+
+    const items = await tx
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread")));
+
+    return {
+      unread: items.length,
+      questions: items.filter((i) => i.kind === "question").length,
+      tasks: items.filter((i) => i.kind === "task").length,
+      changes: items.filter((i) => i.kind === "change").length,
+      decisions: items.filter((i) => i.kind === "decision").length,
+    };
+  });
+}
+
+/**
+ * Peek inbox by principal + git remote — no session needed.
+ * Resolves remote → repo → project → member → inbox, then returns unread counts.
+ * Used by the status line which doesn't have a session ID.
+ */
+export async function peekInboxByRemote(
+  principalId: string,
+  gitRemote: string,
+): Promise<InboxPeek> {
+  return withSystem(async (tx) => {
+    const repo = (await tx.select().from(repos).where(eq(repos.gitRemote, gitRemote)).limit(1))[0];
+    if (!repo) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+
+    const member = (
+      await tx
+        .select()
+        .from(members)
+        .where(and(eq(members.orgId, repo.orgId), eq(members.principalId, principalId)))
+        .limit(1)
+    )[0];
+    if (!member) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+
+    const inbox = (
+      await tx
+        .select()
+        .from(inboxes)
+        .where(
+          and(eq(inboxes.memberId, member.id), eq(inboxes.repoId, repo.id), eq(inboxes.projectId, repo.projectId)),
         )
         .limit(1)
     )[0];

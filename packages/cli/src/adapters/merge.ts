@@ -71,6 +71,16 @@ export function mergeMcp(existing: string | null, name: string, spec: McpServerS
   return JSON.stringify(obj, null, 2) + "\n";
 }
 
+/** Merge statusLine config into settings JSON. Only sets it if not already configured. */
+export function mergeStatusLine(existing: string | null, command: string, args: string[]): string {
+  const obj: Json = existing ? (JSON.parse(existing) as Json) : {};
+  // Only install if no statusLine is configured yet (don't overwrite user's custom one)
+  if (!obj.statusLine) {
+    obj.statusLine = { type: "command", command, args };
+  }
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
 const START = "<!-- lockstep:start -->";
 const END = "<!-- lockstep:end -->";
 

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { access } from "node:fs/promises";
 import { applyFile, readIfExists } from "./fsutil.js";
-import { mergeHooks, mergeMcp, upsertManagedBlock } from "./merge.js";
+import { mergeHooks, mergeMcp, mergeStatusLine, upsertManagedBlock } from "./merge.js";
 import { captureHooks, mcpSpec, SKILL_MD, CLAUDE_BLOCK } from "./templates.js";
 import type { Scope, VendorAdapter } from "./types.js";
 
@@ -40,7 +40,14 @@ export const claudeAdapter: VendorAdapter = {
     const p = paths(cwd, scope);
     return [
       await applyFile(p.mcp, (cur) => mergeMcp(cur, "lockstep", mcpSpec("claude")), dryRun),
-      await applyFile(p.hooks, (cur) => mergeHooks(cur, captureHooks, "lockstep"), dryRun),
+      await applyFile(
+        p.hooks,
+        (cur) => {
+          const withHooks = mergeHooks(cur, captureHooks, "lockstep");
+          return mergeStatusLine(withHooks, "lockstep", ["statusline"]);
+        },
+        dryRun,
+      ),
       await applyFile(p.skill, () => SKILL_MD, dryRun),
       await applyFile(p.instructions, (cur) => upsertManagedBlock(cur, CLAUDE_BLOCK), dryRun),
     ];

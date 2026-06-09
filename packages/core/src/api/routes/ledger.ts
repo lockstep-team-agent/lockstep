@@ -14,7 +14,7 @@ import {
   reconcile,
 } from "../../ledger/ledger-service.js";
 import { whoowns, refreshOwnership } from "../../graph/ownership-service.js";
-import { readInbox, peekInbox, ackInbox } from "../../inbox/inbox-service.js";
+import { readInbox, peekInbox, ackInbox, peekInboxByRemote } from "../../inbox/inbox-service.js";
 
 /** Resolve the session context from the x-lockstep-session header (set by the MCP server). */
 async function ctx(req: FastifyRequest, reply: FastifyReply): Promise<SessionContext | null> {
@@ -136,6 +136,15 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     const c = await ctx(req, reply);
     if (!c) return;
     return peekInbox(c.orgId, { memberId: c.memberId, repoId: c.repoId, projectId: c.projectId });
+  });
+
+  // inbox/peek/me — sessionless peek by principal + git remote (for status line)
+  app.get("/inbox/peek/me", async (req, reply) => {
+    const p = req.principal;
+    if (!p) return reply.code(401).send({ error: "unauthorized" });
+    const { remote } = req.query as { remote?: string };
+    if (!remote) return reply.code(400).send({ error: "remote query param required" });
+    return peekInboxByRemote(p.id, remote);
   });
 
   // inbox/ack — mark items as read (explicit acknowledgment)

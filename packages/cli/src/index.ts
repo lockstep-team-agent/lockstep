@@ -85,6 +85,11 @@ async function main(): Promise<void> {
       await runCapture(val("event") ?? "PostToolUse");
       return;
     }
+    case "statusline": {
+      const { runStatusLine } = await import("./statusline.js");
+      await runStatusLine();
+      return;
+    }
     case "help":
     case "--help":
     case "-h":
