@@ -1,6 +1,6 @@
 {
   "name": "lockstep",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Neutral, cross-vendor system-of-record that keeps developers' coding agents in lockstep.",

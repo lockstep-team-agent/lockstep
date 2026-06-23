@@ -6,7 +6,7 @@ If you discover a security vulnerability in Lockstep, please report it responsib
 
 ### How to report
 
-Email **naman7474@gmail.com** with:
+Email **namanjain1903@gmail.com** with:
 
 1. A description of the vulnerability
 2. Steps to reproduce it

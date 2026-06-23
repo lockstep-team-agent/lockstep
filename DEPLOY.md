@@ -20,7 +20,7 @@ Railway project
 
 ## 2. Deploy `core`
 
-- **Add → GitHub Repo → `naman7474/lockstep`.** This service uses the root `railway.json`
+- **Add → GitHub Repo → `lockstep-team-agent/lockstep`.** This service uses the root `railway.json`
   (Dockerfile `packages/core/Dockerfile`, healthcheck `/healthz`).
 - **Variables:**
   | Key | Value |

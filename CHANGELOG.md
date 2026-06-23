@@ -4,41 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+**Versioning policy:** Lockstep is a monorepo released as a single unit. The root,
+`@lockstep/core`, `@lockstep/web`, `lockstep-cli`, and `@lockstep/pr-check` packages
+share one version number, tagged on this repository (e.g. `v0.1.0`). The `lockstep-cli`
+package is the only one published to npm; its npm version tracks the repo version.
+
 ## [Unreleased]
 
-### Added
+## [0.1.0] - 2026-06-23
 
-- Open-source readiness: README overhaul, CI pipeline, SECURITY.md, CONTRIBUTING.md
-- ESLint + Prettier code quality tooling
-- GitHub Actions CI workflow (build, typecheck, test, lint)
-- Issue and PR templates
-
-## [0.0.2] - 2025-06-01
+First public release.
 
 ### Added
 
-- Smart connect: join-by-GitHub-access (no approval needed) or create new project; idempotent
-- CLI published as `lockstep-cli` on npm
+- **Capture (Tier-1)** — Claude Code `PostToolUse`/`SessionEnd` hooks diff the working
+  tree, classify changed files as contract surfaces or owned, and publish to the ledger
+  with a risk tier.
+- **Routing** — dependency-graph fan-out: a contract change notifies every repo that
+  registered a dependency on the changed surface, delivered to its inbox.
+- **Replay** — `SessionStart` injects unread changes, binding decisions, and open
+  questions into the agent as `additionalContext`.
+- **Decision ledger** — append-only, content-addressable (CAS) versioned decisions with a
+  propose/acknowledge workflow; owner-scoped decisions bind immediately, shared ones bind
+  on acknowledgement.
+- **Reconciliation gate (Tier-2)** — GitHub Action that fails a PR when a changed contract
+  surface has no binding decision.
+- **Ownership graph** — CODEOWNERS parser, auto-ingested on connect.
+- **MCP server** — per-session, 12 tools (notify, inbox, ack, query, ask, answer,
+  delegate, complete, propose_decision, ack_decision, register_dependency, decisions,
+  whoowns).
+- **CLI** (`lockstep-cli`) — `login` (GitHub device flow + dev mode), `init`, `connect`,
+  `invite`, `capture`, `status`, `doctor`; OS-keychain token storage with encrypted file
+  fallback.
+- **Dashboard** — Next.js UI for decisions, contracts, dependencies, activity, members,
+  questions, and tasks.
+- **Backend** — Fastify 5 API on PostgreSQL (Drizzle ORM), 26-table schema with
+  row-level-security tenant isolation and append-only enforcement; runs self-hosted via
+  `docker compose` or managed on Railway.
+- **Project hygiene** — CI (build, typecheck, lint, test on Node 20 & 22), ESLint +
+  Prettier, issue/PR templates, SECURITY.md, CONTRIBUTING.md.
 
-## [0.0.1] - 2025-05-15
-
-### Added
-
-- All 9 phases built and verified against real PostgreSQL
-- 25-table schema with RLS tenant isolation and append-only triggers
-- GitHub App authentication with device flow
-- CODEOWNERS parser and ownership graph
-- CAS-versioned decision ledger with propose/acknowledge workflow
-- Per-session MCP server with 12 tools
-- `lockstep init` with vendor adapter pattern (idempotent config merge)
-- Dependency-graph routing with inbox notifications
-- Tier-1 capture: diff, classify, and publish contract changes
-- Questions and tasks with cross-agent delegation
-- Tier-2 PR-check reconciliation gate (GitHub Action)
-- Next.js dashboard with decisions, contracts, dependencies, activity views
-- Docker Compose for local development and self-hosting
-- Railway deployment configuration
-
-[Unreleased]: https://github.com/naman7474/lockstep/compare/v0.0.2...HEAD
-[0.0.2]: https://github.com/naman7474/lockstep/compare/v0.0.1...v0.0.2
-[0.0.1]: https://github.com/naman7474/lockstep/releases/tag/v0.0.1
+[Unreleased]: https://github.com/lockstep-team-agent/lockstep/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/lockstep-team-agent/lockstep/releases/tag/v0.1.0

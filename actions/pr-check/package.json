@@ -1,6 +1,6 @@
 {
   "name": "@lockstep/pr-check",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Tier-2 PR reconciliation gate — fails the PR if a changed contract surface has no binding decision."

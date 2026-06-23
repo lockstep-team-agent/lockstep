@@ -1,10 +1,9 @@
-<p align="center">
-  <strong>Lockstep</strong><br>
-  Keep your team's AI coding agents coordinated — without sharing source code.
-</p>
+<p align="center"><strong>Lockstep</strong></p>
+
+<h3 align="center">Stop your team's AI coding agents from making conflicting changes — without sharing source code.</h3>
 
 <p align="center">
-  <a href="https://github.com/naman7474/lockstep/actions/workflows/ci.yml"><img src="https://github.com/naman7474/lockstep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml"><img src="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/lockstep-cli"><img src="https://img.shields.io/npm/v/lockstep-cli" alt="npm version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript strict">
@@ -12,17 +11,46 @@
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791" alt="PostgreSQL 16">
 </p>
 
+<!--
+  HERO ASSET — record a 20–30s clip of the magic loop and embed it here:
+  Agent A renames a contract surface → Lockstep captures the decision →
+  Agent B's next session is warned automatically → an uncoordinated PR fails the gate.
+  Save as docs/assets/demo.gif (+ docs/assets/demo.mp4 fallback), then uncomment:
+  <p align="center"><img src="docs/assets/demo.gif" alt="Lockstep in action" width="820"></p>
+
+  LIVE DEMO — once the hosted playground URL is live, add it to the nav line below:
+  <a href="https://YOUR-DEMO-URL"><b>▶ Try the live demo</b></a> ·
+-->
+
+<p align="center">
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#how-it-works"><b>How it works</b></a> ·
+  <a href="./DEPLOY.md"><b>Deploy</b></a>
+</p>
+
 ---
 
-## Why Lockstep?
+When two developers point AI coding agents (Claude Code, Codex, Gemini CLI) at the same system, the agents have no idea what each other just did:
 
-When multiple developers use AI coding agents (Claude Code, Codex, Gemini CLI) on the same codebase, things break:
-
-- **Agent A** renames an API endpoint. **Agent B** keeps calling the old one.
-- **Agent A** decides on a new auth pattern. **Agent B** invents a conflicting one.
+- **Agent A** renames an API endpoint → **Agent B** keeps calling the old one.
+- **Agent A** picks an auth pattern → **Agent B** invents a conflicting one.
 - Nobody knows who owns what, what changed, or what still needs review.
 
-**Lockstep is a neutral system-of-record** that keeps every agent aware of every decision, contract change, and dependency — in real-time — without source code ever leaving the developer's machine.
+**Lockstep is a neutral system-of-record for your agents.** Every decision, contract change, and dependency is captured and routed to the agents that need it — in real time, and **without any source code ever leaving the developer's machine** (only decisions and metadata sync to the cloud).
+
+```bash
+npm i -g lockstep-cli
+```
+
+### How it compares
+
+|                                         | Nothing | Slack / docs | CODEOWNERS  |      **Lockstep**      |
+| --------------------------------------- | :-----: | :----------: | :---------: | :--------------------: |
+| Agents learn what other agents changed  |   ❌    |    Manual    |     ❌      |      ✅ Automatic      |
+| Contract changes routed to consumers    |   ❌    |      ❌      |     ❌      |  ✅ Dependency graph   |
+| Blocks uncoordinated changes at PR time |   ❌    |      ❌      | Review only | ✅ Reconciliation gate |
+| Works across agent vendors              |    —    |      —       |      —      | ✅ Claude/Codex/Gemini |
+| Source code leaves your machine         |    —    |  Sometimes   |     ❌      |        ❌ Never        |
 
 ## How It Works
 
@@ -99,7 +127,7 @@ Get a working local setup in under 5 minutes — no GitHub App keys needed.
 ### 1. Start the stack
 
 ```bash
-git clone https://github.com/naman7474/lockstep.git
+git clone https://github.com/lockstep-team-agent/lockstep.git
 cd lockstep
 cp .env.example .env       # dev-login is enabled by default
 docker compose up --build   # starts Postgres + API + dashboard
@@ -217,7 +245,7 @@ See [DEPLOY.md](./DEPLOY.md) for step-by-step Railway deployment instructions.
 
 ## Architecture
 
-- **25-table schema** with row-level security (RLS) for tenant isolation
+- **26-table schema** with row-level security (RLS) for tenant isolation
 - **Append-only ledger** — decisions are immutable, versioned with content-addressable storage
 - **Vendor-neutral adapter pattern** — new AI agent integrations are a single adapter file
 - **Zod validation** on every boundary, TypeScript strict mode throughout

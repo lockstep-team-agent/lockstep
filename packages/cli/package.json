@@ -1,14 +1,17 @@
 {
   "name": "lockstep-cli",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
   "type": "module",
   "license": "MIT",
-  "homepage": "https://github.com/naman7474/lockstep",
+  "homepage": "https://github.com/lockstep-team-agent/lockstep",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/naman7474/lockstep.git",
+    "url": "git+https://github.com/lockstep-team-agent/lockstep.git",
     "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/lockstep-team-agent/lockstep/issues"
   },
   "keywords": [
     "lockstep",

@@ -14,7 +14,7 @@ Thanks for your interest in contributing to Lockstep! This guide will help you g
 
 ```bash
 # Clone the repo
-git clone https://github.com/naman7474/lockstep.git
+git clone https://github.com/lockstep-team-agent/lockstep.git
 cd lockstep
 
 # Install dependencies
