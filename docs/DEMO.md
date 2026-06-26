@@ -1,176 +1,165 @@
-# Demo: Alice and Bob with Lockstep
+# Demo
 
-This walkthrough simulates two developers (Alice and Bob) using AI coding agents on the same project, coordinated by Lockstep. Everything runs locally — no GitHub App needed.
+Two parts: the **hero GIF storyboard** (what to record for the README) and a **scripted walkthrough**
+that produces exactly that scene, runnable end-to-end with local dev-login.
 
-## Prerequisites
+---
 
-- Docker & Docker Compose
-- Node.js >= 20
-- `lockstep-cli` installed (`npm i -g lockstep-cli`)
+## Hero GIF — the 25-second story
 
-## Setup
+This is the README's lead visual. The point it must land: *one developer's agent makes a decision,
+and the other developer's agent is aware of it — ranked by blast radius — before it writes a line.*
 
-Start the Lockstep backend:
+**Format:** split screen, ~25s, two Claude Code panes side by side. No narration; let the briefing speak.
 
-```bash
-cd lockstep
-cp .env.example .env
-docker compose up --build
+```
+ LEFT — Dev A (auth-service)                RIGHT — Dev B (web), a moment later
+ ───────────────────────────                ──────────────────────────────────
+ A is renaming the login route.             B opens a fresh Claude Code session.
+
+ A's agent:                                 ─ Lockstep briefing ─────────────
+   "Renaming POST /login → POST /session.   ⚠ [impact 3] auth: POST /login →
+    Logging the decision."                     POST /session is now binding
+   ↳ [lockstep] decision logged · impact 3  ⚠ [impact 3] change: POST /session
+   ↳ [lockstep] change published               (3 services consume this)
+
+                                            B's agent, unprompted:
+                                              "Heads up — the auth team renamed
+                                               /login to /session. I'll call
+                                               /session, not /login."
 ```
 
-Wait for `lockstep-core listening on :8080` in the logs.
+**Beats (for the editor):**
+1. `0–8s` — LEFT: A's agent renames the route; the two `[lockstep]` lines flash. Hold on "impact 3".
+2. `8–14s` — RIGHT: B runs `claude`; the Lockstep briefing prints, **highest-impact line first**.
+3. `14–25s` — RIGHT: B's agent states it will use `/session`. End on that line.
 
-## Step 1: Alice logs in and creates a project
+**Recording notes:** use two terminal panes (tmux or two windows) at ≥16pt; record with
+`asciinema` → `agg` for a crisp GIF, or a screen recorder at 820px wide. Save to
+`docs/assets/demo.gif`, then uncomment the hero block in the README.
+
+---
+
+## Scripted walkthrough (produces the scene above)
+
+Everything runs locally — no GitHub App needed. Two ordering rules matter:
+- **Alice invites Bob *before* Bob logs in.** In dev mode (no GitHub token) Bob can't auto-join a repo
+  he has no verified access to; the invite is what lands his repo in Alice's project. The invite is
+  activated on Bob's next login. *(Without it, Bob lands in his own separate workspace and nothing
+  delivers — `lockstep connect` now warns when this happens.)*
+- **Bob declares his dependency *before* Alice changes the surface**, so the change routes to him and
+  the decision is correctly cross-cutting.
+
+### Setup
 
 ```bash
-# Alice authenticates (dev mode — no GitHub needed)
-curl -s -X POST http://localhost:8080/auth/dev-login \
-  -H 'Content-Type: application/json' \
-  -d '{"githubUserId": 1, "githubLogin": "alice"}' | jq .
-
-# Save Alice's token
-ALICE_TOKEN=$(curl -s -X POST http://localhost:8080/auth/dev-login \
-  -H 'Content-Type: application/json' \
-  -d '{"githubUserId": 1, "githubLogin": "alice"}' | jq -r .token)
-
-echo "Alice's token: $ALICE_TOKEN"
+cd lockstep && cp .env.example .env && docker compose up --build
+# wait for: lockstep-core listening on :8080
 ```
 
-## Step 2: Alice connects a repo and creates the project
+### 1. Alice creates the project (auth-service) and invites Bob
 
 ```bash
-# Alice connects her repo to a project called "acme-api"
+ALICE=$(curl -s -X POST http://localhost:8080/auth/dev-login \
+  -H 'Content-Type: application/json' \
+  -d '{"githubUserId":1,"githubLogin":"alice"}' | jq -r .token)
+
 curl -s -X POST http://localhost:8080/connect \
-  -H "Authorization: Bearer $ALICE_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"gitRemote": "https://github.com/acme/api.git", "project": "acme-api"}' | jq .
+  -H "Authorization: Bearer $ALICE" -H 'Content-Type: application/json' \
+  -d '{"gitRemote":"https://github.com/acme/auth-service.git","project":"acme"}' | jq .
+
+# Invite Bob to the project (the CLI does this via `lockstep invite bob`).
+ORG=$(curl -s http://localhost:8080/me -H "Authorization: Bearer $ALICE" | jq -r '.memberships[0].orgId')
+PROJ=$(curl -s http://localhost:8080/orgs/$ORG/overview -H "Authorization: Bearer $ALICE" | jq -r '.projects[0].id')
+curl -s -X POST http://localhost:8080/orgs/$ORG/projects/$PROJ/invite \
+  -H "Authorization: Bearer $ALICE" -H 'Content-Type: application/json' \
+  -d '{"githubLogin":"bob"}' | jq .
 ```
 
-This creates the org, project, and repo — all in one call.
-
-## Step 3: Bob joins the same project
+### 2. Bob logs in (activating the invite), connects, and declares what he consumes
 
 ```bash
-# Bob authenticates
-BOB_TOKEN=$(curl -s -X POST http://localhost:8080/auth/dev-login \
+BOB=$(curl -s -X POST http://localhost:8080/auth/dev-login \
   -H 'Content-Type: application/json' \
-  -d '{"githubUserId": 2, "githubLogin": "bob"}' | jq -r .token)
+  -d '{"githubUserId":2,"githubLogin":"bob"}' | jq -r .token)
 
-# Bob connects his repo to the same project
 curl -s -X POST http://localhost:8080/connect \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"gitRemote": "https://github.com/acme/frontend.git", "project": "acme-api"}' | jq .
-```
+  -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+  -d '{"gitRemote":"https://github.com/acme/web.git","project":"acme"}' | jq .
 
-## Step 4: Alice registers a session and proposes a decision
+# Sanity check: Bob must be in Alice's org (same orgId) — else the invite didn't take.
+curl -s http://localhost:8080/me -H "Authorization: Bearer $BOB" | jq '.memberships[0].orgId'
 
-```bash
-# Alice's agent starts a session
-ALICE_SESSION=$(curl -s -X POST http://localhost:8080/sessions/register \
-  -H "Authorization: Bearer $ALICE_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"gitRemote": "https://github.com/acme/api.git", "vendor": "claude-code"}' | jq -r .sessionId)
+BOB_SID=$(curl -s -X POST http://localhost:8080/sessions/register \
+  -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+  -d '{"gitRemote":"https://github.com/acme/web.git","vendor":"claude-code"}' | jq -r .sessionId)
 
-echo "Alice's session: $ALICE_SESSION"
-
-# Alice's agent proposes a decision: rename the auth endpoint
-curl -s -X POST http://localhost:8080/decisions \
-  -H "Authorization: Bearer $ALICE_TOKEN" \
-  -H "x-lockstep-session: $ALICE_SESSION" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "scopeKind": "api",
-    "scopeRef": "POST /auth/login",
-    "ruleText": "Rename POST /auth/login to POST /auth/session for consistency",
-    "baseVersion": 0
-  }' | jq .
-```
-
-## Step 5: Alice records a contract change
-
-```bash
-# Alice's agent captures a contract-level change
-curl -s -X POST http://localhost:8080/changes \
-  -H "Authorization: Bearer $ALICE_TOKEN" \
-  -H "x-lockstep-session: $ALICE_SESSION" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "summary": "Renamed POST /auth/login to POST /auth/session",
-    "surface": "POST /auth/session",
-    "riskTier": "breaking"
-  }' | jq .
-```
-
-## Step 6: Bob registers a dependency and checks his inbox
-
-```bash
-# Bob's frontend depends on the auth API surface
-BOB_SESSION=$(curl -s -X POST http://localhost:8080/sessions/register \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"gitRemote": "https://github.com/acme/frontend.git", "vendor": "codex"}' | jq -r .sessionId)
-
-# Register that Bob's repo consumes the auth API
+# Bob's web app consumes the auth surface (this is what lockstep.yaml `consumes:` does)
 curl -s -X POST http://localhost:8080/dependencies \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H "x-lockstep-session: $BOB_SESSION" \
+  -H "Authorization: Bearer $BOB" -H "x-lockstep-session: $BOB_SID" \
   -H 'Content-Type: application/json' \
-  -d '{"producedSurface": "POST /auth/session"}' | jq .
-
-# Bob checks his inbox — he should see Alice's change
-curl -s http://localhost:8080/inbox \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H "x-lockstep-session: $BOB_SESSION" | jq .
+  -d '{"producedSurface":"http:POST /auth/session","source":"manifest"}' | jq .
 ```
 
-Bob's agent now knows about Alice's breaking change and can update the frontend accordingly.
-
-## Step 7: Bob acknowledges the decision
+### 3. Alice logs the decision and changes the surface
 
 ```bash
-# Get the decision ID from the list
-DECISION_ID=$(curl -s http://localhost:8080/decisions \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H "x-lockstep-session: $BOB_SESSION" | jq -r '.decisions[0].id')
+ALICE_SID=$(curl -s -X POST http://localhost:8080/sessions/register \
+  -H "Authorization: Bearer $ALICE" -H 'Content-Type: application/json' \
+  -d '{"gitRemote":"https://github.com/acme/auth-service.git","vendor":"claude-code"}' | jq -r .sessionId)
 
-# Bob's agent acknowledges it
-curl -s -X POST "http://localhost:8080/decisions/$DECISION_ID/ack" \
-  -H "Authorization: Bearer $BOB_TOKEN" \
-  -H "x-lockstep-session: $BOB_SESSION" \
+# A durable decision (a rule). Because a consumer exists, impact > 0 → stays `open` until acked.
+curl -s -X POST http://localhost:8080/decisions \
+  -H "Authorization: Bearer $ALICE" -H "x-lockstep-session: $ALICE_SID" \
   -H 'Content-Type: application/json' \
-  -d '{"version": 1, "verdict": "ack"}' | jq .
+  -d '{"scopeKind":"surface","scopeRef":"http:POST /auth/session","decisionType":"rule",
+       "ruleText":"POST /login is renamed to POST /session across the org","baseVersion":0}' | jq .
+#  => { ..., "status": "open", "impact": 1 }
+
+# The change event on the canonical surface — routes to every consumer.
+curl -s -X POST http://localhost:8080/changes \
+  -H "Authorization: Bearer $ALICE" -H "x-lockstep-session: $ALICE_SID" \
+  -H 'Content-Type: application/json' \
+  -d '{"summary":"Renamed POST /login to POST /session","surface":"http:POST /auth/session","riskTier":"shared"}' | jq .
+#  => { ..., "impact": 1, "delivered": 1 }
 ```
 
-## What just happened?
+### 4. Bob's agent is briefed (the magic moment), then acks
 
-1. Alice's AI agent proposed a breaking API change
-2. The change was recorded in Lockstep's append-only ledger
-3. Bob's agent — working on a different repo with a different AI vendor — was notified via the dependency graph
-4. Bob's agent acknowledged the decision, and both agents are now in sync
+```bash
+# The change is in Bob's inbox, carrying its impact for ranking.
+curl -s http://localhost:8080/inbox \
+  -H "Authorization: Bearer $BOB" -H "x-lockstep-session: $BOB_SID" | jq '.changes, .decisions'
 
-All of this happened without any source code leaving either developer's machine. Only decisions and metadata flowed through Lockstep.
+# Bob acknowledges the cross-cutting decision → it becomes binding for the project.
+DID=$(curl -s http://localhost:8080/decisions \
+  -H "Authorization: Bearer $BOB" -H "x-lockstep-session: $BOB_SID" | jq -r '.decisions[0].id')
+curl -s -X POST "http://localhost:8080/decisions/$DID/ack" \
+  -H "Authorization: Bearer $BOB" -H "x-lockstep-session: $BOB_SID" \
+  -H 'Content-Type: application/json' -d '{"version":1,"verdict":"ack"}' | jq .
+#  => { "status": "binding" }
+```
 
-## Using the CLI instead
+## What just happened
 
-In real usage, you'd use the CLI instead of raw curl calls:
+1. Bob's repo declared it consumes `http:POST /auth/session` — populating the usage graph.
+2. Alice's agent logged a **decision** and published a **change** on that canonical surface.
+3. Lockstep scored both by **blast radius** (1 consumer → impact 1) and routed the change to Bob.
+4. Bob's next session leads with the impact-ranked briefing — his agent knows before it acts.
+5. Bob acked the cross-cutting decision, so it's now **binding** for the whole project.
+
+## The real thing (CLI, not curl)
 
 ```bash
 # Alice
 lockstep login --dev --dev-id 1 --dev-login alice
-cd ~/acme-api
-lockstep init
-lockstep connect --project "acme-api"
-# Open Claude Code — the MCP server handles the rest
+cd ~/auth-service && lockstep init && lockstep connect --project acme
+# add lockstep.yaml, open Claude Code — the MCP server + hooks handle the rest
 
 # Bob
 lockstep login --dev --dev-id 2 --dev-login bob
-cd ~/acme-frontend
-lockstep init
-lockstep connect --project "acme-api"
-# Open Codex or Gemini CLI — the MCP server handles the rest
+cd ~/web && lockstep init && lockstep connect --project acme
+# add lockstep.yaml with `consumes: [http:POST /auth/session]`, open Claude Code
 ```
 
-## View in the Dashboard
-
-Open http://localhost:3000 to see decisions, contracts, dependencies, and activity in the web UI.
+Open http://localhost:3000 to see decisions, dependencies, and activity in the dashboard.

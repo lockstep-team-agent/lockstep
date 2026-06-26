@@ -35,7 +35,20 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 
 ## Before coding a shared/contract surface
 - Call \`query\` to check the ledger for existing decisions/contracts (answer instantly if known).
+- Before changing or removing an endpoint/RPC, call \`consumers\` with its canonical surface ID
+  (e.g. \`http:POST /auth/session\`) to see who depends on it — answer "does anyone use this?" from
+  the graph instead of pinging a human. A high consumer count means high blast radius: log a decision.
 - Respect any \`binding\` decision in scope.
+
+## Decisions vs changes — the most important distinction
+- A **change** is a routine event (you edited some files). It is captured automatically — you do NOT
+  log it. Never call \`propose_decision\` just because you edited code.
+- A **decision** is a durable **rule** or **architectural choice** that shapes future work
+  (e.g. "auth tokens are JWT, 15-min expiry"; "we standardize on Postgres"; "rename POST /login to
+  POST /session across the org"). These are the hero of Lockstep.
+- **Whenever you (or the user) make a real decision like that, you MUST log it** with
+  \`propose_decision\` — set \`decisionType\` to \`rule\` or \`architecture\`. If you're unsure whether
+  something is a decision, ask: "will this constrain how others build later?" If yes, log it.
 
 ## After making a change
 - Summarize the change and call \`notify\` (include a contract delta for interface changes).
@@ -43,7 +56,7 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 
 ## Coordinating
 - Use \`ask\` for code/repo questions (set \`urgent\` if you're blocked).
-- Use \`delegate\` / \`complete\` for handoffs. Propose binding rules with \`propose_decision\`.
+- Use \`delegate\` / \`complete\` for handoffs.
 
 ## Incoming messages
 - When you see a "[Lockstep]" notification, inform the user about the pending message(s).
@@ -52,4 +65,4 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 
 export const CLAUDE_BLOCK = `## Lockstep (team coordination)
 IMPORTANT: On session start, BEFORE doing anything else, call \`inbox\` and \`decisions\`. If there are any open questions, tasks, or changes, you MUST tell the user immediately — do not skip this. Example: "You have 1 new question from a teammate: [question text]". Then proceed with the user's request.
-Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. See the \`lockstep\` skill for detail.`;
+Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. IMPORTANT: a routine code change is captured automatically — do NOT log it as a decision. But whenever you or the user make a durable **rule or architectural choice** that will constrain future work, you MUST record it with \`propose_decision\` (\`decisionType: rule | architecture\`). Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. See the \`lockstep\` skill for detail.`;

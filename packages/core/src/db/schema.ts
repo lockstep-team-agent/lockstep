@@ -177,6 +177,12 @@ export const decisions = pgTable("decisions", {
   projectId: uuid("project_id").notNull(),
   scopeKind: text("scope_kind").notNull(), // surface | repo | topic | project
   scopeRef: text("scope_ref").notNull(),
+  // A decision is a durable RULE or ARCHITECTURAL choice that shapes future work — never a routine
+  // change event (those live in change_feed_entries). See the product thesis.
+  decisionType: text("decision_type").notNull().default("rule"), // rule | architecture
+  // Blast radius, derived from the usage graph (count of consumers of the scope) with optional
+  // agent/human override. Drives noise filtering, session-start ranking, and the binding model.
+  impact: integer("impact").notNull().default(0),
   currentVersion: integer("current_version").notNull().default(0),
   status: text("status").notNull().default("open"), // open | ack | binding | superseded
   createdAt: createdAt(),
@@ -299,6 +305,7 @@ export const changeFeedEntries = pgTable("change_feed_entries", {
   contractId: uuid("contract_id"),
   surface: text("surface"),
   riskTier: text("risk_tier").notNull().default("owned"), // owned | shared | contract
+  impact: integer("impact").notNull().default(0), // blast radius (consumer count of the surface)
   publishState: text("publish_state").notNull().default("drafted"), // drafted | pending_confirm | published
   provenance: jsonb("provenance"),
   diffHash: text("diff_hash"), // dedup key for PostToolUse vs Stop double-fire

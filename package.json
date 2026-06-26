@@ -2,6 +2,7 @@
   "name": "lockstep",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Neutral, cross-vendor system-of-record that keeps developers' coding agents in lockstep.",
   "workspaces": [

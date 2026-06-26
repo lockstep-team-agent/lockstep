@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/lockstep-team-agent/lockstep",
   "repository": {
     "type": "git",

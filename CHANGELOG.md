@@ -11,6 +11,22 @@ package is the only one published to npm; its npm version tracks the repo versio
 
 ## [Unreleased]
 
+### Changed
+
+- License changed from MIT to Apache-2.0.
+- Capture records *changes*, not decisions — decisions are logged explicitly and typed (`rule` | `architecture`).
+- Surfaces use canonical vendor-neutral IDs (`http:`, `proto:`, `gql:`) so changes route to their consumers.
+- Decisions and changes carry an impact score (blast radius) that ranks the session briefing and drives binding.
+
+### Added
+
+- `lockstep.yaml` manifest to declare the surfaces a repo produces and consumes.
+- `consumers` tool / `GET /consumers` — "does anyone use this surface?", answered from the usage graph.
+
+### Fixed
+
+- Cross-service teammates now join a project via invite instead of silently getting a separate workspace; `lockstep invite` resolves the project by git remote.
+
 ## [0.1.0] - 2026-06-23
 
 First public release.

@@ -53,7 +53,13 @@ export async function runMcpServer(): Promise<void> {
   );
   server.tool(
     "propose_decision",
-    { scopeKind: z.string(), scopeRef: z.string(), ruleText: z.string(), baseVersion: z.number() },
+    {
+      scopeKind: z.string(),
+      scopeRef: z.string(),
+      ruleText: z.string(),
+      baseVersion: z.number(),
+      decisionType: z.enum(["rule", "architecture"]).optional(),
+    },
     async (a) => ok(await call("POST", "/decisions", sid, a)),
   );
   server.tool(
@@ -72,6 +78,9 @@ export async function runMcpServer(): Promise<void> {
   );
   server.tool("whoowns", { path: z.string() }, async (a) =>
     ok(await call("GET", `/owners?path=${encodeURIComponent(a.path)}`, sid)),
+  );
+  server.tool("consumers", { surface: z.string() }, async (a) =>
+    ok(await call("GET", `/consumers?surface=${encodeURIComponent(a.surface)}`, sid)),
   );
 
   await server.connect(new StdioServerTransport());

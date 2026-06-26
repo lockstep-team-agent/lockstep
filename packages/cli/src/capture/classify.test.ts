@@ -13,9 +13,15 @@ test("detects route/controller paths", () => {
   assert.ok(isContractSurface("app/controllers/cart.rb"));
 });
 
-test("detects exported TS API by content", () => {
-  assert.ok(isContractSurface("src/orders.ts", "export function createOrder() {}"));
+test("a bare export is NOT a contract surface (noise fix)", () => {
+  // The old heuristic flagged any `export` as shared, flooding the ledger. A plain exported helper
+  // in a non-route file is no longer a contract surface.
+  assert.ok(!isContractSurface("src/orders.ts", "export function createOrder() {}"));
   assert.ok(!isContractSurface("src/util.ts", "function localHelper() {}"));
+});
+
+test("detects an actual HTTP route by content", () => {
+  assert.ok(isContractSurface("src/routes/orders.ts", "router.post('/orders', handler)"));
 });
 
 test("plain internal file is not a contract surface", () => {

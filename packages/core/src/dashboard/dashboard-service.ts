@@ -15,14 +15,21 @@ import {
 import { inArray } from "drizzle-orm";
 
 export async function orgOverview(orgId: string): Promise<{
-  projects: Array<{ id: string; name: string }>;
+  projects: Array<{ id: string; name: string; repos: Array<{ gitRemote: string }> }>;
   members: Array<{ id: string; githubLogin: string }>;
 }> {
   return withOrg(orgId, async (tx) => {
     const ps = await tx.select().from(projects).where(eq(projects.orgId, orgId));
+    const rs = await tx.select().from(repos).where(eq(repos.orgId, orgId));
     const ms = await tx.select().from(members).where(eq(members.orgId, orgId));
     return {
-      projects: ps.map((p) => ({ id: p.id, name: p.name })),
+      // Include each project's connected repos so the CLI can resolve which project a repo belongs
+      // to by its git remote (e.g. for `lockstep invite`) instead of guessing from the remote name.
+      projects: ps.map((p) => ({
+        id: p.id,
+        name: p.name,
+        repos: rs.filter((r) => r.projectId === p.id).map((r) => ({ gitRemote: r.gitRemote })),
+      })),
       members: ms.map((m) => ({ id: m.id, githubLogin: m.githubLogin })),
     };
   });

@@ -128,6 +128,17 @@ so they can acknowledge without polling.
 
 If you discover a security vulnerability, please **do not** open a public issue. See [SECURITY.md](./SECURITY.md) for responsible disclosure instructions.
 
+## Developer Certificate of Origin (DCO)
+
+We require a [Developer Certificate of Origin](https://developercertificate.org/) sign-off on every
+commit. It's a one-line attestation that you wrote the patch or otherwise have the right to submit it
+under the project's license. Add it automatically with `git commit -s`, which appends:
+
+```
+Signed-off-by: Your Name <your@email.com>
+```
+
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](./LICENSE).
+Lockstep is licensed under the [Apache License 2.0](./LICENSE). By contributing, you agree that your
+contributions will be licensed under the same terms, and you certify the DCO above.

@@ -15,10 +15,10 @@ import { withSystem } from "../db/rls.js";
 
 export interface InboxView {
   unread: number;
-  changes: Array<{ id: string; summary: string; surface: string | null; riskTier: string }>;
+  changes: Array<{ id: string; summary: string; surface: string | null; riskTier: string; impact: number }>;
   questions: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
   tasks: Array<{ id: string; title: string; runState: string; status: string }>;
-  decisions: Array<{ id: string; scopeRef: string; ruleText: string; status: string }>;
+  decisions: Array<{ id: string; scopeRef: string; ruleText: string; status: string; impact: number }>;
 }
 
 /**
@@ -61,7 +61,7 @@ export async function readInbox(
 
     const taskRows = taskIds.length ? await tx.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
 
-    const decisionRows: Array<{ id: string; scopeRef: string; ruleText: string; status: string }> = [];
+    const decisionRows: Array<{ id: string; scopeRef: string; ruleText: string; status: string; impact: number }> = [];
     if (decisionIds.length) {
       const ds = await tx.select().from(decisions).where(inArray(decisions.id, decisionIds));
       for (const d of ds) {
@@ -72,13 +72,19 @@ export async function readInbox(
             .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
             .limit(1)
         )[0];
-        decisionRows.push({ id: d.id, scopeRef: d.scopeRef, ruleText: v?.ruleText ?? "", status: d.status });
+        decisionRows.push({ id: d.id, scopeRef: d.scopeRef, ruleText: v?.ruleText ?? "", status: d.status, impact: d.impact });
       }
     }
 
     return {
       unread: items.length,
-      changes: changeRows.map((c) => ({ id: c.id, summary: c.summary, surface: c.surface, riskTier: c.riskTier })),
+      changes: changeRows.map((c) => ({
+        id: c.id,
+        summary: c.summary,
+        surface: c.surface,
+        riskTier: c.riskTier,
+        impact: c.impact,
+      })),
       questions: questionRows.map((q) => ({
         id: q.id,
         body: q.body,

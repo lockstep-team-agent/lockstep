@@ -215,6 +215,8 @@ export interface ConnectResult {
   projectId: string;
   projectName: string;
   status: "already-connected" | "joined" | "created";
+  /** True only when a brand-new workspace (org) was created — the CLI warns about accidental-solo. */
+  createdOrg?: boolean;
 }
 
 /**
@@ -273,23 +275,48 @@ export async function connectOrJoin(
     );
   }
 
-  // not connected anywhere → create
-  let orgId = await withSystem(async (tx) => {
+  // Repo isn't connected anywhere yet. The orgs this principal already belongs to — populated by
+  // invites activated at login (see activateInvites), which is how a teammate joins a cross-service
+  // project they don't share a repo with.
+  const memberOrgs = await withSystem(async (tx) => {
     const ms = await tx.select().from(members).where(eq(members.principalId, principal.id));
-    return ms[0]?.orgId;
+    return [...new Set(ms.map((m) => m.orgId))];
   });
-  if (!orgId) orgId = (await createOrg(principal, `${principal.githubLogin}'s workspace`)).orgId;
-
   const pname = projectName ?? gitRemote.split("/").pop() ?? "project";
+
+  // 1) JOIN: if a project with this name already exists in one of the user's orgs (e.g. the project
+  //    they were invited to), connect this repo into it. This is the cross-service teammate path.
+  for (const oid of memberOrgs) {
+    const existing = await withOrg(oid, async (tx) =>
+      (
+        await tx
+          .select()
+          .from(projects)
+          .where(and(eq(projects.orgId, oid), eq(projects.name, pname)))
+          .limit(1)
+      )[0],
+    );
+    if (existing) {
+      await connectRepo(principal, oid, existing.id, gitRemote);
+      return {
+        orgId: oid,
+        projectId: existing.id,
+        projectName: pname,
+        status: "joined",
+        createdOrg: false,
+      };
+    }
+  }
+
+  // 2) CREATE: no matching project. Use the user's existing workspace if they have one; otherwise
+  //    spin up a new workspace — the "you might be going solo" case the CLI warns about.
+  let orgId = memberOrgs[0];
+  let createdOrg = false;
+  if (!orgId) {
+    orgId = (await createOrg(principal, `${principal.githubLogin}'s workspace`)).orgId;
+    createdOrg = true;
+  }
   const projectId = await withOrg(orgId, async (tx) => {
-    const existing = (
-      await tx
-        .select()
-        .from(projects)
-        .where(and(eq(projects.orgId, orgId!), eq(projects.name, pname)))
-        .limit(1)
-    )[0];
-    if (existing) return existing.id;
     const me = (
       await tx
         .select()
@@ -300,7 +327,7 @@ export async function connectOrJoin(
     return one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning()).id;
   });
   await connectRepo(principal, orgId, projectId, gitRemote);
-  return { orgId, projectId, projectName: pname, status: "created" };
+  return { orgId, projectId, projectName: pname, status: "created", createdOrg };
 }
 
 export async function listMemberships(

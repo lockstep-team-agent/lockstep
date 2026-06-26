@@ -11,6 +11,7 @@ import {
   answers,
   tasks,
   members,
+  repos,
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
@@ -25,7 +26,36 @@ function conflict(message: string): Error {
   return Object.assign(new Error(message), { statusCode: 409 });
 }
 
-const SHARED_SCOPES = new Set(["shared", "contract"]);
+const SURFACE_SCOPES = new Set(["surface", "contract", "shared"]);
+
+/** Distinct consumers of a surface in the usage graph = its blast radius. */
+async function consumerCountTx(tx: Tx, projectId: string, surface: string): Promise<number> {
+  const edges = await tx
+    .select()
+    .from(dependencyEdges)
+    .where(
+      and(
+        eq(dependencyEdges.projectId, projectId),
+        eq(dependencyEdges.producedSurface, surface),
+        eq(dependencyEdges.active, true),
+      ),
+    );
+  return new Set(edges.map((e) => e.consumerRepoId)).size;
+}
+
+/**
+ * Impact = blast radius of a scoped decision/change, derived from the usage graph. Surface-scoped
+ * items use their consumer count; a project-wide rule affects every other repo; other scopes default
+ * low. This single number drives the binding model and session-start ranking (see the product thesis).
+ */
+async function impactForScopeTx(tx: Tx, projectId: string, scopeKind: string, scopeRef: string): Promise<number> {
+  if (SURFACE_SCOPES.has(scopeKind)) return consumerCountTx(tx, projectId, scopeRef);
+  if (scopeKind === "project") {
+    const rs = await tx.select().from(repos).where(eq(repos.projectId, projectId));
+    return Math.max(0, rs.length - 1);
+  }
+  return 0;
+}
 
 export interface ProposeInput {
   projectId: string;
@@ -34,6 +64,7 @@ export interface ProposeInput {
   scopeRef: string;
   ruleText: string;
   baseVersion: number; // CAS: must equal the decision's current version (0 for new)
+  decisionType?: string; // rule | architecture (default rule)
   provenance?: unknown;
 }
 
@@ -45,7 +76,7 @@ export interface ProposeInput {
 export async function proposeDecision(
   orgId: string,
   input: ProposeInput,
-): Promise<{ decisionId: string; version: number; status: string }> {
+): Promise<{ decisionId: string; version: number; status: string; impact: number }> {
   return withOrg(orgId, async (tx: Tx) => {
     const existing = (
       await tx
@@ -61,7 +92,6 @@ export async function proposeDecision(
         .limit(1)
     )[0];
 
-    const shared = SHARED_SCOPES.has(input.scopeKind);
     let decisionId: string;
     let currentVersion: number;
 
@@ -75,6 +105,7 @@ export async function proposeDecision(
             projectId: input.projectId,
             scopeKind: input.scopeKind,
             scopeRef: input.scopeRef,
+            decisionType: input.decisionType ?? "rule",
             currentVersion: 0,
             status: "open",
           })
@@ -90,8 +121,13 @@ export async function proposeDecision(
       currentVersion = existing.currentVersion;
     }
 
+    // Mixed binding model (impact-driven): a cross-cutting decision (impact > 0 — touches a surface
+    // others consume, or a project-wide rule) stays `open` until an affected team acks it; an
+    // own-area decision (impact 0) binds on assertion. Replaces the old scopeKind-name gate.
+    const impact = await impactForScopeTx(tx, input.projectId, input.scopeKind, input.scopeRef);
+    const needsAck = impact > 0;
     const version = currentVersion + 1;
-    const status = shared ? "open" : "binding";
+    const status = needsAck ? "open" : "binding";
     await tx.insert(decisionVersions).values({
       orgId,
       decisionId,
@@ -102,7 +138,10 @@ export async function proposeDecision(
       status,
       proposedBy: input.memberId,
     });
-    await tx.update(decisions).set({ currentVersion: version, status }).where(eq(decisions.id, decisionId));
+    await tx
+      .update(decisions)
+      .set({ currentVersion: version, status, impact })
+      .where(eq(decisions.id, decisionId));
     await writeAudit(tx, {
       orgId,
       projectId: input.projectId,
@@ -111,19 +150,19 @@ export async function proposeDecision(
       entityKind: "decision",
       entityId: decisionId,
       entityVersion: version,
-      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, status },
+      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, status, impact },
     });
-    // Fan out shared decisions to all project members so they see it in their inbox
-    if (shared) {
+    // Fan out decisions awaiting acknowledgement so affected members see them in their inbox.
+    if (needsAck) {
       await fanoutToProjectTx(tx, orgId, {
         projectId: input.projectId,
         refId: decisionId,
         kind: "decision",
         senderMemberId: input.memberId,
-        reason: { scopeRef: input.scopeRef, ruleText: input.ruleText },
+        reason: { scopeRef: input.scopeRef, ruleText: input.ruleText, impact },
       });
     }
-    return { decisionId, version, status };
+    return { decisionId, version, status, impact };
   });
 }
 
@@ -163,7 +202,16 @@ export async function listDecisions(
   projectId: string,
   scopeRef?: string,
 ): Promise<
-  Array<{ id: string; scopeKind: string; scopeRef: string; status: string; version: number; ruleText: string }>
+  Array<{
+    id: string;
+    scopeKind: string;
+    scopeRef: string;
+    status: string;
+    version: number;
+    ruleText: string;
+    decisionType: string;
+    impact: number;
+  }>
 > {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select().from(decisions).where(eq(decisions.projectId, projectId));
@@ -184,6 +232,8 @@ export async function listDecisions(
         status: d.status,
         version: d.currentVersion,
         ruleText: v?.ruleText ?? "",
+        decisionType: d.decisionType,
+        impact: d.impact,
       });
     }
     return out;
@@ -202,6 +252,23 @@ export async function registerDependency(
   },
 ): Promise<{ edgeId: string }> {
   return withOrg(orgId, async (tx) => {
+    // Idempotent: the manifest is re-synced every session, so an identical (consumer, surface) edge
+    // must not duplicate. Return the existing active edge if present.
+    const existing = (
+      await tx
+        .select()
+        .from(dependencyEdges)
+        .where(
+          and(
+            eq(dependencyEdges.consumerRepoId, input.consumerRepoId),
+            eq(dependencyEdges.producedSurface, input.producedSurface),
+            eq(dependencyEdges.active, true),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (existing) return { edgeId: existing.id };
+
     const edge = one(
       await tx
         .insert(dependencyEdges)
@@ -229,6 +296,37 @@ export async function registerDependency(
   });
 }
 
+/**
+ * Who consumes a given surface? Backs the agent's "does anyone use this endpoint?" question so it can
+ * answer instantly from the usage graph instead of pinging a human. Excludes the asking repo.
+ */
+export async function listConsumers(
+  orgId: string,
+  projectId: string,
+  surface: string,
+  askingRepoId?: string,
+): Promise<{ surface: string; count: number; consumers: Array<{ repoId: string; gitRemote: string }> }> {
+  return withOrg(orgId, async (tx) => {
+    const edges = await tx
+      .select()
+      .from(dependencyEdges)
+      .where(
+        and(
+          eq(dependencyEdges.projectId, projectId),
+          eq(dependencyEdges.producedSurface, surface),
+          eq(dependencyEdges.active, true),
+        ),
+      );
+    const repoIds = [...new Set(edges.map((e) => e.consumerRepoId))].filter((r) => r !== askingRepoId);
+    const consumers: Array<{ repoId: string; gitRemote: string }> = [];
+    for (const repoId of repoIds) {
+      const r = (await tx.select().from(repos).where(eq(repos.id, repoId)).limit(1))[0];
+      consumers.push({ repoId, gitRemote: r?.gitRemote ?? "(unknown)" });
+    }
+    return { surface, count: consumers.length, consumers };
+  });
+}
+
 export interface NotifyInput {
   projectId: string;
   repoId: string;
@@ -246,7 +344,7 @@ export interface NotifyInput {
 export async function recordChange(
   orgId: string,
   input: NotifyInput,
-): Promise<{ changeId: string; publishState: string; delivered: number }> {
+): Promise<{ changeId: string; publishState: string; delivered: number; impact: number }> {
   const riskTier = input.riskTier ?? "owned";
   const publishState = riskTier === "owned" ? "published" : "pending_confirm";
   return withOrg(orgId, async (tx) => {
@@ -269,6 +367,8 @@ export async function recordChange(
       );
       contractId = c.id;
     }
+    // Impact = blast radius: how many repos consume the changed surface (the precise fan-out target).
+    const impact = input.surface ? await consumerCountTx(tx, input.projectId, input.surface) : 0;
     const change = one(
       await tx
         .insert(changeFeedEntries)
@@ -280,6 +380,7 @@ export async function recordChange(
           contractId,
           surface: input.surface ?? null,
           riskTier,
+          impact,
           publishState,
           diffHash: input.diffHash ?? null,
           createdBy: input.memberId,
@@ -307,7 +408,7 @@ export async function recordChange(
         senderMemberId: input.memberId,
       });
     }
-    return { changeId: change.id, publishState, delivered };
+    return { changeId: change.id, publishState, delivered, impact };
   });
 }
 

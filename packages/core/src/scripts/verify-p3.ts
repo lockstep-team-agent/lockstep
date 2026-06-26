@@ -39,6 +39,10 @@ async function main(): Promise<void> {
   const checks: Array<[string, boolean]> = [];
   const base = { projectId: ids.projectId, memberId: ids.memberId };
 
+  // Register a consumer of POST /orders first, so a decision on it is cross-cutting (impact > 0) and
+  // therefore stays `open` until acked — the impact-driven binding model.
+  await registerDependency(ids.orgId, { ...base, consumerRepoId: ids.repoId, producedSurface: "POST /orders" });
+
   const d1 = await proposeDecision(ids.orgId, {
     ...base,
     scopeKind: "shared",
@@ -46,7 +50,7 @@ async function main(): Promise<void> {
     ruleText: "orders need idempotencyKey",
     baseVersion: 0,
   });
-  checks.push(["propose v1 → open", d1.version === 1 && d1.status === "open"]);
+  checks.push(["cross-cutting (impact>0) decision → open", d1.version === 1 && d1.status === "open" && d1.impact > 0]);
 
   let stale = false;
   try {
@@ -72,7 +76,7 @@ async function main(): Promise<void> {
   checks.push(["propose v2 with correct base → version 2", d2.version === 2]);
 
   const ack = await ackDecision(ids.orgId, d2.decisionId, 2, ids.memberId, "ack");
-  checks.push(["ack promotes shared decision to binding", ack.status === "binding"]);
+  checks.push(["ack promotes a cross-cutting decision to binding", ack.status === "binding"]);
 
   const owned = await proposeDecision(ids.orgId, {
     ...base,
@@ -81,7 +85,7 @@ async function main(): Promise<void> {
     ruleText: "use UTC",
     baseVersion: 0,
   });
-  checks.push(["owner-scoped decision binds immediately", owned.status === "binding"]);
+  checks.push(["own-area decision (impact 0) binds immediately", owned.status === "binding" && owned.impact === 0]);
 
   const list = await listDecisions(ids.orgId, ids.projectId);
   checks.push(["listDecisions returns both decisions", list.length === 2]);
@@ -91,7 +95,7 @@ async function main(): Promise<void> {
     consumerRepoId: ids.repoId,
     producedSurface: "POST /orders",
   });
-  checks.push(["dependency edge registered", !!dep.edgeId]);
+  checks.push(["dependency edge registered (idempotent)", !!dep.edgeId]);
 
   const owedChange = await recordChange(ids.orgId, {
     ...base,

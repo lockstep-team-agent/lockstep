@@ -1,0 +1,21 @@
+# Lockstep manifest — copy to `lockstep.yaml` in your repo root and commit it.
+#
+# This is the deterministic source of truth for the usage graph. Lockstep syncs it on every session
+# start: each `consumes:` entry registers a dependency so this repo is warned (and the change is
+# ranked by blast radius) whenever a producer changes that surface.
+#
+# Surface IDs are canonical and vendor-neutral — a producer and a consumer must use the SAME string:
+#   http:METHOD /path          e.g. http:POST /auth/session   (path params normalized: /users/:id)
+#   proto:package.Service/Rpc  e.g. proto:auth.v1.AuthService/Login
+#   gql:Root.field             e.g. gql:Mutation.login
+
+# Surfaces other repos depend on this one for. Usually auto-detected from your routes; list here to
+# be explicit or to cover what the extractor can't see yet.
+produces:
+  - http:POST /auth/session
+  - http:GET /auth/me
+
+# Surfaces this repo calls. Declaring them is what makes Lockstep warn you when they change.
+consumes:
+  - http:GET /orders/:id
+  - proto:billing.v1.Billing/Charge

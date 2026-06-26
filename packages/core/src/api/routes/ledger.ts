@@ -6,6 +6,7 @@ import {
   listDecisions,
   registerDependency,
   recordChange,
+  listConsumers,
   queryLedger,
   askQuestion,
   answerQuestion,
@@ -74,6 +75,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       scopeRef?: string;
       ruleText?: string;
       baseVersion?: number;
+      decisionType?: string;
       provenance?: unknown;
     };
     if (!b?.scopeKind || !b?.scopeRef || !b?.ruleText || b.baseVersion === undefined) {
@@ -86,6 +88,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       scopeRef: b.scopeRef,
       ruleText: b.ruleText,
       baseVersion: b.baseVersion,
+      decisionType: b.decisionType,
       provenance: b.provenance,
     });
   });
@@ -122,6 +125,15 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       producedRepoId: b.producedRepoId ?? null,
       source: b.source,
     });
+  });
+
+  // consumers(surface) — "does anyone use this endpoint?" answered from the usage graph
+  app.get("/consumers", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    const { surface } = req.query as { surface?: string };
+    if (!surface) return reply.code(400).send({ error: "surface query param required" });
+    return listConsumers(c.orgId, c.projectId, surface, c.repoId);
   });
 
   // inbox()

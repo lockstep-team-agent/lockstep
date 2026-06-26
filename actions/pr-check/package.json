@@ -2,6 +2,7 @@
   "name": "@lockstep/pr-check",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Tier-2 PR reconciliation gate — fails the PR if a changed contract surface has no binding decision."
 }

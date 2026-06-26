@@ -22,17 +22,19 @@ test("does not flag test files without contract markers", () => {
   assert.ok(!isContractSurface("src/utils/math.ts", "const x = 1;"));
 });
 
-test("exported interface in TS is a contract surface", () => {
-  assert.ok(isContractSurface("src/types.ts", "export interface OrderPayload { id: string; }"));
-  assert.ok(isContractSurface("src/types.ts", "export type OrderId = string;"));
+test("a bare exported interface/type in a non-route file is NOT a contract surface (noise fix)", () => {
+  assert.ok(!isContractSurface("src/types.ts", "export interface OrderPayload { id: string; }"));
+  assert.ok(!isContractSurface("src/types.ts", "export type OrderId = string;"));
 });
 
-test("exported class is a contract surface", () => {
-  assert.ok(isContractSurface("src/service.ts", "export class OrderService {}"));
+test("a bare exported class/function in a non-route file is NOT a contract surface (noise fix)", () => {
+  assert.ok(!isContractSurface("src/service.ts", "export class OrderService {}"));
+  assert.ok(!isContractSurface("src/orders.ts", "export async function fetchOrders() {}"));
 });
 
-test("exported async function is a contract surface", () => {
-  assert.ok(isContractSurface("src/api.ts", "export async function fetchOrders() {}"));
+test("contract path still counts even without extractable content", () => {
+  assert.ok(isContractSurface("contracts/order-api.ts"));
+  assert.ok(isContractSurface("src/handlers/order-handler.ts"));
 });
 
 test("non-TS files without path markers are not contract surfaces", () => {
