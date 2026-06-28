@@ -17,10 +17,13 @@
   <a href="./DEPLOY.md"><b>Deploy</b></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/new-stack.png" alt="The new stack for software development: code stays in GitHub, agents read and write it, and the decision &amp; coordination layer (Lockstep) sits on top." width="860">
+</p>
+
 <!--
-  HERO ASSET — record the 25s two-developer demo (see docs/DEMO.md for the exact storyboard) and
-  embed it here, replacing the comparison table below as the lead visual:
-  <p align="center"><img src="docs/assets/demo.gif" alt="Lockstep in action" width="820"></p>
+  Once recorded, the 25s two-developer demo GIF (storyboard in docs/DEMO.md) can join or replace the
+  diagram above as the lead visual: <img src="docs/assets/demo.gif" alt="Lockstep in action" width="820">
 -->
 
 ---
