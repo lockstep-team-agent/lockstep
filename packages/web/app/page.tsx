@@ -6,23 +6,35 @@ import { IconArrow, IconRepo } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: { error?: string } }) {
   if (!hasToken()) {
+    const errorText =
+      searchParams?.error === "github_not_configured"
+        ? "GitHub sign-in isn't configured on this server."
+        : searchParams?.error
+          ? "Sign-in failed. Please try again."
+          : null;
     return (
       <div className="center-screen">
         <div className="auth-card card pad animate-in">
           <div className="brand">
             <span className="logo" /> Lockstep
           </div>
-          <p style={{ color: "var(--muted)", fontSize: 13.5, textAlign: "center", margin: "0 0 18px" }}>
-            Paste your session token to sign in.
-            <br />
-            Get one with <span className="code-ref">lockstep login</span> in your terminal.
+          {errorText && (
+            <p style={{ color: "var(--danger, #d33)", fontSize: 13, textAlign: "center", margin: "0 0 12px" }}>
+              {errorText}
+            </p>
+          )}
+          <a href="/login/github" className="btn primary" style={{ justifyContent: "center", marginBottom: 16 }}>
+            Sign in with GitHub
+          </a>
+          <p style={{ color: "var(--muted)", fontSize: 12.5, textAlign: "center", margin: "0 0 10px" }}>
+            or paste a session token from <span className="code-ref">lockstep login</span>
           </p>
           <form action={loginAction} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <input className="input mono" name="token" placeholder="lsk_…" autoComplete="off" />
-            <button className="btn primary" type="submit" style={{ justifyContent: "center" }}>
-              Sign in
+            <button className="btn ghost" type="submit" style={{ justifyContent: "center" }}>
+              Sign in with token
             </button>
           </form>
         </div>

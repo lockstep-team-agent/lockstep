@@ -51,6 +51,32 @@ export async function pollDeviceFlow(
   return (await res.json()) as { access_token?: string; error?: string; interval?: number };
 }
 
+/**
+ * Web OAuth (dashboard "Sign in with GitHub"): exchange the authorization `code` for a
+ * user-to-server access token. Uses the App's client_id + client_secret. The dashboard performs the
+ * redirect dance and hands us the code; the secret never leaves the core.
+ */
+export async function exchangeWebCode(
+  code: string,
+  redirectUri?: string,
+): Promise<{ access_token?: string; error?: string }> {
+  if (!env.GITHUB_APP_CLIENT_ID || !env.GITHUB_APP_CLIENT_SECRET) {
+    throw new Error("GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET not configured");
+  }
+  const res = await fetch(`${GH}/login/oauth/access_token`, {
+    method: "POST",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: env.GITHUB_APP_CLIENT_ID,
+      client_secret: env.GITHUB_APP_CLIENT_SECRET,
+      code,
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
+    }),
+  });
+  if (!res.ok) return { error: `github access_token ${res.status}` };
+  return (await res.json()) as { access_token?: string; error?: string };
+}
+
 export async function getUser(userToken: string): Promise<GhUser> {
   const res = await fetch(`${API}/user`, {
     headers: { authorization: `Bearer ${userToken}`, accept: "application/vnd.github+json" },

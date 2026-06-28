@@ -20,6 +20,7 @@ package is the only one published to npm; its npm version tracks the repo versio
 
 ### Added
 
+- Dashboard **"Sign in with GitHub"** (web OAuth), so the hosted instance is self-serve instead of requiring a pasted CLI token.
 - `lockstep.yaml` manifest to declare the surfaces a repo produces and consumes.
 - `consumers` tool / `GET /consumers` — "does anyone use this surface?", answered from the usage graph.
 
