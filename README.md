@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://lockstep-dashboard.up.railway.app"><b>▶ Try it live</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a> ·
   <a href="#how-it-works"><b>How it works</b></a> ·
   <a href="./DEPLOY.md"><b>Deploy</b></a>
@@ -80,33 +81,33 @@ A **decision** is the hero: a durable rule ("auth is JWT, 15-min expiry") or arc
 
 ## Quick Start
 
-Get a working local setup in under 5 minutes — no GitHub App keys needed.
+The fastest way to try it: use the **hosted instance** — sign in with GitHub, point the CLI at it, connect a repo. (Or self-host with one Docker command — see below.)
 
-> **Managed cloud is coming soon.** For now, run it locally or self-host (below).
+### 1. Sign in
 
-### 1. Start the stack
-
-```bash
-git clone https://github.com/lockstep-team-agent/lockstep.git
-cd lockstep
-cp .env.example .env        # dev-login is enabled by default
-docker compose up --build   # starts Postgres + API + dashboard
-```
-
-Wait for `lockstep-core listening on :8080`, then verify:
-
-```bash
-curl http://localhost:8080/readyz   # => { "ok": true, "db": "up" }
-```
-
-This gives you the **API** at `:8080`, the **dashboard** at `:3000`, and **Postgres** at `:5432`.
+Open the dashboard and click **Sign in with GitHub** → **https://lockstep-dashboard.up.railway.app**
 
 ### 2. Install the CLI & log in
 
 ```bash
 npm i -g lockstep-cli
-lockstep login --api http://localhost:8080 --dev --dev-id 1 --dev-login alice
+lockstep login --api https://lockstep-production.up.railway.app   # opens GitHub to authorize
 ```
+
+<details>
+<summary><b>Prefer to self-host?</b> — one Docker command</summary>
+
+```bash
+git clone https://github.com/lockstep-team-agent/lockstep.git
+cd lockstep && cp .env.example .env
+docker compose up --build   # Postgres + API (:8080) + dashboard (:3000)
+```
+
+Then point the CLI at your local server instead:
+`lockstep login --api http://localhost:8080 --dev --dev-id 1 --dev-login alice`.
+For a production self-host with real GitHub auth, see [DEPLOY.md](./DEPLOY.md).
+
+</details>
 
 ### 3. Connect your repo & declare what it consumes
 
