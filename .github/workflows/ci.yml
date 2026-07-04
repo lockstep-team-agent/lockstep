@@ -13,6 +13,28 @@ jobs:
       matrix:
         node-version: [20, 22]
 
+    # DB-touching tests in @lockstep/core parse DATABASE_URL at boot (env.ts) and run against a
+    # real Postgres (Drizzle migrations + RLS). Provide both here; LOCKSTEP_INGEST_TOKEN lets the
+    # ingest worker-endpoint tests exercise their authenticated paths.
+    env:
+      DATABASE_URL: postgres://lockstep:lockstep@localhost:5432/lockstep
+      LOCKSTEP_INGEST_TOKEN: test-ingest-secret
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lockstep
+          POSTGRES_PASSWORD: lockstep
+          POSTGRES_DB: lockstep
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lockstep -d lockstep"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +55,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Run migrations
+        run: npm run db:migrate
 
       - name: Test
         run: npm run test
