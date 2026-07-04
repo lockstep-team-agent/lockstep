@@ -36,7 +36,9 @@ DECLARE child_tables text[] := ARRAY[
   'ownership_snapshots','ownership_rules','ownership_rule_owners',
   'decisions','decision_versions','decision_required_reviewers','decision_approvals',
   'contracts','dependency_edges','questions','answers','change_feed_entries',
-  'tasks','inboxes','inbox_items','sessions','audit_events'
+  'tasks','inboxes','inbox_items','sessions','audit_events',
+  'source_connections','ingest_allowlist','ingest_watermarks','ingest_artifacts',
+  'decision_provenances','graph_nodes','graph_edges'
 ];
 DECLARE system_tables text[] := ARRAY['principals','access_tokens','github_credentials'];
 BEGIN

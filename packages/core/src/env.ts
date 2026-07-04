@@ -22,6 +22,11 @@ const schema = z.object({
 
   SLACK_BOT_TOKEN: z.string().optional(),
 
+  // v2 ingestion: Composio connector key (worker + OAuth) and the shared service token the ingest
+  // worker presents to the /ingest/* worker endpoints. Both optional so core boots without ingestion.
+  COMPOSIO_API_KEY: z.string().optional(),
+  LOCKSTEP_INGEST_TOKEN: z.string().optional(),
+
   LOCKSTEP_DEPLOYMENT: z.enum(["cloud", "self-host"]).default("self-host"),
 
   // Dev-only login bypass (never honored when NODE_ENV=production).

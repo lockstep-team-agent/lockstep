@@ -12,6 +12,10 @@ import {
   tasks,
   members,
   repos,
+  ingestArtifacts,
+  decisionProvenances,
+  graphNodes,
+  graphEdges,
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
@@ -54,7 +58,30 @@ async function impactForScopeTx(tx: Tx, projectId: string, scopeKind: string, sc
     const rs = await tx.select().from(repos).where(eq(repos.projectId, projectId));
     return Math.max(0, rs.length - 1);
   }
+  // Non-code decision: blast radius = how many people/teams the org graph links to this topic.
+  if (scopeKind === "topic") return topicImpactTx(tx, projectId, scopeRef);
   return 0;
+}
+
+/** Org-graph impact for a topic node: distinct person/team neighbours (0 if the graph isn't derived yet). */
+async function topicImpactTx(tx: Tx, projectId: string, topicRef: string): Promise<number> {
+  const node = (
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "topic"), eq(graphNodes.ref, topicRef)))
+      .limit(1)
+  )[0];
+  if (!node) return 0;
+  const edges = await tx.select().from(graphEdges).where(eq(graphEdges.projectId, projectId));
+  const neighbourIds = new Set<string>();
+  for (const e of edges) {
+    if (e.fromId === node.id) neighbourIds.add(e.toId);
+    else if (e.toId === node.id) neighbourIds.add(e.fromId);
+  }
+  if (neighbourIds.size === 0) return 0;
+  const people = await tx.select().from(graphNodes).where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "person")));
+  return people.filter((p) => neighbourIds.has(p.id)).length;
 }
 
 export interface ProposeInput {
@@ -197,20 +224,337 @@ export async function ackDecision(
   });
 }
 
+/* ───────────────────────────── v2: ingested (proposed) decisions ───────────────────────────── */
+
+const STOPWORDS = new Set(["the", "a", "an", "is", "are", "to", "of", "and", "or", "for", "with", "we", "our", "be", "on", "in"]);
+
+/** Cheap lexical similarity (Jaccard over content words) — the v1 dedup/fusion signal (no embeddings yet). */
+function similar(a: string, b: string): number {
+  const toks = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2 && !STOPWORDS.has(w)),
+    );
+  const A = toks(a);
+  const B = toks(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const w of A) if (B.has(w)) inter++;
+  return inter / (A.size + B.size - inter);
+}
+
+async function addProvenanceTx(
+  tx: Tx,
+  orgId: string,
+  decisionId: string,
+  prov: { source?: string; url?: string | null; evidence?: unknown; externalId?: string | null; confidence?: number },
+): Promise<void> {
+  const source = prov.source ?? "unknown";
+  const externalId = prov.externalId ?? null;
+  const existing = (
+    await tx
+      .select()
+      .from(decisionProvenances)
+      .where(
+        and(
+          eq(decisionProvenances.decisionId, decisionId),
+          eq(decisionProvenances.source, source),
+          externalId === null ? eq(decisionProvenances.externalId, "") : eq(decisionProvenances.externalId, externalId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (existing) return;
+  await tx.insert(decisionProvenances).values({
+    orgId,
+    decisionId,
+    source,
+    externalId,
+    url: prov.url ?? null,
+    evidence: prov.evidence ?? null,
+    confidence: prov.confidence ?? null,
+  });
+}
+
+/** All provenance rows for a project's decisions, grouped by decision id (for the review queue UI). */
+export async function listProvenancesForProject(
+  orgId: string,
+  projectId: string,
+): Promise<Record<string, Array<{ source: string; externalId: string | null; url: string | null; evidence: unknown; confidence: number | null }>>> {
+  return withOrg(orgId, async (tx) => {
+    const ds = await tx.select({ id: decisions.id }).from(decisions).where(eq(decisions.projectId, projectId));
+    const ids = new Set(ds.map((d) => d.id));
+    const rows = await tx.select().from(decisionProvenances).where(eq(decisionProvenances.orgId, orgId));
+    const out: Record<string, Array<{ source: string; externalId: string | null; url: string | null; evidence: unknown; confidence: number | null }>> = {};
+    for (const r of rows) {
+      if (!ids.has(r.decisionId)) continue;
+      (out[r.decisionId] ??= []).push({ source: r.source, externalId: r.externalId, url: r.url, evidence: r.evidence, confidence: r.confidence });
+    }
+    return out;
+  });
+}
+
+export interface FileProposedInput {
+  projectId: string;
+  scopeKind: string; // surface | repo | topic | project | shared | contract
+  scopeRef: string;
+  ruleText: string;
+  decisionType?: string; // rule | architecture
+  provenance: unknown; // {source, connectionId, externalId, url, evidence[], extractorModel, confidence, decidedBy, decidedAt}
+  // idempotency + tuning audit keys (from the ingest funnel)
+  connectionId: string;
+  externalId: string;
+  contentHash: string;
+  confidence?: number; // 0..100
+}
+
+/**
+ * File a decision distilled from a human tool (Slack/Jira/Notion) as a **proposed** draft. It is
+ * `origin:"ingested"`, `status:"proposed"`, non-binding, and does NOT fan out — a human confirms it in
+ * the review queue before it can bind. Idempotent on (connectionId, externalId, contentHash): a
+ * re-seen unit returns the existing decision instead of minting a duplicate.
+ */
+export async function fileProposedDecision(
+  orgId: string,
+  input: FileProposedInput,
+): Promise<{ decisionId: string; deduped: boolean; fused: boolean; supersedes?: string }> {
+  const prov = (input.provenance ?? {}) as { source?: string; url?: string | null; evidence?: unknown };
+  const provRow = {
+    source: prov.source,
+    url: prov.url ?? null,
+    evidence: prov.evidence,
+    externalId: input.externalId,
+    confidence: input.confidence,
+  };
+  return withOrg(orgId, async (tx) => {
+    // Idempotency: a re-seen unit (same content) is never re-processed.
+    const seen = (
+      await tx
+        .select()
+        .from(ingestArtifacts)
+        .where(
+          and(
+            eq(ingestArtifacts.connectionId, input.connectionId),
+            eq(ingestArtifacts.externalId, input.externalId),
+            eq(ingestArtifacts.contentHash, input.contentHash),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (seen) return { decisionId: seen.decisionId ?? "", deduped: true, fused: false };
+
+    // Fusion + supersession: scan live decisions in the same scope.
+    const scopeMates = await tx
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.projectId, input.projectId), eq(decisions.scopeRef, input.scopeRef)));
+    let fuseInto: string | null = null;
+    let supersedes: string | undefined;
+    for (const m of scopeMates) {
+      if (m.status === "rejected" || m.status === "superseded") continue;
+      const v = (
+        await tx
+          .select()
+          .from(decisionVersions)
+          .where(and(eq(decisionVersions.decisionId, m.id), eq(decisionVersions.version, m.currentVersion)))
+          .limit(1)
+      )[0];
+      const sim = similar(input.ruleText, v?.ruleText ?? "");
+      if (sim >= 0.6) {
+        fuseInto = m.id;
+        break;
+      }
+      if (m.status === "binding" && sim < 0.4) supersedes = m.id; // different rule, same scope → likely supersession
+    }
+
+    if (fuseInto) {
+      // One decision, many provenances — attach this source instead of minting a duplicate.
+      await addProvenanceTx(tx, orgId, fuseInto, provRow);
+      await tx.insert(ingestArtifacts).values({
+        orgId,
+        connectionId: input.connectionId,
+        externalId: input.externalId,
+        contentHash: input.contentHash,
+        status: "fused",
+        confidence: input.confidence ?? null,
+        decisionId: fuseInto,
+      });
+      await writeAudit(tx, {
+        orgId,
+        projectId: input.projectId,
+        action: "decision.provenance_added",
+        entityKind: "decision",
+        entityId: fuseInto,
+        payload: { source: prov.source, externalId: input.externalId },
+      });
+      return { decisionId: fuseInto, deduped: false, fused: true };
+    }
+
+    const d = one(
+      await tx
+        .insert(decisions)
+        .values({
+          orgId,
+          projectId: input.projectId,
+          scopeKind: input.scopeKind,
+          scopeRef: input.scopeRef,
+          decisionType: input.decisionType ?? "rule",
+          currentVersion: 1,
+          status: "proposed",
+          origin: "ingested",
+        })
+        .returning(),
+    );
+    await tx.insert(decisionVersions).values({
+      orgId,
+      decisionId: d.id,
+      version: 1,
+      baseVersion: 0,
+      ruleText: input.ruleText,
+      provenance: supersedes ? { ...(input.provenance as object), supersedes } : (input.provenance ?? null),
+      status: "proposed",
+    });
+    await addProvenanceTx(tx, orgId, d.id, provRow);
+    await tx.insert(ingestArtifacts).values({
+      orgId,
+      connectionId: input.connectionId,
+      externalId: input.externalId,
+      contentHash: input.contentHash,
+      status: "proposed",
+      confidence: input.confidence ?? null,
+      decisionId: d.id,
+    });
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      action: "decision.proposed",
+      entityKind: "decision",
+      entityId: d.id,
+      entityVersion: 1,
+      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin: "ingested", status: "proposed", supersedes },
+    });
+    return { decisionId: d.id, deduped: false, fused: false, supersedes };
+  });
+}
+
+/**
+ * Confirm a proposed (ingested) decision: run the same impact/binding path as an agent-authored
+ * decision (own-area binds on assertion; cross-cutting stays `open` until acked and fans out). Optional
+ * `edits` overwrite the current version's rule text / scope before confirming.
+ */
+export async function confirmDecision(
+  orgId: string,
+  decisionId: string,
+  memberId: string,
+  edits?: { ruleText?: string; scopeKind?: string; scopeRef?: string },
+): Promise<{ status: string; impact: number }> {
+  return withOrg(orgId, async (tx) => {
+    const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
+    if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
+    if (d.status !== "proposed") throw conflict(`decision is ${d.status}, not proposed`);
+
+    // decision_versions is append-only, so edits are a new version, never an in-place UPDATE.
+    const cur = (
+      await tx
+        .select()
+        .from(decisionVersions)
+        .where(and(eq(decisionVersions.decisionId, decisionId), eq(decisionVersions.version, d.currentVersion)))
+        .limit(1)
+    )[0];
+    const scopeKind = edits?.scopeKind ?? d.scopeKind;
+    const scopeRef = edits?.scopeRef ?? d.scopeRef;
+    const ruleText = edits?.ruleText ?? cur?.ruleText ?? "";
+    const edited = Boolean(edits?.ruleText || edits?.scopeKind || edits?.scopeRef);
+
+    const impact = await impactForScopeTx(tx, d.projectId, scopeKind, scopeRef);
+    const needsAck = impact > 0;
+    const status = needsAck ? "open" : "binding";
+    let version = d.currentVersion;
+    if (edited) {
+      version = d.currentVersion + 1;
+      await tx.insert(decisionVersions).values({
+        orgId,
+        decisionId,
+        version,
+        baseVersion: d.currentVersion,
+        ruleText,
+        provenance: cur?.provenance ?? null,
+        status,
+        proposedBy: memberId,
+      });
+    }
+    await tx
+      .update(decisions)
+      .set({ scopeKind, scopeRef, status, impact, currentVersion: version })
+      .where(eq(decisions.id, decisionId));
+    await writeAudit(tx, {
+      orgId,
+      projectId: d.projectId,
+      actorMemberId: memberId,
+      action: "decision.confirmed",
+      entityKind: "decision",
+      entityId: decisionId,
+      entityVersion: version,
+      payload: { scopeKind, scopeRef, status, impact, origin: d.origin },
+    });
+    if (needsAck) {
+      await fanoutToProjectTx(tx, orgId, {
+        projectId: d.projectId,
+        refId: decisionId,
+        kind: "decision",
+        senderMemberId: memberId,
+        reason: { scopeRef, ruleText, impact },
+      });
+    }
+    return { status, impact };
+  });
+}
+
+/** Reject a proposed (ingested) decision — a human declined it. It never binds. */
+export async function rejectDecision(
+  orgId: string,
+  decisionId: string,
+  memberId: string,
+): Promise<{ status: string }> {
+  return withOrg(orgId, async (tx) => {
+    const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
+    if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
+    // decision_versions is append-only; the live status lives on decisions.status.
+    await tx.update(decisions).set({ status: "rejected" }).where(eq(decisions.id, decisionId));
+    await writeAudit(tx, {
+      orgId,
+      projectId: d.projectId,
+      actorMemberId: memberId,
+      action: "decision.rejected",
+      entityKind: "decision",
+      entityId: decisionId,
+      entityVersion: d.currentVersion,
+    });
+    return { status: "rejected" };
+  });
+}
+
 export async function listDecisions(
   orgId: string,
   projectId: string,
   scopeRef?: string,
+  opts?: { status?: string; origin?: string },
 ): Promise<
   Array<{
     id: string;
     scopeKind: string;
     scopeRef: string;
     status: string;
+    origin: string;
     version: number;
     ruleText: string;
+    provenance: unknown;
     decisionType: string;
     impact: number;
+    createdAt: Date;
   }>
 > {
   return withOrg(orgId, async (tx) => {
@@ -218,6 +562,8 @@ export async function listDecisions(
     const out = [];
     for (const d of ds) {
       if (scopeRef && d.scopeRef !== scopeRef) continue;
+      if (opts?.status && d.status !== opts.status) continue;
+      if (opts?.origin && d.origin !== opts.origin) continue;
       const v = (
         await tx
           .select()
@@ -230,10 +576,13 @@ export async function listDecisions(
         scopeKind: d.scopeKind,
         scopeRef: d.scopeRef,
         status: d.status,
+        origin: d.origin,
         version: d.currentVersion,
         ruleText: v?.ruleText ?? "",
+        provenance: v?.provenance ?? null,
         decisionType: d.decisionType,
         impact: d.impact,
+        createdAt: d.createdAt,
       });
     }
     return out;

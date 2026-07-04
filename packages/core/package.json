@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:reset": "tsx src/db/reset.ts",
-    "test": "find src -name '*.test.ts' | xargs node --import tsx --test --test-force-exit"
+    "test": "find src -name '*.test.ts' | xargs node --import tsx --test --test-force-exit",
+    "coverage": "sh -c 'export LOCKSTEP_INGEST_TOKEN=test-ingest-secret; find src -name \"*.test.ts\" | xargs node --import tsx --test --test-force-exit --experimental-test-coverage --test-coverage-include=\"src/ingest/ingest-service.ts\" --test-coverage-include=\"src/graph/graph-service.ts\" --test-coverage-include=\"src/ledger/ledger-service.ts\" --test-coverage-include=\"src/api/routes/ingest.ts\" --test-coverage-exclude=\"**/*.test.ts\"'"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

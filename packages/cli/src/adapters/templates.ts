@@ -30,7 +30,7 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 
 ## On session start
 - Call \`inbox\` to see what changed, what's newly binding, and what's delegated to you.
-- Call \`decisions\` to load the binding rules for the areas you'll touch.
+- Call \`decisions\` to load the binding rules for the areas you'll touch. A rule may cite an external source (e.g. a Slack thread) — it was distilled from a human decision and confirmed by a teammate; treat it exactly like any other binding decision.
 - If you see open questions or tasks in the inbox, tell the user about them.
 
 ## Before coding a shared/contract surface

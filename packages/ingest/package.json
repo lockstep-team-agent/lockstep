@@ -1,0 +1,33 @@
+{
+  "name": "@lockstep/ingest",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "lockstep-ingest": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "test": "find src -name '*.test.ts' | xargs node --import tsx --test --test-force-exit",
+    "coverage": "find src -name '*.test.ts' | xargs node --import tsx --test --test-force-exit --experimental-test-coverage --test-coverage-exclude='**/*.test.ts' --test-coverage-exclude='**/index.ts' --test-coverage-exclude='**/client.ts' --test-coverage-exclude='**/connectors/ComposioConnector.ts' --test-coverage-exclude='**/connectors/NangoConnector.ts' --test-coverage-exclude='**/distill/llm.ts' --test-coverage-exclude='**/distill/extract.ts' --test-coverage-exclude='**/distill/recall.ts' --test-coverage-exclude='**/eval/**'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest"
+  },
+  "optionalDependencies": {
+    "@composio/core": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
