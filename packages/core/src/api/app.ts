@@ -5,6 +5,7 @@ import { orgRoutes } from "./routes/orgs.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
+import { ingestRoutes } from "./routes/ingest.js";
 import { queryClient } from "../db/client.js";
 import { env } from "../env.js";
 
@@ -29,6 +30,7 @@ export function buildApp(): FastifyInstance {
   void app.register(sessionRoutes);
   void app.register(ledgerRoutes);
   void app.register(dashboardRoutes);
+  void app.register(ingestRoutes);
 
   return app;
 }

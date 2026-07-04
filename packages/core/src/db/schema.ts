@@ -184,7 +184,12 @@ export const decisions = pgTable("decisions", {
   // agent/human override. Drives noise filtering, session-start ranking, and the binding model.
   impact: integer("impact").notNull().default(0),
   currentVersion: integer("current_version").notNull().default(0),
-  status: text("status").notNull().default("open"), // open | ack | binding | superseded
+  // proposed → awaiting human confirm (v2 ingested decisions); open | ack | binding | superseded are
+  // the agent-originated lifecycle; rejected → a proposed decision a human declined.
+  status: text("status").notNull().default("open"), // proposed | open | ack | binding | superseded | rejected
+  // Who authored this decision: an agent via propose_decision, or the v2 ingestion pipeline distilling
+  // it from a human tool (Slack/Jira/Notion). Ingested decisions land `proposed` until a human confirms.
+  origin: text("origin").notNull().default("agent"), // agent | ingested
   createdAt: createdAt(),
 });
 
@@ -425,4 +430,139 @@ export const auditEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => ({ byEntity: index("ix_audit_entity").on(t.entityKind, t.entityId) }),
+);
+
+/* ───────────────────────────── v2 ingestion (human-tool → decision ledger) ───────────────────────────── */
+
+/**
+ * A connected human-coordination tool for a project (Slack today; Jira/Notion later). Auth is held by
+ * the connector provider (Composio) — we store only the entity + connectedAccountId, never a token.
+ */
+export const sourceConnections = pgTable(
+  "source_connections",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    tool: text("tool").notNull(), // slack | jira | notion | confluence
+    entity: text("entity").notNull(), // Composio entity id (we use the project id)
+    connectedAccountId: text("connected_account_id"), // Composio connection id once OAuth completes
+    status: text("status").notNull().default("pending"), // pending | active | revoked
+    createdBy: uuid("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ byProject: index("ix_source_conn_project").on(t.projectId, t.tool) }),
+);
+
+/**
+ * The opt-in: nothing is swept unless a source (Slack channel, Jira project, Notion space) is listed
+ * here and enabled. This is the trust wedge — allowlisted sources only.
+ */
+export const ingestAllowlist = pgTable(
+  "ingest_allowlist",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    sourceKind: text("source_kind").notNull(), // channel | project | space
+    sourceRef: text("source_ref").notNull(), // e.g. Slack channel id C0123
+    sourceName: text("source_name"), // human label, e.g. #eng-decisions
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqSource: uniqueIndex("uq_allowlist_conn_source").on(t.connectionId, t.sourceRef) }),
+);
+
+/** Incremental-sweep cursor per allowlisted source (e.g. latest Slack ts seen). */
+export const ingestWatermarks = pgTable(
+  "ingest_watermarks",
+  {
+    id: id(),
+    orgId: orgId(),
+    connectionId: uuid("connection_id").notNull(),
+    sourceRef: text("source_ref").notNull(),
+    cursor: text("cursor"), // opaque per-connector cursor (Slack: last ts)
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ uqWatermark: uniqueIndex("uq_watermark_conn_source").on(t.connectionId, t.sourceRef) }),
+);
+
+/**
+ * Idempotency + tuning audit: every conversation unit the funnel sees is hashed here so it is never
+ * re-distilled. Stores the outcome (distilled/discarded/proposed) + confidence, not the raw content.
+ */
+export const ingestArtifacts = pgTable(
+  "ingest_artifacts",
+  {
+    id: id(),
+    orgId: orgId(),
+    connectionId: uuid("connection_id").notNull(),
+    externalId: text("external_id").notNull(), // e.g. Slack channel/threadTs
+    contentHash: text("content_hash").notNull(), // sha256 of the unit's content
+    status: text("status").notNull(), // discarded | proposed | question
+    confidence: integer("confidence"), // 0..100 (integer for simplicity)
+    decisionId: uuid("decision_id"), // set when it produced a proposed decision
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqArtifact: uniqueIndex("uq_artifact_conn_ext_hash").on(t.connectionId, t.externalId, t.contentHash) }),
+);
+
+/**
+ * One decision, many provenances. When the funnel distills a decision that is semantically the same as
+ * an existing one (in the same scope) — even from a different tool — we attach a provenance row here
+ * instead of minting a duplicate. Each row is one source that evidences the decision.
+ */
+export const decisionProvenances = pgTable(
+  "decision_provenances",
+  {
+    id: id(),
+    orgId: orgId(),
+    decisionId: uuid("decision_id").notNull(),
+    source: text("source").notNull(), // slack | jira | notion | confluence | agent
+    externalId: text("external_id"), // thread/issue/page id
+    url: text("url"),
+    evidence: jsonb("evidence"), // [{externalId, quote}]
+    confidence: integer("confidence"), // 0..100
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    byDecision: index("ix_provenance_decision").on(t.decisionId),
+    uqSource: uniqueIndex("uq_provenance_decision_source").on(t.decisionId, t.source, t.externalId),
+  }),
+);
+
+/* ───────────────────────────── v2 org graph (impact beyond code surfaces) ───────────────────────────── */
+
+/** Non-code nodes: teams, projects, docs, people, topics — auto-derived from connectors + human fixes. */
+export const graphNodes = pgTable(
+  "graph_nodes",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    kind: text("kind").notNull(), // team | project | doc | person | topic | surface
+    ref: text("ref").notNull(), // stable key within kind (e.g. topic:auth, person:@alice)
+    label: text("label"),
+    source: text("source").notNull().default("derived"), // derived | manual
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqNode: uniqueIndex("uq_graph_node").on(t.projectId, t.kind, t.ref) }),
+);
+
+/** Edges connect nodes (e.g. person → topic they work on; topic → surface it governs). */
+export const graphEdges = pgTable(
+  "graph_edges",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    fromId: uuid("from_id").notNull(),
+    toId: uuid("to_id").notNull(),
+    kind: text("kind").notNull().default("relates"), // relates | owns | member | governs
+    weight: integer("weight").notNull().default(1),
+    source: text("source").notNull().default("derived"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqEdge: uniqueIndex("uq_graph_edge").on(t.projectId, t.fromId, t.toId, t.kind) }),
 );

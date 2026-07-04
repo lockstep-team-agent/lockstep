@@ -18,15 +18,6 @@
   <a href="./DEPLOY.md"><b>Deploy</b></a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/new-stack.png" alt="The new stack for software development: code stays in GitHub, agents read and write it, and the decision &amp; coordination layer (Lockstep) sits on top." width="860">
-</p>
-
-<!--
-  Once recorded, the 25s two-developer demo GIF (storyboard in docs/DEMO.md) can join or replace the
-  diagram above as the lead visual: <img src="docs/assets/demo.gif" alt="Lockstep in action" width="820">
--->
-
 ---
 
 When two developers point AI coding agents at the same system, the agents have no idea what each other just did:
@@ -38,6 +29,15 @@ When two developers point AI coding agents at the same system, the agents have n
 The thing that actually steers a codebase isn't the code — it's the **decisions**. Today those decisions live in people's heads, scattered Slack threads, and stale docs that no agent ever reads.
 
 **Lockstep is GitHub for the decisions your AI agents make.** Every decision, change, and question is captured once and replayed to every agent that needs it — ranked by blast radius, so the important ones surface and the noise doesn't.
+
+<p align="center">
+  <img src="docs/assets/new-stack.png" alt="The new stack for software development: code stays in GitHub, agents read and write it, and the decision &amp; coordination layer (Lockstep) sits on top." width="860">
+</p>
+
+<!--
+  Once recorded, the 25s two-developer demo GIF (storyboard in docs/DEMO.md) can become the lead visual,
+  moved above the problem statement: <img src="docs/assets/demo.gif" alt="Lockstep in action" width="820">
+-->
 
 ```bash
 npm i -g lockstep-cli
@@ -94,6 +94,8 @@ npm i -g lockstep-cli
 lockstep login --api https://lockstep-production.up.railway.app   # opens GitHub to authorize
 ```
 
+> The hosted URLs above are a **best-effort demo instance**, not a production service — great for trying Lockstep, but self-host (below) for anything real.
+
 <details>
 <summary><b>Prefer to self-host?</b> — one Docker command</summary>
 
@@ -142,7 +144,7 @@ Open Claude Code (or any MCP agent) in the repo. On session start, the agent rec
 
 ## Agents & integration
 
-Works with **any MCP-compatible agent**. Auto-capture hooks ship for **Claude Code** today; Codex and Gemini adapters are on the roadmap. The 13-tool MCP server runs per-session on the developer's machine and is identical across vendors — new integrations are a single adapter file.
+Works with **any MCP-compatible agent**. Auto-capture hooks ship for **Claude Code** today; Codex and Gemini adapters are on the roadmap. The 14-tool MCP server runs per-session on the developer's machine and is identical across vendors — new integrations are a single adapter file.
 
 ## CLI Commands
 
@@ -166,7 +168,7 @@ actions/pr-check # GitHub Action — PR-time reconciliation gate
 ## Learn more
 
 - [Deploy](./DEPLOY.md) · [Contributing](./CONTRIBUTING.md) · [Security](./SECURITY.md) · [Changelog](./CHANGELOG.md)
-- Architecture: 26-table schema with row-level security, append-only CAS-versioned decision ledger, vendor-neutral MCP adapters, Zod validation on every boundary, TypeScript strict throughout. Self-host with `docker compose` or deploy to Railway.
+- Built on row-level-security Postgres, an append-only CAS-versioned decision ledger, and vendor-neutral MCP adapters. Self-host with `docker compose` or deploy to Railway.
 
 ## License
 

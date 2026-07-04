@@ -18,17 +18,23 @@ export interface NavCounts {
   tasks?: number;
   contracts?: number;
   dependencies?: number;
+  review?: number;
 }
 
 export function Nav({ base, counts }: { base: string; counts: NavCounts }) {
   const pathname = usePathname();
   const items = [
     { href: "", label: "Overview", Icon: IconOverview, badge: undefined as number | undefined },
+    { href: "/review-queue", label: "Review", Icon: IconQuestions, badge: counts.review },
     { href: "/decisions", label: "Decisions", Icon: IconDecisions, badge: counts.decisions },
+    { href: "/search", label: "Search", Icon: IconOverview, badge: undefined },
     { href: "/questions", label: "Questions", Icon: IconQuestions, badge: counts.questions },
     { href: "/tasks", label: "Tasks", Icon: IconTasks, badge: counts.tasks },
     { href: "/contracts", label: "Contracts", Icon: IconContracts, badge: counts.contracts },
     { href: "/dependencies", label: "Dependencies", Icon: IconDependencies, badge: counts.dependencies },
+    { href: "/graph", label: "Org graph", Icon: IconDependencies, badge: undefined },
+    { href: "/connections", label: "Connections", Icon: IconMembers, badge: undefined },
+    { href: "/notifications", label: "Notifications", Icon: IconActivity, badge: undefined },
     { href: "/activity", label: "Activity", Icon: IconActivity, badge: undefined },
     { href: "/members", label: "Members & Repos", Icon: IconMembers, badge: undefined },
   ];

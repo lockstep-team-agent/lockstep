@@ -1,0 +1,246 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { and, eq } from "drizzle-orm";
+import { withSystem } from "../../db/rls.js";
+import { members } from "../../db/schema.js";
+import { env } from "../../env.js";
+import {
+  listWork,
+  setWatermark,
+  finalizeConnection,
+  createConnection,
+  listConnections,
+  addAllowlist,
+  listAllowlist,
+} from "../../ingest/ingest-service.js";
+import {
+  fileProposedDecision,
+  confirmDecision,
+  rejectDecision,
+  listDecisions,
+  listProvenancesForProject,
+} from "../../ledger/ledger-service.js";
+import { deriveGraph, listGraph, addNode, addEdge } from "../../graph/graph-service.js";
+
+/** Gate the worker endpoints on the shared ingest service token. */
+function workerAuthed(req: FastifyRequest, reply: FastifyReply): boolean {
+  const expected = env.LOCKSTEP_INGEST_TOKEN;
+  const got = req.headers["x-lockstep-ingest-token"];
+  if (!expected || got !== expected) {
+    reply.code(401).send({ error: "ingest token required" });
+    return false;
+  }
+  return true;
+}
+
+/** Resolve the caller's member id in an org (principal must be a member), else 403. */
+async function ensureMember(req: FastifyRequest, reply: FastifyReply, orgId: string): Promise<string | null> {
+  const p = req.principal;
+  if (!p) {
+    reply.code(401).send({ error: "unauthorized" });
+    return null;
+  }
+  const memberId = await withSystem(async (tx) => {
+    const m = (
+      await tx
+        .select()
+        .from(members)
+        .where(and(eq(members.orgId, orgId), eq(members.principalId, p.id)))
+        .limit(1)
+    )[0];
+    return m?.id ?? null;
+  });
+  if (!memberId) {
+    reply.code(403).send({ error: "not a member of this org" });
+    return null;
+  }
+  return memberId;
+}
+
+export async function ingestRoutes(app: FastifyInstance): Promise<void> {
+  /* ─── Worker endpoints (service-token auth) ─── */
+
+  // The worker pulls all sweepable work (active connections + enabled allowlist + watermarks).
+  app.get("/ingest/work", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    return { work: await listWork() };
+  });
+
+  // The worker files distilled proposed decisions (idempotent per content hash).
+  app.post("/ingest/proposed-decisions", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    const b = req.body as {
+      items?: Array<{
+        orgId: string;
+        projectId: string;
+        scopeKind: string;
+        scopeRef: string;
+        ruleText: string;
+        decisionType?: string;
+        provenance: unknown;
+        connectionId: string;
+        externalId: string;
+        contentHash: string;
+        confidence?: number;
+      }>;
+    };
+    const items = b?.items ?? [];
+    const results = [];
+    for (const it of items) {
+      const r = await fileProposedDecision(it.orgId, {
+        projectId: it.projectId,
+        scopeKind: it.scopeKind,
+        scopeRef: it.scopeRef,
+        ruleText: it.ruleText,
+        decisionType: it.decisionType,
+        provenance: it.provenance,
+        connectionId: it.connectionId,
+        externalId: it.externalId,
+        contentHash: it.contentHash,
+        confidence: it.confidence,
+      });
+      results.push(r);
+    }
+    return {
+      filed: results.filter((r) => !r.deduped && !r.fused).length,
+      fused: results.filter((r) => r.fused).length,
+      deduped: results.filter((r) => r.deduped).length,
+    };
+  });
+
+  app.post("/ingest/watermark", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    const b = req.body as { orgId?: string; connectionId?: string; sourceRef?: string; cursor?: string };
+    if (!b?.orgId || !b?.connectionId || !b?.sourceRef || b.cursor === undefined) {
+      return reply.code(400).send({ error: "orgId, connectionId, sourceRef, cursor required" });
+    }
+    await setWatermark(b.orgId, b.connectionId, b.sourceRef, b.cursor);
+    return { ok: true };
+  });
+
+  // The worker marks a connection active once Composio OAuth has completed.
+  app.post("/ingest/connections/:id/finalize", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const b = req.body as { connectedAccountId?: string };
+    if (!b?.connectedAccountId) return reply.code(400).send({ error: "connectedAccountId required" });
+    await finalizeConnection(id, b.connectedAccountId);
+    return { ok: true };
+  });
+
+  /* ─── Admin + review endpoints (principal + org membership) ─── */
+
+  app.post("/orgs/:orgId/projects/:projectId/connections", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    const b = req.body as { tool?: string };
+    const tool = b?.tool ?? "slack";
+    // Composio "entity" = the project id, so all sources for a project share one connection identity.
+    return createConnection(orgId, { projectId, tool, entity: projectId, createdBy: memberId });
+  });
+
+  app.get("/orgs/:orgId/projects/:projectId/connections", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    return { connections: await listConnections(orgId, projectId) };
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/allowlist", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    const b = req.body as { connectionId?: string; sourceKind?: string; sourceRef?: string; sourceName?: string };
+    if (!b?.connectionId || !b?.sourceRef) return reply.code(400).send({ error: "connectionId, sourceRef required" });
+    return addAllowlist(orgId, {
+      projectId,
+      connectionId: b.connectionId,
+      sourceKind: b.sourceKind ?? "channel",
+      sourceRef: b.sourceRef,
+      sourceName: b.sourceName,
+    });
+  });
+
+  app.get("/orgs/:orgId/projects/:projectId/allowlist", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    return { allowlist: await listAllowlist(orgId, projectId) };
+  });
+
+  // Review queue: proposed (ingested) decisions awaiting human confirmation.
+  app.get("/orgs/:orgId/projects/:projectId/proposed", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    const decisions = await listDecisions(orgId, projectId, undefined, { status: "proposed" });
+    const provs = await listProvenancesForProject(orgId, projectId);
+    return { decisions: decisions.map((d) => ({ ...d, provenances: provs[d.id] ?? [] })) };
+  });
+
+  app.post("/orgs/:orgId/decisions/:id/confirm", async (req, reply) => {
+    const { orgId, id } = req.params as { orgId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    const b = req.body as { ruleText?: string; scopeKind?: string; scopeRef?: string } | undefined;
+    return confirmDecision(orgId, id, memberId, b);
+  });
+
+  // Human decision search: "what did we decide about X?" over the ledger, with filters.
+  app.get("/orgs/:orgId/projects/:projectId/decisions/search", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    const { q, status, origin, from, to } = req.query as {
+      q?: string;
+      status?: string;
+      origin?: string;
+      from?: string;
+      to?: string;
+    };
+    let list = await listDecisions(orgId, projectId, undefined, { status, origin });
+    if (q && q.trim()) {
+      const needle = q.toLowerCase();
+      list = list.filter((d) => {
+        const prov = JSON.stringify(d.provenance ?? "").toLowerCase();
+        return `${d.ruleText} ${d.scopeRef}`.toLowerCase().includes(needle) || prov.includes(needle);
+      });
+    }
+    if (from) list = list.filter((d) => new Date(d.createdAt).getTime() >= new Date(from).getTime());
+    if (to) list = list.filter((d) => new Date(d.createdAt).getTime() <= new Date(to).getTime());
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return { decisions: list };
+  });
+
+  app.post("/orgs/:orgId/decisions/:id/reject", async (req, reply) => {
+    const { orgId, id } = req.params as { orgId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    return rejectDecision(orgId, id, memberId);
+  });
+
+  /* ─── Org graph ─── */
+
+  app.get("/orgs/:orgId/projects/:projectId/graph", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    return listGraph(orgId, projectId);
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/graph/derive", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    return deriveGraph(orgId, projectId);
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/graph/nodes", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    const b = req.body as { kind?: string; ref?: string; label?: string };
+    if (!b?.kind || !b?.ref) return reply.code(400).send({ error: "kind, ref required" });
+    return addNode(orgId, { projectId, kind: b.kind, ref: b.ref, label: b.label });
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/graph/edges", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    const b = req.body as { fromId?: string; toId?: string; kind?: string };
+    if (!b?.fromId || !b?.toId) return reply.code(400).send({ error: "fromId, toId required" });
+    return addEdge(orgId, { projectId, fromId: b.fromId, toId: b.toId, kind: b.kind });
+  });
+}

@@ -26,3 +26,9 @@ npm-debug.log*
 
 # local Claude Code config
 .claude/
+
+# local knowledge-graph analysis output (graphify)
+graphify-out/
+
+# Marketing website lives in its own repo (github: lockstep-website) — never commit it here.
+packages/website/
