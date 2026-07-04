@@ -492,6 +492,7 @@ export interface DocCandidateItem {
   anchor: { type: string; pageId: string; blockId: string; headingPath: string[]; snippet: string };
   evidence: Array<{ externalId: string; quote: string }>;
   rationale: string;
+  surfaceCandidates?: string[]; // canonicalized surfaces the extraction named — seed proposed governs edges at ratify
 }
 
 /**
@@ -550,6 +551,7 @@ export async function fileDocCandidates(
         lowConfidence: it.lowConfidence,
         expiresHint: it.expiresHint || undefined,
         constraintKind: it.constraintKind,
+        surfaceCandidates: it.surfaceCandidates ?? [],
       },
       // Native docs with no connector scope idempotency on the doc id itself.
       connectionId: doc.connectionId ?? doc.id,

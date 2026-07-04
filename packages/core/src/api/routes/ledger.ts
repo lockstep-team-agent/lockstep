@@ -13,9 +13,12 @@ import {
   createTask,
   completeTask,
   reconcile,
+  briefingConstraints,
+  getProductContext,
 } from "../../ledger/ledger-service.js";
 import { whoowns, refreshOwnership } from "../../graph/ownership-service.js";
 import { readInbox, peekInbox, ackInbox, peekInboxByRemote } from "../../inbox/inbox-service.js";
+import { productLayerOn } from "../guards.js";
 
 /** Resolve the session context from the x-lockstep-session header (set by the MCP server). */
 async function ctx(req: FastifyRequest, reply: FastifyReply): Promise<SessionContext | null> {
@@ -50,6 +53,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       verified?: boolean;
       verifiedAgainst?: string;
       diffHash?: string;
+      capabilityRef?: string;
     };
     if (!b?.summary) return reply.code(400).send({ error: "summary required" });
     return recordChange(c.orgId, {
@@ -63,6 +67,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       verified: b.verified,
       verifiedAgainst: b.verifiedAgainst,
       diffHash: b.diffHash,
+      capabilityRef: b.capabilityRef,
     });
   });
 
@@ -109,6 +114,25 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     if (!c) return;
     const { scope } = req.query as { scope?: string };
     return { decisions: await listDecisions(c.orgId, c.projectId, scope) };
+  });
+
+  // briefing — ranked, 15%-budget-capped product constraints in scope for this repo (session start).
+  // Silent when the product layer is off, so the CLI degrades to the plain briefing.
+  app.get("/briefing", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    if (!(await productLayerOn(c.orgId, c.projectId))) return { constraints: [], overflow: 0 };
+    return briefingConstraints(c.orgId, c.projectId, c.repoId);
+  });
+
+  // get_product_context(scope) — pull-based depth: full constraint set for a capability/surface/text.
+  app.get("/product-context", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    const { scope } = req.query as { scope?: string };
+    if (!scope) return reply.code(400).send({ error: "scope query param required" });
+    if (!(await productLayerOn(c.orgId, c.projectId))) return { scope, constraints: [], governedSurfaces: [] };
+    return getProductContext(c.orgId, c.projectId, scope);
   });
 
   // register_dependency(consumer, produced_surface)

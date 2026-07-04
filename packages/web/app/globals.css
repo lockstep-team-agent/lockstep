@@ -812,6 +812,17 @@ form.inline {
   color: var(--red);
   background: rgba(248, 113, 122, 0.12);
 }
+.pill.conflict {
+  color: var(--red);
+  background: rgba(248, 113, 122, 0.12);
+}
+
+/* proposed governed-surface rows — muted with a dashed left border */
+.proposed-edge {
+  border-left: 2px dashed var(--border);
+  opacity: 0.8;
+  padding-left: 8px;
+}
 
 /* constraint-kind pills — dot-less, like .plain */
 .pill.kind-behavioral {

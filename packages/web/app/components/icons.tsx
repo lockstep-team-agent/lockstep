@@ -94,3 +94,10 @@ export const IconRepo = (p: SVGProps<SVGSVGElement>) => (
     <path d="M9 7h6" />
   </svg>
 );
+export const IconFeature = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="0.6" fill="currentColor" />
+  </svg>
+);

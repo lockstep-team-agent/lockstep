@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getGraph } from "@/lib/data";
 import { PageHead, EmptyState } from "@/components/ui";
 import { IconDependencies } from "@/components/icons";
@@ -5,13 +6,14 @@ import { deriveGraphAction, addGraphEdgeAction } from "@/actions";
 
 export const dynamic = "force-dynamic";
 
-const KIND_ORDER = ["project", "team", "topic", "surface", "doc", "person"];
+const KIND_ORDER = ["project", "team", "topic", "surface", "capability", "doc", "person"];
 
 export default async function Page({ params }: { params: { orgId: string; projectId: string } }) {
   const { orgId, projectId } = params;
   const g = await getGraph(orgId, projectId);
   const nodes = g?.nodes ?? [];
   const edges = g?.edges ?? [];
+  const base = `/project/${orgId}/${projectId}`;
   const label = (id: string) => {
     const n = nodes.find((x) => x.id === id);
     return n ? `${n.kind}:${n.label ?? n.ref}` : id.slice(0, 8);
@@ -44,9 +46,15 @@ export default async function Page({ params }: { params: { orgId: string; projec
                   <div className="body">
                     <div className="title" style={{ textTransform: "capitalize" }}>{grp.kind}</div>
                     <div className="meta" style={{ flexWrap: "wrap", gap: 6 }}>
-                      {grp.items.map((n) => (
-                        <span key={n.id} className="pill plain">{n.label ?? n.ref}</span>
-                      ))}
+                      {grp.items.map((n) =>
+                        n.kind === "capability" ? (
+                          <Link key={n.id} href={`${base}/features/${encodeURIComponent(n.ref)}`} className="pill plain">
+                            {n.label ?? n.ref}
+                          </Link>
+                        ) : (
+                          <span key={n.id} className="pill plain">{n.label ?? n.ref}</span>
+                        ),
+                      )}
                     </div>
                   </div>
                   <span className="pill plain">{grp.items.length}</span>
@@ -65,6 +73,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
                       <span className="code-ref">{label(e.fromId)}</span>
                       <span>—{e.kind}→</span>
                       <span className="code-ref">{label(e.toId)}</span>
+                      {e.kind === "governs" && e.status === "proposed" && (
+                        <span className="pill proposed">proposed</span>
+                      )}
                     </div>
                   </div>
                 </div>

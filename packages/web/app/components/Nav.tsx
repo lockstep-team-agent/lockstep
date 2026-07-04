@@ -12,6 +12,7 @@ import {
   IconActivity,
   IconMembers,
   IconDoc,
+  IconFeature,
 } from "./icons";
 
 export interface NavCounts {
@@ -22,6 +23,7 @@ export interface NavCounts {
   dependencies?: number;
   review?: number;
   sources?: number;
+  features?: number;
 }
 
 export function Nav({ base, counts }: { base: string; counts: NavCounts }) {
@@ -53,7 +55,10 @@ export function Nav({ base, counts }: { base: string; counts: NavCounts }) {
     },
     {
       label: "Product",
-      items: [{ href: "/sources", label: "Sources", Icon: IconDoc, badge: counts.sources }],
+      items: [
+        { href: "/sources", label: "Sources", Icon: IconDoc, badge: counts.sources },
+        { href: "/features", label: "Features", Icon: IconFeature, badge: counts.features },
+      ],
     },
     {
       label: "Graph",

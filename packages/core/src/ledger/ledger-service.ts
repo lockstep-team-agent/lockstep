@@ -19,9 +19,10 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
-import { upsertNodeTx, upsertEdgeTx } from "../graph/graph-service.js";
+import { upsertNodeTx, upsertEdgeTx, upsertGovernsEdgeTx, confirmGovernsEdgesForSurfacesTx } from "../graph/graph-service.js";
 import { canRatifyTx } from "../auth/permissions.js";
-import { sourceDocuments } from "../db/schema.js";
+import { sourceDocuments, conflicts } from "../db/schema.js";
+import { inArray } from "drizzle-orm";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -98,6 +99,47 @@ async function capabilityImpactTx(tx: Tx, projectId: string, capabilityRef: stri
   let max = 0;
   for (const s of surfaces) max = Math.max(max, await consumerCountTx(tx, projectId, s));
   return max;
+}
+
+/**
+ * The reverse of capabilitySurfacesTx: capabilities that govern a surface, via CONFIRMED governs edges
+ * only. surface node → governs edges where toId=surfaceNode → capability node refs. This is the
+ * briefing scoping direction (a repo touches surfaces → which product capabilities govern them).
+ */
+export async function surfaceCapabilitiesTx(tx: Tx, projectId: string, surface: string): Promise<string[]> {
+  const node = (
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "surface"), eq(graphNodes.ref, surface)))
+      .limit(1)
+  )[0];
+  if (!node) return [];
+  const edges = await tx
+    .select()
+    .from(graphEdges)
+    .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.toId, node.id), eq(graphEdges.kind, "governs"), eq(graphEdges.status, "confirmed")));
+  if (edges.length === 0) return [];
+  const caps = await tx
+    .select()
+    .from(graphNodes)
+    .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "capability")));
+  const fromIds = new Set(edges.map((e) => e.fromId));
+  return caps.filter((c) => fromIds.has(c.id)).map((c) => c.ref);
+}
+
+/** Recompute + persist impact for all capability-scoped decisions on a capability (after edges change). */
+export async function recomputeCapabilityImpactTx(tx: Tx, projectId: string, capabilityRef: string): Promise<void> {
+  const impact = await capabilityImpactTx(tx, projectId, capabilityRef);
+  await tx
+    .update(decisions)
+    .set({ impact })
+    .where(and(eq(decisions.projectId, projectId), eq(decisions.scopeKind, "capability"), eq(decisions.scopeRef, capabilityRef)));
+}
+
+/** Crude token estimate (chars/4) — no tokenizer dep in the repo; good enough for the briefing budget. */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
 }
 
 /** Org-graph impact for a topic node: distinct person/team neighbours (0 if the graph isn't derived yet). */
@@ -642,6 +684,13 @@ export async function ratifyDecision(
         doc.title ?? doc.externalId,
       );
       await upsertEdgeTx(tx, orgId, d.projectId, docNodeId, capId, "owns");
+      // Seed PROPOSED governs edges from the extraction's canonicalized surface candidates (F5), so the
+      // Features page shows suggestions before any code is written. They only affect briefing scope
+      // once a tech lead or a checked PR confirms them.
+      const candidates = ((cur?.provenance as { surfaceCandidates?: string[] })?.surfaceCandidates ?? []).filter(Boolean);
+      for (const surface of candidates) {
+        await upsertGovernsEdgeTx(tx, orgId, d.projectId, d.scopeRef, surface, "proposed", "extraction");
+      }
     }
 
     await writeAudit(tx, {
@@ -832,6 +881,7 @@ export interface NotifyInput {
   verified?: boolean;
   verifiedAgainst?: string;
   diffHash?: string;
+  capabilityRef?: string; // v3: active feature context — auto-links the changed surface to the capability
 }
 
 /** Record a change-feed entry (+ contract if a delta is supplied). Routing happens in P5. */
@@ -890,6 +940,13 @@ export async function recordChange(
       entityId: change.id,
       payload: { surface: input.surface, riskTier, publishState },
     });
+
+    // v3 auto-link (F7): a change on a surface while a feature context is set proposes a
+    // capability→surface governs edge. It stays `proposed` until a checked PR (reconcile) or a tech
+    // lead confirms it, so it never silently widens briefing scope.
+    if (input.surface && input.capabilityRef) {
+      await upsertGovernsEdgeTx(tx, orgId, input.projectId, input.capabilityRef, input.surface, "proposed", "auto-link");
+    }
 
     // Route to consumers of the changed surface (dependency-graph fan-out).
     let delivered = 0;
@@ -1042,6 +1099,210 @@ export async function completeTask(orgId: string, taskId: string, memberId: stri
   });
 }
 
+/* ───────────────────────────── v3: product-constraint scoping (briefing / pull) ───────────────────────────── */
+
+export interface ScopedConstraint {
+  id: string;
+  scopeKind: string;
+  scopeRef: string;
+  ruleText: string;
+  constraintKind: string | null;
+  status: string;
+  impact: number;
+  expiresAt: Date | null;
+  docId: string | null;
+  docTitle: string | null;
+  docUrl: string | null;
+  docState: string | null;
+  anchorUrl: string | null;
+  conflictOpen: boolean;
+}
+
+/** Resolve a document-constraint decision to its briefing/pull shape (doc + anchor + open-conflict). */
+async function constraintDetailTx(
+  tx: Tx,
+  d: typeof decisions.$inferSelect,
+): Promise<ScopedConstraint | null> {
+  const v = (
+    await tx
+      .select()
+      .from(decisionVersions)
+      .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
+      .limit(1)
+  )[0];
+  const prov = (v?.provenance ?? {}) as { documentId?: string; url?: string };
+  const doc = prov.documentId
+    ? (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, prov.documentId)).limit(1))[0]
+    : undefined;
+  const open = (
+    await tx
+      .select({ id: conflicts.id })
+      .from(conflicts)
+      .where(and(eq(conflicts.constraintDecisionId, d.id), eq(conflicts.status, "open")))
+      .limit(1)
+  )[0];
+  return {
+    id: d.id,
+    scopeKind: d.scopeKind,
+    scopeRef: d.scopeRef,
+    ruleText: v?.ruleText ?? "",
+    constraintKind: d.constraintKind,
+    status: d.status,
+    impact: d.impact,
+    expiresAt: d.expiresAt,
+    docId: doc?.id ?? null,
+    docTitle: doc?.title ?? null,
+    docUrl: doc?.url ?? null,
+    docState: doc?.state ?? null,
+    anchorUrl: prov.url ?? doc?.url ?? null,
+    conflictOpen: Boolean(open),
+  };
+}
+
+/** The surfaces a repo touches, server-side knowable: its consumed + produced dependency edges + contracts. */
+async function repoSurfacesTx(tx: Tx, projectId: string, repoId: string): Promise<string[]> {
+  const deps = await tx
+    .select()
+    .from(dependencyEdges)
+    .where(and(eq(dependencyEdges.projectId, projectId), eq(dependencyEdges.active, true)));
+  const surfaces = new Set<string>();
+  for (const e of deps) {
+    if (e.consumerRepoId === repoId || e.producedRepoId === repoId) surfaces.add(e.producedSurface);
+  }
+  for (const c of await tx.select().from(contracts).where(eq(contracts.repoId, repoId))) surfaces.add(c.surface);
+  return [...surfaces];
+}
+
+/**
+ * Binding product constraints (origin=document, doc active) in scope for a repo: those scoped directly
+ * to a surface the repo touches, plus those scoped to a capability that governs such a surface (via
+ * confirmed governs edges). Ranked by impact desc. The briefing + get_product_context backend.
+ */
+export async function constraintsInScope(orgId: string, projectId: string, repoId: string): Promise<ScopedConstraint[]> {
+  return withOrg(orgId, (tx) => constraintsInScopeTx(tx, projectId, repoId));
+}
+
+async function constraintsInScopeTx(tx: Tx, projectId: string, repoId: string): Promise<ScopedConstraint[]> {
+  const surfaces = await repoSurfacesTx(tx, projectId, repoId);
+  if (surfaces.length === 0) return [];
+  // Direct surface-scoped + capability-scoped (via surface→capability) constraint refs.
+  const capRefs = new Set<string>();
+  for (const s of surfaces) for (const c of await surfaceCapabilitiesTx(tx, projectId, s)) capRefs.add(c);
+  const rows = await tx
+    .select()
+    .from(decisions)
+    .where(and(eq(decisions.projectId, projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")));
+  const surfaceSet = new Set(surfaces);
+  const out: ScopedConstraint[] = [];
+  for (const d of rows) {
+    const inScope =
+      (d.scopeKind === "surface" && surfaceSet.has(d.scopeRef)) ||
+      (d.scopeKind === "capability" && capRefs.has(d.scopeRef));
+    if (!inScope) continue;
+    const detail = await constraintDetailTx(tx, d);
+    if (!detail || detail.docState !== "active") continue; // only active-doc constraints reach agents
+    out.push(detail);
+  }
+  out.sort((a, b) => b.impact - a.impact);
+  return out;
+}
+
+/** Briefing token budget; constraints may consume at most 15% of it (PRD §14). No tokenizer dep. */
+export const BRIEFING_TOKEN_BUDGET = 2000;
+const CONSTRAINT_BUDGET = Math.floor(BRIEFING_TOKEN_BUDGET * 0.15);
+
+/** One constraint's briefing line, for both token accounting and the `⚠ [ratified · doc]` render. */
+export function constraintLine(c: ScopedConstraint): string {
+  return `⚠ [ratified · ${c.docTitle ?? "PRD"}] ${c.ruleText} (impact ${c.impact})${c.conflictOpen ? " · conflict open" : ""}`;
+}
+
+/**
+ * Apply the 15% briefing cap: keep highest-impact constraints until the token budget is exhausted,
+ * truncating lowest-impact-first, and report how many were dropped. Input must be impact-desc sorted.
+ */
+export function capConstraints(constraints: ScopedConstraint[]): { shown: ScopedConstraint[]; overflow: number } {
+  const shown: ScopedConstraint[] = [];
+  let spent = 0;
+  for (const c of constraints) {
+    const cost = estimateTokens(constraintLine(c));
+    if (shown.length > 0 && spent + cost > CONSTRAINT_BUDGET) break;
+    shown.push(c);
+    spent += cost;
+  }
+  return { shown, overflow: constraints.length - shown.length };
+}
+
+/** The GET /briefing backend: in-scope constraints, ranked + 15%-capped, with an overflow count. */
+export async function briefingConstraints(
+  orgId: string,
+  projectId: string,
+  repoId: string,
+): Promise<{ constraints: Array<ScopedConstraint & { line: string }>; overflow: number }> {
+  const all = await constraintsInScope(orgId, projectId, repoId);
+  const { shown, overflow } = capConstraints(all);
+  return { constraints: shown.map((c) => ({ ...c, line: constraintLine(c) })), overflow };
+}
+
+/**
+ * The get_product_context({scope}) backend. scope is a capability ref, a canonical surface id, or free
+ * text; returns the full constraint set (no budget cap — this is the pull path) + governed surfaces.
+ */
+export async function getProductContext(
+  orgId: string,
+  projectId: string,
+  scope: string,
+): Promise<{
+  scope: string;
+  constraints: ScopedConstraint[];
+  governedSurfaces: string[];
+}> {
+  return withOrg(orgId, async (tx) => {
+    const isCapability = scope.startsWith("feature:") || scope.startsWith("metric:");
+    const isSurface = /^(http:|proto:|gql:|pkg:)/.test(scope);
+    let capRefs: string[] = [];
+    let governedSurfaces: string[] = [];
+    const decRows = await tx
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.projectId, projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")));
+
+    let matched: typeof decRows;
+    if (isCapability) {
+      capRefs = [scope];
+      governedSurfaces = await capabilitySurfacesTx(tx, projectId, scope);
+      matched = decRows.filter((d) => d.scopeKind === "capability" && d.scopeRef === scope);
+    } else if (isSurface) {
+      capRefs = await surfaceCapabilitiesTx(tx, projectId, scope);
+      governedSurfaces = [scope];
+      matched = decRows.filter(
+        (d) => (d.scopeKind === "surface" && d.scopeRef === scope) || (d.scopeKind === "capability" && capRefs.includes(d.scopeRef)),
+      );
+    } else {
+      // Free text: substring over rule text / scope ref (like queryLedger).
+      const needle = scope.toLowerCase();
+      const hits = [];
+      for (const d of decRows) {
+        const v = (
+          await tx
+            .select()
+            .from(decisionVersions)
+            .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
+            .limit(1)
+        )[0];
+        if (`${d.scopeRef} ${v?.ruleText ?? ""}`.toLowerCase().includes(needle)) hits.push(d);
+      }
+      matched = hits;
+    }
+    const constraints: ScopedConstraint[] = [];
+    for (const d of matched) {
+      const detail = await constraintDetailTx(tx, d);
+      if (detail) constraints.push(detail);
+    }
+    constraints.sort((a, b) => b.impact - a.impact);
+    return { scope, constraints, governedSurfaces };
+  });
+}
+
 /* ───────────────────────────── Tier-2 reconcile (the hard gate) ───────────────────────────── */
 
 /**
@@ -1052,7 +1313,12 @@ export async function reconcile(
   orgId: string,
   projectId: string,
   contractSurfaces: string[],
-): Promise<{ ok: boolean; violations: string[]; staleDependents: Array<{ surface: string; consumers: string[] }> }> {
+): Promise<{
+  ok: boolean;
+  violations: string[];
+  staleDependents: Array<{ surface: string; consumers: string[] }>;
+  confirmedGovernsEdges: Array<{ surface: string; capabilityRef: string }>;
+}> {
   return withOrg(orgId, async (tx) => {
     const violations: string[] = [];
     const staleDependents: Array<{ surface: string; consumers: string[] }> = [];
@@ -1073,7 +1339,18 @@ export async function reconcile(
         staleDependents.push({ surface, consumers: [...new Set(deps.map((e) => e.consumerRepoId))] });
       }
     }
-    return { ok: violations.length === 0, violations, staleDependents };
+    // v3: a surface shipping in a checked PR confirms its prospective capability mapping, and the
+    // capability's constraints recompute their impact (they may now reach consumers' briefings).
+    const confirmed = await confirmGovernsEdgesForSurfacesTx(tx, projectId, contractSurfaces);
+    for (const ref of new Set(confirmed.map((c) => c.capabilityRef))) {
+      await recomputeCapabilityImpactTx(tx, projectId, ref);
+    }
+    return {
+      ok: violations.length === 0,
+      violations,
+      staleDependents,
+      confirmedGovernsEdges: confirmed.map((c) => ({ surface: c.surface, capabilityRef: c.capabilityRef })),
+    };
   });
 }
 
@@ -1096,7 +1373,18 @@ export async function queryLedger(
           .limit(1)
       )[0];
       const hay = `${d.scopeRef} ${v?.ruleText ?? ""}`.toLowerCase();
-      if (hay.includes(needle)) decRows.push({ scopeRef: d.scopeRef, status: d.status, ruleText: v?.ruleText ?? "" });
+      if (hay.includes(needle))
+        decRows.push({
+          scopeRef: d.scopeRef,
+          scopeKind: d.scopeKind,
+          status: d.status,
+          ruleText: v?.ruleText ?? "",
+          // v3: mark product constraints so the agent can distinguish ratified PRD rules from
+          // engineering decisions when it synthesizes the answer.
+          origin: d.origin,
+          isConstraint: d.origin === "document",
+          constraintKind: d.constraintKind,
+        });
     }
     const changes = (
       await tx

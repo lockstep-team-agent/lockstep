@@ -3,16 +3,20 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { registerSession } from "./session.js";
 import { call } from "./api.js";
+import { gitRemote } from "./git.js";
+import { writeFeatureContext } from "../capture/feature-context.js";
 
 /**
  * The per-session MCP server (one process per agent session). Registers the session,
- * then exposes the 12 tools as thin proxies to the core API. The core stays LLM-free —
+ * then exposes the tools as thin proxies to the core API. The core stays LLM-free —
  * query() returns rows; the agent synthesizes. Identical across vendors (the seam).
  */
 export async function runMcpServer(): Promise<void> {
   const vendor = process.env.LOCKSTEP_VENDOR ?? "unknown";
   const session = await registerSession(vendor); // stderr-safe: throws to caller on failure
   const sid = session.sessionId;
+  let featureCtx: string | null = null; // set via set_feature_context; defaults capabilityRef on notify/propose
+  const remote = gitRemote(process.cwd());
   const ok = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data) }] });
 
   const server = new McpServer({ name: "lockstep", version: "0.0.1" });
@@ -27,8 +31,9 @@ export async function runMcpServer(): Promise<void> {
       verified: z.boolean().optional(),
       verifiedAgainst: z.string().optional(),
       diffHash: z.string().optional(),
+      capabilityRef: z.string().optional(),
     },
-    async (a) => ok(await call("POST", "/changes", sid, a)),
+    async (a) => ok(await call("POST", "/changes", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined })),
   );
   server.tool("inbox", {}, async () => ok(await call("GET", "/inbox", sid)));
   server.tool("ack_inbox", { itemIds: z.array(z.string()).optional() }, async (a) =>
@@ -59,8 +64,9 @@ export async function runMcpServer(): Promise<void> {
       ruleText: z.string(),
       baseVersion: z.number(),
       decisionType: z.enum(["rule", "architecture"]).optional(),
+      capabilityRef: z.string().optional(),
     },
-    async (a) => ok(await call("POST", "/decisions", sid, a)),
+    async (a) => ok(await call("POST", "/decisions", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined })),
   );
   server.tool(
     "ack_decision",
@@ -82,6 +88,14 @@ export async function runMcpServer(): Promise<void> {
   server.tool("consumers", { surface: z.string() }, async (a) =>
     ok(await call("GET", `/consumers?surface=${encodeURIComponent(a.surface)}`, sid)),
   );
+  server.tool("get_product_context", { scope: z.string() }, async (a) =>
+    ok(await call("GET", `/product-context?scope=${encodeURIComponent(a.scope)}`, sid)),
+  );
+  server.tool("set_feature_context", { capabilityRef: z.string() }, async (a) => {
+    featureCtx = a.capabilityRef;
+    if (remote) writeFeatureContext(remote, a.capabilityRef);
+    return ok({ ok: true, capabilityRef: a.capabilityRef });
+  });
 
   await server.connect(new StdioServerTransport());
 }

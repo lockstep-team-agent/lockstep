@@ -4,7 +4,7 @@ import { redactSecrets } from "./funnel.js";
 import { recallDoc as defaultRecallDoc } from "./distill/recall.js";
 import { extractDoc as defaultExtractDoc, extractDocBatch } from "./distill/extract.js";
 import { gateDoc } from "./distill/gate.js";
-import { resolveDocScope, capabilitySlug } from "./distill/scope.js";
+import { resolveDocScope, capabilitySlug, canonicalizeSurface } from "./distill/scope.js";
 import { parseExpiresHint } from "./distill/expiry.js";
 import type { DocExtraction } from "./distill/rubric-doc.js";
 
@@ -32,6 +32,9 @@ export interface ProposedDocItem {
   anchor: { type: "notion_block"; pageId: string; blockId: string; headingPath: string[]; snippet: string };
   evidence: Array<{ externalId: string; quote: string }>;
   rationale: string;
+  // Canonicalized surface candidates the extraction named — seed PROPOSED capability→surface governs
+  // edges at ratification (F5). Empty for a constraint that named no recognizable surface.
+  surfaceCandidates: string[];
 }
 
 export interface DocFunnelResult {
@@ -134,6 +137,9 @@ export async function runDocFunnel(opts: {
       continue;
     }
     const scope = resolveDocScope(x.surface_candidates, capabilityRef);
+    const surfaceCandidates = [
+      ...new Set(x.surface_candidates.map((c) => canonicalizeSurface(c)).filter((s): s is string => Boolean(s))),
+    ];
     const externalId = `${opts.doc.externalId}#${s.section.anchorKey}`;
     const expiresAt = parseExpiresHint(x.expires_hint, now);
     items.push({
@@ -156,6 +162,7 @@ export async function runDocFunnel(opts: {
       },
       evidence: x.evidence.map((e) => ({ externalId, quote: e.quote })),
       rationale: x.rationale,
+      surfaceCandidates,
     });
     if (action === "propose_low") stats.lowConfidence++;
     else stats.proposed++;

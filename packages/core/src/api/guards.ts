@@ -52,3 +52,11 @@ export async function requireProductLayer(reply: FastifyReply, orgId: string, pr
   }
   return true;
 }
+
+/** Boolean product-layer check (no reply) — for endpoints that degrade silently rather than 403. */
+export async function productLayerOn(orgId: string, projectId: string): Promise<boolean> {
+  return withOrg(orgId, async (tx) => {
+    const p = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
+    return p ? productLayerEnabled(p.settings) : false;
+  });
+}

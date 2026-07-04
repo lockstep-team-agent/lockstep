@@ -72,6 +72,10 @@ async function main() {
   for (const s of result.staleDependents ?? []) {
     console.log(`⚠ ${s.surface} is consumed by ${s.consumers.length} repo(s) — ensure they're updated.`);
   }
+  // v3: a shipped surface confirms its prospective product-capability mapping.
+  for (const e of result.confirmedGovernsEdges ?? []) {
+    console.log(`✓ Lockstep: linked ${e.surface} → ${e.capabilityRef}`);
+  }
   if (!result.ok) {
     console.error(
       `❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}`,

@@ -76,9 +76,11 @@ export interface GraphNode {
   source: string;
 }
 export interface GraphEdge {
+  id: string;
   fromId: string;
   toId: string;
   kind: string;
+  status: string;
 }
 export const getGraph = (orgId: string, projectId: string) =>
   apiGet<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/orgs/${orgId}/projects/${projectId}/graph`);
@@ -174,6 +176,44 @@ export const getStateMappings = (orgId: string, projectId: string, connectionId:
 
 export const getCounts = (orgId: string, projectId: string) =>
   apiGet<ProjectCounts>(`/orgs/${orgId}/projects/${projectId}/counts`);
+
+export interface Feature {
+  ref: string;
+  label: string | null;
+  docId: string | null;
+  docTitle: string | null;
+  constraintCounts: { binding: number; proposed: number; stale: number; expired: number; total: number };
+  governedSurfaces: { confirmed: number; proposed: number };
+  openConflicts: number;
+}
+
+export interface FeatureDetail {
+  ref: string;
+  label: string | null;
+  doc: { id: string; title: string | null; url: string | null; state: string } | null;
+  constraints: Array<{
+    id: string;
+    ruleText: string;
+    status: string;
+    constraintKind: string | null;
+    scopeRef: string;
+    anchorUrl: string | null;
+    conflict: boolean;
+  }>;
+  governedSurfaces: Array<{
+    surface: string;
+    status: "proposed" | "confirmed";
+    edgeId: string;
+    implementing: { decisions: number; changes: number };
+  }>;
+  coverage: { constraintsWithActivity: number; totalConstraints: number; openConflicts: number };
+}
+
+export const getFeatures = (orgId: string, projectId: string) =>
+  apiGet<{ features: Feature[] }>(`/orgs/${orgId}/projects/${projectId}/features`);
+
+export const getFeature = (orgId: string, projectId: string, ref: string) =>
+  apiGet<FeatureDetail>(`/orgs/${orgId}/projects/${projectId}/features/${encodeURIComponent(ref)}`);
 
 export const constraintKindLabel = (k: ConstraintKind): string => k.replace(/_/g, " ");
 

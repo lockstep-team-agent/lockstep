@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { registerSession } from "../mcp/session.js";
 import { call } from "../mcp/api.js";
+import { gitRemote } from "../mcp/git.js";
+import { readFeatureContext } from "./feature-context.js";
 import { changedFiles } from "./diff.js";
 import { isContractSurface, riskTierFor } from "./classify.js";
 import { extractSurfaces } from "./surface.js";
@@ -26,12 +28,21 @@ interface InboxResp {
 interface DecisionsResp {
   decisions?: Array<{ scopeRef: string; status: string; ruleText: string; impact?: number }>;
 }
+/** Product-layer briefing: ranked, budget-capped constraints (origin=document, binding) in scope. */
+export interface BriefingResp {
+  constraints: Array<{ line: string; impact: number; conflictOpen: boolean }>;
+  overflow: number;
+}
 
 /** Highest-blast-radius first, so the session-start briefing leads with what matters most. */
 const byImpact = <T extends { impact?: number }>(a: T, b: T): number => (b.impact ?? 0) - (a.impact ?? 0);
 const tag = (impact?: number): string => ((impact ?? 0) > 0 ? `[impact ${impact}] ` : "");
 
-function formatReplay(inbox: InboxResp | null, decisions: DecisionsResp | null): string {
+export function formatReplay(
+  inbox: InboxResp | null,
+  decisions: DecisionsResp | null,
+  briefing?: BriefingResp | null,
+): string {
   const lines: string[] = [];
   const changes = [...(inbox?.changes ?? [])].sort(byImpact);
   if (changes.length) {
@@ -55,9 +66,24 @@ function formatReplay(inbox: InboxResp | null, decisions: DecisionsResp | null):
     for (const d of pendingDecisions.slice(0, 8)) lines.push(`  • [${d.scopeRef}] ${d.ruleText}`);
   }
   const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding").sort(byImpact);
-  if (binding.length) {
-    lines.push(`📌 ${binding.length} binding decision(s) in effect:`);
-    for (const d of binding.slice(0, 8)) lines.push(`  • ${tag(d.impact)}[${d.scopeRef}] ${d.ruleText}`);
+  const constraints = briefing?.constraints ?? [];
+  if (binding.length || constraints.length) {
+    // Constraints ARE binding decisions (origin=document) — interleave them into this section,
+    // impact-desc across both; on ties, product constraints lead.
+    type Row = { impact: number; isConstraint: boolean; line: string };
+    const rows: Row[] = [
+      ...binding.map((d) => ({
+        impact: d.impact ?? 0,
+        isConstraint: false,
+        line: `  • ${tag(d.impact)}[${d.scopeRef}] ${d.ruleText}`,
+      })),
+      ...constraints.map((c) => ({ impact: c.impact, isConstraint: true, line: `  • ${c.line}` })),
+    ].sort((a, b) => b.impact - a.impact || Number(b.isConstraint) - Number(a.isConstraint));
+
+    lines.push(`📌 ${rows.length} binding decision(s) in effect:`);
+    for (const r of rows.slice(0, 8)) lines.push(r.line);
+    if ((briefing?.overflow ?? 0) > 0)
+      lines.push(`  • (+${briefing?.overflow} product constraints in scope — get_product_context)`);
   }
   return lines.length ? `Lockstep:\n${lines.join("\n")}` : "Lockstep: nothing new.";
 }
@@ -98,12 +124,16 @@ export async function runCapture(event: string): Promise<void> {
     process.exit(0); // not a connected repo / not logged in → silent no-op
   }
 
+  const remote = gitRemote(cwd);
+  const capabilityRef = remote ? readFeatureContext(remote) : null;
+
   try {
     if (event === "SessionStart") {
       await syncManifestDeps(cwd, session.sessionId); // keep the usage graph current from lockstep.yaml
       const inbox = await call<InboxResp>("GET", "/inbox", session.sessionId).catch(() => null);
       const decisions = await call<DecisionsResp>("GET", "/decisions", session.sessionId).catch(() => null);
-      const replay = formatReplay(inbox, decisions);
+      const briefing = await call<BriefingResp>("GET", "/briefing", session.sessionId).catch(() => null);
+      const replay = formatReplay(inbox, decisions, briefing);
       process.stdout.write(
         JSON.stringify({
           hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: replay },
@@ -154,6 +184,7 @@ export async function runCapture(event: string): Promise<void> {
         verified: true,
         verifiedAgainst: "git-diff",
         diffHash: baseHash,
+        capabilityRef: capabilityRef ?? undefined,
       }).catch(() => {});
     } else {
       // One change per changed surface, so each routes to that surface's consumers.
@@ -165,6 +196,7 @@ export async function runCapture(event: string): Promise<void> {
           verified: true, // mechanical delta is derived from real local code
           verifiedAgainst: "git-diff",
           diffHash: `${baseHash}:${surface}`,
+          capabilityRef: capabilityRef ?? undefined,
         }).catch(() => {});
       }
     }

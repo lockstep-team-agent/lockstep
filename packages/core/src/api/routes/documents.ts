@@ -25,6 +25,7 @@ import {
   type DocCandidateItem,
 } from "../../documents/document-service.js";
 import { listConflicts, dismissConflict } from "../../documents/reconcile-service.js";
+import { listFeatures, getFeature, confirmGovernsEdge, rejectGovernsEdge } from "../../documents/features-service.js";
 import { ratifyDecision } from "../../ledger/ledger-service.js";
 
 /** v3 product layer: documents, state mappings, ratifications, conflicts, write-backs. */
@@ -167,6 +168,38 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       statusProperty: b.statusProperty,
       memberId,
     });
+  });
+
+  /* ─── Features (reconciliation) ─── */
+
+  app.get("/orgs/:orgId/projects/:projectId/features", async (req, reply) => {
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await requireProductLayer(reply, orgId, projectId))) return;
+    return listFeatures(orgId, projectId);
+  });
+
+  app.get("/orgs/:orgId/projects/:projectId/features/:ref", async (req, reply) => {
+    const { orgId, projectId, ref } = req.params as { orgId: string; projectId: string; ref: string };
+    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await requireProductLayer(reply, orgId, projectId))) return;
+    const feature = await getFeature(orgId, projectId, decodeURIComponent(ref));
+    if (!feature) return reply.code(404).send({ error: "feature not found" });
+    return feature;
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/graph/edges/:id/confirm", async (req, reply) => {
+    const { orgId, projectId, id } = req.params as { orgId: string; projectId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    return confirmGovernsEdge(orgId, projectId, id, memberId);
+  });
+
+  app.post("/orgs/:orgId/projects/:projectId/graph/edges/:id/reject", async (req, reply) => {
+    const { orgId, projectId, id } = req.params as { orgId: string; projectId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    return rejectGovernsEdge(orgId, projectId, id, memberId);
   });
 
   /* ─── Conflicts ─── */

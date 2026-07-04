@@ -154,6 +154,24 @@ export async function setStatusPropertyAction(formData: FormData): Promise<void>
   revalidatePath(`/project/${orgId}/${projectId}/sources`);
 }
 
+export async function confirmGovernsEdgeAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const edgeId = String(formData.get("edgeId") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/graph/edges/${edgeId}/confirm`, {});
+  revalidatePath(`/project/${orgId}/${projectId}/features`);
+  revalidatePath(`/project/${orgId}/${projectId}/graph`);
+}
+
+export async function rejectGovernsEdgeAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const edgeId = String(formData.get("edgeId") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/graph/edges/${edgeId}/reject`, {});
+  revalidatePath(`/project/${orgId}/${projectId}/features`);
+  revalidatePath(`/project/${orgId}/${projectId}/graph`);
+}
+
 export async function updateMemberRoleAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");
