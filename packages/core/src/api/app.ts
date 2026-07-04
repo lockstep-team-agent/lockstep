@@ -6,6 +6,8 @@ import { sessionRoutes } from "./routes/sessions.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { documentRoutes } from "./routes/documents.js";
+import { slackRoutes } from "./routes/slack.js";
 import { queryClient } from "../db/client.js";
 import { env } from "../env.js";
 
@@ -31,6 +33,8 @@ export function buildApp(): FastifyInstance {
   void app.register(ledgerRoutes);
   void app.register(dashboardRoutes);
   void app.register(ingestRoutes);
+  void app.register(documentRoutes);
+  void app.register(slackRoutes);
 
   return app;
 }

@@ -1,11 +1,13 @@
 import { apiGet } from "@/lib/api";
 import { getOverview } from "@/lib/data";
-import { PageHead } from "@/components/ui";
+import { PageHead, StatusPill } from "@/components/ui";
 import { IconRepo } from "@/components/icons";
-import { inviteAction, connectRepoAction } from "@/actions";
+import { inviteAction, connectRepoAction, updateMemberRoleAction } from "@/actions";
 import type { OrgOverview } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const ROLES = ["member", "pm", "owner"] as const;
 
 const preStyle = {
   background: "var(--surface-2)",
@@ -24,6 +26,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const org = await apiGet<OrgOverview>(`/orgs/${orgId}/overview`);
   const o = await getOverview(orgId, projectId);
   const members = org?.members ?? [];
+  const projectMembers = o?.members;
+  const isOwner = o?.viewer?.role === "owner";
   const repos = o?.repos ?? [];
   const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const api = process.env.LOCKSTEP_API_URL ?? "https://your-core";
@@ -35,22 +39,64 @@ export default async function Page({ params }: { params: { orgId: string; projec
       <div className="section-title">Members</div>
       <div className="card animate-in">
         <div className="rows stagger">
-          {members.map((m) => (
-            <div className="row" key={m.id}>
-              <span className="avatar" style={{ width: 24, height: 24, borderRadius: 8, fontSize: 10 }}>
-                {(m.githubLogin[0] ?? "?").toUpperCase()}
-              </span>
-              <div className="body">
-                <div className="title">@{m.githubLogin}</div>
-              </div>
-            </div>
-          ))}
+          {projectMembers
+            ? projectMembers.map((m) => (
+                <div className="row" key={m.id}>
+                  <span className="avatar" style={{ width: 24, height: 24, borderRadius: 8, fontSize: 10 }}>
+                    {(m.githubLogin[0] ?? "?").toUpperCase()}
+                  </span>
+                  <div className="body">
+                    <div className="title">@{m.githubLogin}</div>
+                    <div className="meta">
+                      <StatusPill status={m.status} />
+                    </div>
+                  </div>
+                  <form className="inline" action={updateMemberRoleAction}>
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="projectId" value={projectId} />
+                    <input type="hidden" name="projectMemberId" value={m.id} />
+                    <select
+                      name="role"
+                      className="input"
+                      defaultValue={m.role}
+                      disabled={!isOwner}
+                      style={{ maxWidth: 120 }}
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    {isOwner ? (
+                      <button className="btn">Update role</button>
+                    ) : (
+                      <span className="tip" data-tip="Only project owners can change roles">
+                        <button className="btn" disabled>Update role</button>
+                      </span>
+                    )}
+                  </form>
+                </div>
+              ))
+            : members.map((m) => (
+                <div className="row" key={m.id}>
+                  <span className="avatar" style={{ width: 24, height: 24, borderRadius: 8, fontSize: 10 }}>
+                    {(m.githubLogin[0] ?? "?").toUpperCase()}
+                  </span>
+                  <div className="body">
+                    <div className="title">@{m.githubLogin}</div>
+                  </div>
+                </div>
+              ))}
         </div>
       </div>
       <form className="inline" action={inviteAction} style={{ marginTop: 12 }}>
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="projectId" value={projectId} />
         <input className="input" name="githubLogin" placeholder="github-handle" style={{ maxWidth: 240 }} />
+        <select name="role" className="input" defaultValue="member" style={{ maxWidth: 120 }}>
+          {ROLES.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
         <button className="btn primary" type="submit">
           Invite teammate
         </button>

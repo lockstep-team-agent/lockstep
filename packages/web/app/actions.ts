@@ -36,8 +36,10 @@ export async function connectRepoAction(formData: FormData): Promise<void> {
 export async function inviteAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");
+  const role = String(formData.get("role") ?? "");
   await apiPost(`/orgs/${orgId}/projects/${projectId}/invite`, {
     githubLogin: String(formData.get("githubLogin") ?? ""),
+    ...(role ? { role } : {}),
   });
   revalidatePath(`/project/${orgId}/${projectId}`);
 }
@@ -97,4 +99,67 @@ export async function addGraphEdgeAction(formData: FormData): Promise<void> {
     kind: String(formData.get("kind") ?? "relates"),
   });
   revalidatePath(`/project/${orgId}/${projectId}/graph`);
+}
+
+/* ── v3 product layer ── */
+
+export async function ratifyDecisionAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const ruleText = String(formData.get("ruleText") ?? "");
+  const originalRuleText = String(formData.get("originalRuleText") ?? "");
+  const edited = ruleText.trim() !== "" && ruleText !== originalRuleText;
+  await apiPost(`/orgs/${orgId}/decisions/${id}/ratify`, edited ? { ruleText } : {});
+  revalidatePath(`/project/${orgId}/${projectId}/review-queue`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+}
+
+export async function resyncDocumentAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const docId = String(formData.get("docId") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/documents/${docId}/resync`, {});
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources/${docId}`);
+}
+
+export async function setStateMappingAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const connectionId = String(formData.get("connectionId") ?? "");
+  const containerRef = String(formData.get("containerRef") ?? "");
+  const sourceValue = String(formData.get("sourceValue") ?? "");
+  const canonicalState = String(formData.get("canonicalState") ?? "");
+  if (sourceValue && canonicalState) {
+    await apiPost(`/orgs/${orgId}/projects/${projectId}/connections/${connectionId}/state-mappings`, {
+      containerRef,
+      sourceValue,
+      canonicalState,
+    });
+  }
+  revalidatePath(`/project/${orgId}/${projectId}/connections`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+}
+
+export async function setStatusPropertyAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const connectionId = String(formData.get("connectionId") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/connections/${connectionId}/state-mappings/property`, {
+    containerRef: String(formData.get("containerRef") ?? ""),
+    statusProperty: String(formData.get("statusProperty") ?? ""),
+  });
+  revalidatePath(`/project/${orgId}/${projectId}/connections`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+}
+
+export async function updateMemberRoleAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const projectMemberId = String(formData.get("projectMemberId") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/members/${projectMemberId}/role`, {
+    role: String(formData.get("role") ?? "member"),
+  });
+  revalidatePath(`/project/${orgId}/${projectId}/members`);
 }

@@ -36,4 +36,7 @@ export interface ProjectOverview {
     version: number;
   }>;
   audit: Array<{ action: string; entityKind: string | null; createdAt: string }>;
+  /* ── v3 product layer (optional — tolerate absence while core catches up) ── */
+  viewer?: { memberId: string; role: "owner" | "pm" | "member" };
+  members?: Array<{ id: string; memberId: string | null; githubLogin: string; role: string; status: string }>;
 }

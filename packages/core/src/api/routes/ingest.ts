@@ -1,8 +1,5 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { and, eq } from "drizzle-orm";
-import { withSystem } from "../../db/rls.js";
-import { members } from "../../db/schema.js";
-import { env } from "../../env.js";
+import type { FastifyInstance } from "fastify";
+import { workerAuthed, ensureMember } from "../guards.js";
 import {
   listWork,
   setWatermark,
@@ -20,41 +17,6 @@ import {
   listProvenancesForProject,
 } from "../../ledger/ledger-service.js";
 import { deriveGraph, listGraph, addNode, addEdge } from "../../graph/graph-service.js";
-
-/** Gate the worker endpoints on the shared ingest service token. */
-function workerAuthed(req: FastifyRequest, reply: FastifyReply): boolean {
-  const expected = env.LOCKSTEP_INGEST_TOKEN;
-  const got = req.headers["x-lockstep-ingest-token"];
-  if (!expected || got !== expected) {
-    reply.code(401).send({ error: "ingest token required" });
-    return false;
-  }
-  return true;
-}
-
-/** Resolve the caller's member id in an org (principal must be a member), else 403. */
-async function ensureMember(req: FastifyRequest, reply: FastifyReply, orgId: string): Promise<string | null> {
-  const p = req.principal;
-  if (!p) {
-    reply.code(401).send({ error: "unauthorized" });
-    return null;
-  }
-  const memberId = await withSystem(async (tx) => {
-    const m = (
-      await tx
-        .select()
-        .from(members)
-        .where(and(eq(members.orgId, orgId), eq(members.principalId, p.id)))
-        .limit(1)
-    )[0];
-    return m?.id ?? null;
-  });
-  if (!memberId) {
-    reply.code(403).send({ error: "not a member of this org" });
-    return null;
-  }
-  return memberId;
-}
 
 export async function ingestRoutes(app: FastifyInstance): Promise<void> {
   /* ─── Worker endpoints (service-token auth) ─── */
@@ -165,11 +127,14 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     return { allowlist: await listAllowlist(orgId, projectId) };
   });
 
-  // Review queue: proposed (ingested) decisions awaiting human confirmation.
+  // Review queue: proposed (ingested) decisions awaiting human confirmation. Document constraints
+  // (origin=document) have their own queue — the Ratifications tab — and are excluded here.
   app.get("/orgs/:orgId/projects/:projectId/proposed", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     if (!(await ensureMember(req, reply, orgId))) return;
-    const decisions = await listDecisions(orgId, projectId, undefined, { status: "proposed" });
+    const decisions = (await listDecisions(orgId, projectId, undefined, { status: "proposed" })).filter(
+      (d) => d.origin !== "document",
+    );
     const provs = await listProvenancesForProject(orgId, projectId);
     return { decisions: decisions.map((d) => ({ ...d, provenances: provs[d.id] ?? [] })) };
   });

@@ -38,7 +38,8 @@ DECLARE child_tables text[] := ARRAY[
   'contracts','dependency_edges','questions','answers','change_feed_entries',
   'tasks','inboxes','inbox_items','sessions','audit_events',
   'source_connections','ingest_allowlist','ingest_watermarks','ingest_artifacts',
-  'decision_provenances','graph_nodes','graph_edges'
+  'decision_provenances','graph_nodes','graph_edges',
+  'source_documents','document_state_mappings','conflicts','writebacks'
 ];
 DECLARE system_tables text[] := ARRAY['principals','access_tokens','github_credentials'];
 BEGIN

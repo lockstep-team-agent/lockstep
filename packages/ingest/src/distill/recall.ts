@@ -62,3 +62,53 @@ export async function recall(text: string, useHaiku = true): Promise<boolean> {
   if (!useHaiku) return true;
   return haikuRecall(text);
 }
+
+/* ── PRD sections (v3 product layer) — same shape, obligation/prohibition markers ── */
+
+export const DOC_MARKERS = [
+  "must",
+  "must not",
+  "never",
+  "launch gate",
+  "we will not",
+  "required",
+  "at least",
+  "at most",
+  "no more than",
+  "no later than",
+  "shall",
+  "may not",
+  "only if",
+  "exactly",
+  "minimum",
+  "maximum",
+  "prohibited",
+  "not allowed",
+];
+
+/** Free prefilter: does the PRD section contain any obligation/prohibition-shaped language? */
+export function keywordPrefilterDoc(text: string): boolean {
+  const t = text.toLowerCase();
+  return DOC_MARKERS.some((m) => t.includes(m));
+}
+
+/** Haiku binary "MIGHT this PRD section contain a binding product constraint?" — cheap, high-recall. */
+export async function haikuRecallDoc(text: string): Promise<boolean> {
+  const res = await anthropic().messages.create({
+    model: MODELS.recall,
+    max_tokens: 5,
+    system:
+      "You are a fast filter. Answer ONLY 'yes' or 'no'. Say 'yes' if this PRD section MIGHT contain a binding product constraint (an obligation, prohibition, or launch gate that shapes what gets built). When unsure, say 'yes'.",
+    messages: [{ role: "user", content: text.slice(0, 6000) }],
+  });
+  const block = res.content.find((b) => b.type === "text");
+  const answer = block && block.type === "text" ? block.text.toLowerCase() : "";
+  return answer.includes("yes");
+}
+
+/** Stage 1 combined for docs: prefilter → Haiku. Returns whether to send the section to extraction. */
+export async function recallDoc(text: string, useHaiku = true): Promise<boolean> {
+  if (!keywordPrefilterDoc(text)) return false;
+  if (!useHaiku) return true;
+  return haikuRecallDoc(text);
+}

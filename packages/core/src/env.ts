@@ -20,7 +20,11 @@ const schema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
 
+  // v3 product layer: first-party Slack app. The bot token sends the Edit modal (views.open) from
+  // the interactivity handler; the signing secret verifies POST /webhooks/slack/actions. The worker
+  // uses the same bot token to send ratification digests. All optional so core boots without Slack.
   SLACK_BOT_TOKEN: z.string().optional(),
+  LOCKSTEP_SLACK_SIGNING_SECRET: z.string().optional(),
 
   // v2 ingestion: Composio connector key (worker + OAuth) and the shared service token the ingest
   // worker presents to the /ingest/* worker endpoints. Both optional so core boots without ingestion.

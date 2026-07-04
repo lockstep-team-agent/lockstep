@@ -64,6 +64,7 @@ export const members = pgTable(
     displayName: text("display_name"),
     email: text("email"),
     vendorsInUse: text("vendors_in_use").array(), // {claude,codex,gemini}
+    slackUserId: text("slack_user_id"), // v3: Slack identity for ratification digests + button actions
     createdAt: createdAt(),
   },
   (t) => ({
@@ -76,6 +77,7 @@ export const projects = pgTable("projects", {
   id: id(),
   orgId: orgId(),
   name: text("name").notNull(),
+  settings: jsonb("settings"), // per-project feature flags, e.g. {productLayer:{enabled:true}}
   createdAt: createdAt(),
   createdBy: uuid("created_by"),
 });
@@ -88,7 +90,7 @@ export const projectMembers = pgTable(
     projectId: uuid("project_id").notNull(),
     memberId: uuid("member_id"), // null until invite accepted
     invitedGithubLogin: text("invited_github_login").notNull(), // invite by handle
-    role: text("role").notNull().default("member"), // owner | member
+    role: text("role").notNull().default("member"), // owner | pm | member
     status: text("status").notNull().default("invited"), // invited | active | revoked
     invitedBy: uuid("invited_by"),
     createdAt: createdAt(),
@@ -175,7 +177,7 @@ export const decisions = pgTable("decisions", {
   id: id(),
   orgId: orgId(),
   projectId: uuid("project_id").notNull(),
-  scopeKind: text("scope_kind").notNull(), // surface | repo | topic | project
+  scopeKind: text("scope_kind").notNull(), // surface | repo | topic | project | capability
   scopeRef: text("scope_ref").notNull(),
   // A decision is a durable RULE or ARCHITECTURAL choice that shapes future work — never a routine
   // change event (those live in change_feed_entries). See the product thesis.
@@ -184,12 +186,20 @@ export const decisions = pgTable("decisions", {
   // agent/human override. Drives noise filtering, session-start ranking, and the binding model.
   impact: integer("impact").notNull().default(0),
   currentVersion: integer("current_version").notNull().default(0),
-  // proposed → awaiting human confirm (v2 ingested decisions); open | ack | binding | superseded are
-  // the agent-originated lifecycle; rejected → a proposed decision a human declined.
-  status: text("status").notNull().default("open"), // proposed | open | ack | binding | superseded | rejected
-  // Who authored this decision: an agent via propose_decision, or the v2 ingestion pipeline distilling
-  // it from a human tool (Slack/Jira/Notion). Ingested decisions land `proposed` until a human confirms.
-  origin: text("origin").notNull().default("agent"), // agent | ingested
+  // proposed → awaiting human confirm (v2 ingested decisions) or PM ratification (v3 document
+  // constraints); open | ack | binding | superseded are the agent-originated lifecycle; rejected → a
+  // proposed decision a human declined; stale → source document archived/lost (v3); expired → a dated
+  // constraint past expiresAt (v3). stale/expired are terminal-ish like superseded: out of briefings,
+  // visible in history.
+  status: text("status").notNull().default("open"), // proposed | open | ack | binding | superseded | rejected | stale | expired
+  // Who authored this decision: an agent via propose_decision, the v2 ingestion pipeline distilling it
+  // from a human tool (Slack/Jira/Notion conversations), or the v3 document pipeline distilling a
+  // product constraint from a PRD. Both non-agent origins land `proposed` until a human confirms/ratifies.
+  origin: text("origin").notNull().default("agent"), // agent | ingested | document
+  // v3 product constraints only (origin=document): display/expiry taxonomy — never changes binding
+  // semantics. Null for everything else.
+  constraintKind: text("constraint_kind"), // behavioral | launch_gate | scope_exclusion
+  expiresAt: timestamp("expires_at", { withTimezone: true }), // launch gates: binding → expired past this
   createdAt: createdAt(),
 });
 
@@ -224,7 +234,7 @@ export const decisionApprovals = pgTable("decision_approvals", {
   decisionId: uuid("decision_id").notNull(),
   version: integer("version").notNull(),
   reviewerId: uuid("reviewer_id").notNull(),
-  verdict: text("verdict").notNull(), // approve | request_changes | ack
+  verdict: text("verdict").notNull(), // approve | request_changes | ack | ratify
   comment: text("comment"),
   createdAt: createdAt(),
 });
@@ -524,6 +534,11 @@ export const decisionProvenances = pgTable(
     url: text("url"),
     evidence: jsonb("evidence"), // [{externalId, quote}]
     confidence: integer("confidence"), // 0..100
+    // v3 document constraints: pointer to the exact origin location in the source doc, e.g.
+    // {type:"notion_block", pageId, blockId, headingPath[], snippet}. Never silently re-pointed —
+    // a lost anchor flips anchorStatus, it never guesses a new location.
+    anchor: jsonb("anchor"),
+    anchorStatus: text("anchor_status").notNull().default("valid"), // valid | reverify | lost
     createdAt: createdAt(),
   },
   (t) => ({
@@ -541,7 +556,7 @@ export const graphNodes = pgTable(
     id: id(),
     orgId: orgId(),
     projectId: uuid("project_id").notNull(),
-    kind: text("kind").notNull(), // team | project | doc | person | topic | surface
+    kind: text("kind").notNull(), // team | project | doc | person | topic | surface | capability
     ref: text("ref").notNull(), // stable key within kind (e.g. topic:auth, person:@alice)
     label: text("label"),
     source: text("source").notNull().default("derived"), // derived | manual
@@ -562,7 +577,138 @@ export const graphEdges = pgTable(
     kind: text("kind").notNull().default("relates"), // relates | owns | member | governs
     weight: integer("weight").notNull().default(1),
     source: text("source").notNull().default("derived"),
+    // v3: LLM-seeded capability→surface edges land `proposed`; only `confirmed` edges count for
+    // briefing scoping and conflict detection. Confirmed by a tech lead or the auto-link path.
+    status: text("status").notNull().default("confirmed"), // proposed | confirmed
     createdAt: createdAt(),
   },
   (t) => ({ uqEdge: uniqueIndex("uq_graph_edge").on(t.projectId, t.fromId, t.toId, t.kind) }),
+);
+
+/* ───────────────────────────── v3 product layer (PRDs → constraints) ───────────────────────────── */
+
+/**
+ * A registered PRD/document Lockstep watches. Exactly one state authority per document, forever:
+ * `mirrored` — the source tool owns state; we map its status vocabulary onto the four canonical
+ * states via document_state_mappings, read-only. `native` — no structured source state (pasted URL,
+ * GDocs); Lockstep hosts the state chip. Canonical lifecycle: draft (ignored entirely) → review
+ * (extraction + pre-approval reconciliation; ratification locked) → active (ratification unlocked;
+ * drift monitoring) → archived (constraints → stale).
+ */
+export const sourceDocuments = pgTable(
+  "source_documents",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    connectionId: uuid("connection_id"), // null for native docs with no connector
+    tool: text("tool").notNull().default("notion"), // notion | confluence | gdocs | jira
+    containerRef: text("container_ref"), // Notion database id — state-mapping key
+    externalId: text("external_id").notNull(), // page id / file id
+    title: text("title"),
+    url: text("url"),
+    state: text("state").notNull().default("draft"), // draft | review | active | archived
+    stateAuthority: text("state_authority").notNull().default("mirrored"), // mirrored | native
+    sourceStateValue: text("source_state_value"), // last raw status value seen (mirrored only)
+    ownerRef: text("owner_ref"), // source-tool owner hint (Notion person), best-effort
+    ownerMemberId: uuid("owner_member_id"), // resolved doc owner — ratification digest recipient
+    registeredBy: uuid("registered_by"),
+    contentHash: text("content_hash"), // whole-doc hash (of section hashes) for change detection
+    forceResync: boolean("force_resync").notNull().default(false),
+    digestSeq: integer("digest_seq").notNull().default(0), // per-activation digest dedupe counter
+    lastSweptAt: timestamp("last_swept_at", { withTimezone: true }),
+    lastExtractedAt: timestamp("last_extracted_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    byProjectState: index("ix_source_doc_project_state").on(t.projectId, t.state),
+  }),
+);
+
+/**
+ * Per-container (Notion database) mapping of the team's status vocabulary onto the four canonical
+ * document states. Unmapped values fall back to `unmappedBehavior` (draft = do nothing); a NEW value
+ * appearing later is never guessed — it queues in pendingValues for an admin and the doc holds its
+ * last-known canonical state until resolved.
+ */
+export const documentStateMappings = pgTable(
+  "document_state_mappings",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    containerRef: text("container_ref").notNull(),
+    containerName: text("container_name"),
+    statusProperty: text("status_property"), // e.g. "Status" — the Notion property we read
+    mapping: jsonb("mapping").notNull().default({}), // {sourceValue: canonicalState}
+    unmappedBehavior: text("unmapped_behavior").notNull().default("draft"),
+    pendingValues: jsonb("pending_values").notNull().default([]), // [{value, firstSeenAt}]
+    createdBy: uuid("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqContainer: uniqueIndex("uq_state_mapping_conn_container").on(t.connectionId, t.containerRef) }),
+);
+
+/**
+ * Co-location flag between a product constraint and an engineering decision governing the same
+ * surface — "these two things govern the same surface, a human should look", never a semantic
+ * contradiction claim. kind=pre_approval: constraintDecisionId is the just-filed candidate and
+ * engDecisionId the existing binding decision it collides with. kind=drift (Phase C): a newly
+ * binding engineering decision (candidateDecisionId) lands on an active constraint's surface.
+ */
+export const conflicts = pgTable(
+  "conflicts",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    constraintDecisionId: uuid("constraint_decision_id").notNull(),
+    engDecisionId: uuid("eng_decision_id"),
+    candidateDecisionId: uuid("candidate_decision_id"), // Phase C drift only
+    surface: text("surface").notNull(),
+    kind: text("kind").notNull(), // pre_approval | drift
+    status: text("status").notNull().default("open"), // open | resolved_eng_revised | resolved_prd_amended | dismissed
+    dismissReason: text("dismiss_reason"),
+    writeBackRef: text("write_back_ref"), // source-tool comment id once posted
+    openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    byStatusProject: index("ix_conflicts_status_project").on(t.status, t.projectId),
+    bySurfaceStatus: index("ix_conflicts_surface_status").on(t.surface, t.status),
+    uqPair: uniqueIndex("uq_conflict_pair").on(t.constraintDecisionId, t.engDecisionId, t.kind),
+  }),
+);
+
+/**
+ * Outbound write-back queue. Core composes payloads (it stays LLM-free and never calls Composio or
+ * Slack for delivery); the ingest worker drains queued rows and posts them — Notion conflict comments
+ * and Slack ratification digests. dedupeKey gives exactly-once per logical event.
+ */
+export const writebacks = pgTable(
+  "writebacks",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    connectionId: uuid("connection_id"), // null for slack_digest (first-party bot token)
+    tool: text("tool").notNull(), // notion | slack
+    kind: text("kind").notNull(), // conflict_comment | slack_digest
+    targetRef: text("target_ref").notNull(), // Notion page id / Slack user id
+    payload: jsonb("payload").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: text("status").notNull().default("queued"), // queued | posted | failed
+    attempts: integer("attempts").notNull().default(0),
+    resultRef: text("result_ref"), // comment id / message ts once posted
+    postedAt: timestamp("posted_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    uqDedupe: uniqueIndex("uq_writeback_dedupe").on(t.dedupeKey),
+    byStatus: index("ix_writebacks_status").on(t.status),
+  }),
 );

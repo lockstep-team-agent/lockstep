@@ -3,9 +3,13 @@ import { LockstepClient } from "./client.js";
 import { StubConnector } from "./connectors/StubConnector.js";
 import { ComposioConnector, type Tool } from "./connectors/ComposioConnector.js";
 import { NangoConnector } from "./connectors/NangoConnector.js";
-import type { SourceConnector } from "./connectors/SourceConnector.js";
+import type { DocumentConnector, SourceConnector } from "./connectors/SourceConnector.js";
 import { runFunnel } from "./funnel.js";
+import { runDocFunnel } from "./docFunnel.js";
+import { drainWritebacks } from "./writeback.js";
 import { runEval } from "./eval/run.js";
+import { runDocEval } from "./eval/run-docs.js";
+import type { SweptDoc } from "./client.js";
 
 /**
  * lockstep-ingest — the v2 sweep worker CLI.
@@ -15,7 +19,8 @@ import { runEval } from "./eval/run.js";
  *   lockstep-ingest sweep    [--stub] [--no-haiku]        one-shot: fetch → distill → propose
  *   lockstep-ingest serve    [--interval <sec>]           loop sweep on an interval (default 900s)
  *
- * Env: LOCKSTEP_API_URL, LOCKSTEP_INGEST_TOKEN, COMPOSIO_API_KEY, ANTHROPIC_API_KEY.
+ * Env: LOCKSTEP_API_URL, LOCKSTEP_INGEST_TOKEN, COMPOSIO_API_KEY, ANTHROPIC_API_KEY,
+ *      SLACK_BOT_TOKEN (ratification digests — optional; digests stay queued without it).
  */
 
 function flag(name: string): string | undefined {
@@ -107,7 +112,89 @@ async function sweepOnce(): Promise<void> {
         `questions=${stats.questions} discarded=${stats.discarded} → filed=${res.filed} deduped=${res.deduped}`,
     );
   }
+  // v3 doc phase — its failure must never take the conversation sweep down with it.
+  try {
+    await docSweepOnce(ls, { useStub, useHaiku, batch });
+  } catch (e) {
+    console.error("[docs] doc sweep error:", e);
+  }
   console.log("[sweep] done");
+}
+
+/**
+ * The v3 document phase: sweep allowlisted PRD databases (listing → core upsert → extraction
+ * directives), run the doc funnel on whatever core says changed (+ the standalone/native docs it
+ * queued), then drain the write-back queue (conflict comments → Notion, ratification digests → Slack).
+ */
+async function docSweepOnce(
+  ls: LockstepClient,
+  opts: { useStub: boolean; useHaiku: boolean; batch: boolean },
+): Promise<void> {
+  const work = await ls.getDocumentWork();
+  if (work.length === 0) return;
+  console.log(`[docs] ${work.length} connection(s) with document work`);
+  for (const w of work) {
+    if (!opts.useStub && !w.connectedAccountId) {
+      console.log(`[docs] skip ${w.connectionId} (not connected)`);
+      continue;
+    }
+    const connector: DocumentConnector = opts.useStub ? new StubConnector() : composio(w.entity, w.tool as Tool);
+    console.log(`[docs] connection ${w.connectionId} (${w.tool}) — ${w.containers.length} container(s), ${w.docs.length} native doc(s)`);
+    // What to extract: directives from each container sweep, plus core's standalone/native docs.
+    const targets: Array<{ docId: string; externalId: string; title: string; url: string | null; knownSectionHashes: string[] }> = [];
+    for (const c of w.containers) {
+      const metas = await connector.listDocuments(c.containerRef, c.statusProperty);
+      const metaByExt = new Map(metas.map((m) => [m.externalId, m]));
+      const swept: SweptDoc[] = metas.map((m) => ({
+        externalId: m.externalId,
+        containerRef: m.containerRef,
+        title: m.title,
+        url: m.url,
+        rawStateValue: m.rawStateValue,
+        ownerRef: m.ownerRef,
+        lastEditedTime: m.lastEditedTime,
+      }));
+      const directives = await ls.upsertDocuments(w.connectionId, swept);
+      for (const d of directives) {
+        if (!d.shouldExtract) continue;
+        const meta = metaByExt.get(d.externalId);
+        targets.push({
+          docId: d.docId,
+          externalId: d.externalId,
+          title: meta?.title ?? d.externalId,
+          url: meta?.url ?? null,
+          knownSectionHashes: d.knownSectionHashes,
+        });
+      }
+    }
+    for (const d of w.docs) {
+      targets.push({ docId: d.docId, externalId: d.externalId, title: d.externalId, url: null, knownSectionHashes: d.knownSectionHashes });
+    }
+    for (const t of targets) {
+      const { items, stats, docContentHash } = await runDocFunnel({
+        connector,
+        doc: { externalId: t.externalId, title: t.title, url: t.url },
+        knownSectionHashes: t.knownSectionHashes,
+        useHaiku: opts.useHaiku,
+        batch: opts.batch,
+        log: (m) => console.log(m),
+      });
+      const res = await ls.postDocCandidates(t.docId, items, docContentHash);
+      console.log(
+        `[docs] doc ${t.title}: sections=${stats.sections} skipped=${stats.skipped} proposed=${stats.proposed} ` +
+          `low=${stats.lowConfidence} → filed=${res.filed} conflicts=${res.conflicts}`,
+      );
+    }
+  }
+  // Drain queued write-backs. In stub mode everything routes to one StubConnector (assertable, no network).
+  const stubConnector = opts.useStub ? new StubConnector() : null;
+  const { posted, failed } = await drainWritebacks(ls, {
+    connectorFor: (row) =>
+      stubConnector ?? (row.connection?.connectedAccountId ? composio(row.connection.entity, row.connection.tool as Tool) : null),
+    slackBotToken: env("SLACK_BOT_TOKEN") || undefined,
+    log: (m) => console.log(m),
+  });
+  console.log(`[docs] writebacks posted=${posted} failed=${failed}`);
 }
 
 async function cmdServe(): Promise<void> {
@@ -135,7 +222,7 @@ async function main(): Promise<void> {
     case "serve":
       return cmdServe();
     case "eval":
-      return runEval();
+      return has("docs") ? runDocEval() : runEval();
     default:
       console.log("usage: lockstep-ingest <channels|connect|sweep|serve|eval> [flags]");
       process.exit(cmd ? 1 : 0);

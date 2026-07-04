@@ -16,7 +16,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const p = req.principal;
     if (!p) return reply.code(401).send({ error: "unauthorized" });
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    await ensureMember(orgId, p.id);
-    return projectOverview(orgId, projectId);
+    const m = await ensureMember(orgId, p.id);
+    return projectOverview(orgId, projectId, m.id);
   });
 }

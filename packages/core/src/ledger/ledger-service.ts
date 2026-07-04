@@ -19,6 +19,9 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
+import { upsertNodeTx, upsertEdgeTx } from "../graph/graph-service.js";
+import { canRatifyTx } from "../auth/permissions.js";
+import { sourceDocuments } from "../db/schema.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -60,7 +63,41 @@ async function impactForScopeTx(tx: Tx, projectId: string, scopeKind: string, sc
   }
   // Non-code decision: blast radius = how many people/teams the org graph links to this topic.
   if (scopeKind === "topic") return topicImpactTx(tx, projectId, scopeRef);
+  // v3 product constraint scoped to a feature: max consumer count across its confirmed governed
+  // surfaces (max, not sum — one hot surface should rank the constraint high even if the feature
+  // also touches dead endpoints).
+  if (scopeKind === "capability") return capabilityImpactTx(tx, projectId, scopeRef);
   return 0;
+}
+
+/** Governed surfaces of a capability node — CONFIRMED governs edges only (proposed edges never scope). */
+export async function capabilitySurfacesTx(tx: Tx, projectId: string, capabilityRef: string): Promise<string[]> {
+  const node = (
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "capability"), eq(graphNodes.ref, capabilityRef)))
+      .limit(1)
+  )[0];
+  if (!node) return [];
+  const edges = await tx
+    .select()
+    .from(graphEdges)
+    .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.fromId, node.id), eq(graphEdges.kind, "governs"), eq(graphEdges.status, "confirmed")));
+  if (edges.length === 0) return [];
+  const surfaces = await tx
+    .select()
+    .from(graphNodes)
+    .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "surface")));
+  const toIds = new Set(edges.map((e) => e.toId));
+  return surfaces.filter((s) => toIds.has(s.id)).map((s) => s.ref);
+}
+
+async function capabilityImpactTx(tx: Tx, projectId: string, capabilityRef: string): Promise<number> {
+  const surfaces = await capabilitySurfacesTx(tx, projectId, capabilityRef);
+  let max = 0;
+  for (const s of surfaces) max = Math.max(max, await consumerCountTx(tx, projectId, s));
+  return max;
 }
 
 /** Org-graph impact for a topic node: distinct person/team neighbours (0 if the graph isn't derived yet). */
@@ -250,7 +287,14 @@ async function addProvenanceTx(
   tx: Tx,
   orgId: string,
   decisionId: string,
-  prov: { source?: string; url?: string | null; evidence?: unknown; externalId?: string | null; confidence?: number },
+  prov: {
+    source?: string;
+    url?: string | null;
+    evidence?: unknown;
+    externalId?: string | null;
+    confidence?: number;
+    anchor?: unknown; // v3 document constraints: exact origin location in the source doc
+  },
 ): Promise<void> {
   const source = prov.source ?? "unknown";
   const externalId = prov.externalId ?? null;
@@ -276,6 +320,7 @@ async function addProvenanceTx(
     url: prov.url ?? null,
     evidence: prov.evidence ?? null,
     confidence: prov.confidence ?? null,
+    anchor: prov.anchor ?? null,
   });
 }
 
@@ -299,7 +344,7 @@ export async function listProvenancesForProject(
 
 export interface FileProposedInput {
   projectId: string;
-  scopeKind: string; // surface | repo | topic | project | shared | contract
+  scopeKind: string; // surface | repo | topic | project | shared | contract | capability (v3)
   scopeRef: string;
   ruleText: string;
   decisionType?: string; // rule | architecture
@@ -309,6 +354,11 @@ export interface FileProposedInput {
   externalId: string;
   contentHash: string;
   confidence?: number; // 0..100
+  // v3 document constraints (origin=document). The v2 conversation path leaves all of these unset.
+  origin?: string; // ingested (default) | document
+  constraintKind?: string; // behavioral | launch_gate | scope_exclusion
+  expiresAt?: Date | null;
+  anchor?: unknown; // stored on the provenance row — exact origin location in the source doc
 }
 
 /**
@@ -322,12 +372,14 @@ export async function fileProposedDecision(
   input: FileProposedInput,
 ): Promise<{ decisionId: string; deduped: boolean; fused: boolean; supersedes?: string }> {
   const prov = (input.provenance ?? {}) as { source?: string; url?: string | null; evidence?: unknown };
+  const origin = input.origin ?? "ingested";
   const provRow = {
     source: prov.source,
     url: prov.url ?? null,
     evidence: prov.evidence,
     externalId: input.externalId,
     confidence: input.confidence,
+    anchor: input.anchor ?? null,
   };
   return withOrg(orgId, async (tx) => {
     // Idempotency: a re-seen unit (same content) is never re-processed.
@@ -346,7 +398,10 @@ export async function fileProposedDecision(
     )[0];
     if (seen) return { decisionId: seen.decisionId ?? "", deduped: true, fused: false };
 
-    // Fusion + supersession: scan live decisions in the same scope.
+    // Fusion + supersession: scan live decisions in the same scope. Document constraints only ever
+    // fuse into other document constraints — fusing a PRD constraint into a binding engineering
+    // decision would swallow it before ratification (and the co-location conflict, not a supersedes
+    // hint, is the honest signal for that collision).
     const scopeMates = await tx
       .select()
       .from(decisions)
@@ -355,6 +410,7 @@ export async function fileProposedDecision(
     let supersedes: string | undefined;
     for (const m of scopeMates) {
       if (m.status === "rejected" || m.status === "superseded") continue;
+      if (origin === "document" && m.origin !== "document") continue;
       const v = (
         await tx
           .select()
@@ -367,7 +423,7 @@ export async function fileProposedDecision(
         fuseInto = m.id;
         break;
       }
-      if (m.status === "binding" && sim < 0.4) supersedes = m.id; // different rule, same scope → likely supersession
+      if (origin !== "document" && m.status === "binding" && sim < 0.4) supersedes = m.id; // different rule, same scope → likely supersession
     }
 
     if (fuseInto) {
@@ -404,7 +460,9 @@ export async function fileProposedDecision(
           decisionType: input.decisionType ?? "rule",
           currentVersion: 1,
           status: "proposed",
-          origin: "ingested",
+          origin,
+          constraintKind: input.constraintKind ?? null,
+          expiresAt: input.expiresAt ?? null,
         })
         .returning(),
     );
@@ -434,7 +492,7 @@ export async function fileProposedDecision(
       entityKind: "decision",
       entityId: d.id,
       entityVersion: 1,
-      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin: "ingested", status: "proposed", supersedes },
+      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin, status: "proposed", supersedes },
     });
     return { decisionId: d.id, deduped: false, fused: false, supersedes };
   });
@@ -513,7 +571,94 @@ export async function confirmDecision(
   });
 }
 
-/** Reject a proposed (ingested) decision — a human declined it. It never binds. */
+/**
+ * Ratify a proposed document constraint (v3). Deliberately NOT confirmDecision: a ratified product
+ * constraint binds on the PM's word regardless of impact and never fans out to inboxes — impact is
+ * recomputed for ranking only. Requires the source document to be `active` (extraction runs at
+ * `review`, but nothing binds from a PRD that might die in review) and an authorized member
+ * (owner/pm role, doc owner, or registrant). An edited ruleText appends a CAS version — the anchor
+ * keeps pointing at the source; the edit is attributable in decision_versions.
+ */
+export async function ratifyDecision(
+  orgId: string,
+  decisionId: string,
+  memberId: string,
+  opts?: { ruleText?: string },
+): Promise<{ status: string; version: number; impact: number }> {
+  return withOrg(orgId, async (tx) => {
+    const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
+    if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
+    if (d.origin !== "document") throw conflict(`only document constraints are ratified (origin is ${d.origin})`);
+    if (d.status !== "proposed") throw conflict(`decision is ${d.status}, not proposed`);
+
+    const cur = (
+      await tx
+        .select()
+        .from(decisionVersions)
+        .where(and(eq(decisionVersions.decisionId, decisionId), eq(decisionVersions.version, d.currentVersion)))
+        .limit(1)
+    )[0];
+    const provJson = (cur?.provenance ?? {}) as { documentId?: string };
+    const doc = provJson.documentId
+      ? (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, provJson.documentId)).limit(1))[0]
+      : undefined;
+    if (!doc) throw conflict("constraint has no source document");
+    if (doc.state !== "active")
+      throw Object.assign(new Error("document_not_active"), { statusCode: 409, code: "document_not_active" });
+    if (!(await canRatifyTx(tx, { projectId: d.projectId, memberId, doc })))
+      throw Object.assign(new Error("ratify requires owner/pm role or document ownership"), { statusCode: 403 });
+
+    // decision_versions is append-only — an edited rule is a new version, never an in-place UPDATE.
+    let version = d.currentVersion;
+    const editedText = opts?.ruleText?.trim();
+    if (editedText && editedText !== cur?.ruleText) {
+      version = d.currentVersion + 1;
+      await tx.insert(decisionVersions).values({
+        orgId,
+        decisionId,
+        version,
+        baseVersion: d.currentVersion,
+        ruleText: editedText,
+        provenance: cur?.provenance ?? null,
+        status: "binding",
+        proposedBy: memberId,
+      });
+    }
+    const impact = await impactForScopeTx(tx, d.projectId, d.scopeKind, d.scopeRef);
+    await tx.insert(decisionApprovals).values({ orgId, decisionId, version, reviewerId: memberId, verdict: "ratify" });
+    await tx.update(decisions).set({ status: "binding", impact, currentVersion: version }).where(eq(decisions.id, decisionId));
+
+    // First ratification of a capability-scoped constraint mints the capability node and links the
+    // source doc to it, giving the org graph its product layer.
+    if (d.scopeKind === "capability") {
+      const label = d.scopeRef.replace(/^feature:|^metric:/, "").replace(/-/g, " ");
+      const capId = await upsertNodeTx(tx, orgId, d.projectId, "capability", d.scopeRef, doc.title ?? label);
+      const docNodeId = await upsertNodeTx(
+        tx,
+        orgId,
+        d.projectId,
+        "doc",
+        `${doc.tool}:${doc.externalId}`,
+        doc.title ?? doc.externalId,
+      );
+      await upsertEdgeTx(tx, orgId, d.projectId, docNodeId, capId, "owns");
+    }
+
+    await writeAudit(tx, {
+      orgId,
+      projectId: d.projectId,
+      actorMemberId: memberId,
+      action: "constraint.ratified",
+      entityKind: "decision",
+      entityId: decisionId,
+      entityVersion: version,
+      payload: { scopeKind: d.scopeKind, scopeRef: d.scopeRef, documentId: doc.id, edited: version !== d.currentVersion },
+    });
+    return { status: "binding", version, impact };
+  });
+}
+
+/** Reject a proposed (ingested or document) decision — a human declined it. It never binds. */
 export async function rejectDecision(
   orgId: string,
   decisionId: string,
@@ -528,7 +673,7 @@ export async function rejectDecision(
       orgId,
       projectId: d.projectId,
       actorMemberId: memberId,
-      action: "decision.rejected",
+      action: d.origin === "document" ? "constraint.rejected" : "decision.rejected",
       entityKind: "decision",
       entityId: decisionId,
       entityVersion: d.currentVersion,

@@ -6,7 +6,7 @@
  */
 
 export interface Scope {
-  scopeKind: "surface" | "topic";
+  scopeKind: "surface" | "topic" | "capability";
   scopeRef: string;
 }
 
@@ -44,4 +44,27 @@ export function resolveScope(surfaceCandidates: string[], scopeHint: string): Sc
   }
   const topic = (scopeHint || "general").toLowerCase().trim().replace(/\s+/g, "-");
   return { scopeKind: "topic", scopeRef: `topic:${topic}` };
+}
+
+/** `feature:<kebab-slug>` from a doc title — strips a leading "PRD-123 ·"-style key prefix if present. */
+export function capabilitySlug(title: string): string {
+  const stripped = title.replace(/^[A-Za-z]+-\d+\s*[·:|–—-]\s*/, "");
+  const slug = stripped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `feature:${slug || "untitled"}`;
+}
+
+/**
+ * Doc-scope resolution (v3) — a canonical code surface if the constraint names one, else the document's
+ * capability. NEVER topic:. Capability-scoped constraints inherit real impact once governs edges exist
+ * (Phase B); until then they're honestly unscoped, the same way topics were in v2.
+ */
+export function resolveDocScope(surfaceCandidates: string[], capabilityRef: string): Scope {
+  for (const cand of surfaceCandidates) {
+    const canon = canonicalizeSurface(cand);
+    if (canon) return { scopeKind: "surface", scopeRef: canon };
+  }
+  return { scopeKind: "capability", scopeRef: capabilityRef };
 }

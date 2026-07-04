@@ -1,6 +1,14 @@
-import type { SourceConnector, Unit, Channel } from "./SourceConnector.js";
+import type { SourceConnector, Unit, Channel, DocumentConnector, DocMeta, DocSection } from "./SourceConnector.js";
 
 export type Tool = "slack" | "jira" | "notion" | "confluence";
+
+/**
+ * Composio slugs for the v3 doc layer — plausible picks from Composio's Notion action list but NOT yet
+ * verified against live Composio (plan A7 risk #1: verify these before the first real doc sweep).
+ * Each is referenced exactly once, so a rename is a one-line fix.
+ */
+const NOTION_BLOCK_CHILDREN_SLUG = "NOTION_FETCH_BLOCK_CONTENTS"; // alternates: NOTION_GET_BLOCK_CHILDREN, NOTION_FETCH_BLOCK_METADATA
+const NOTION_CREATE_COMMENT_SLUG = "NOTION_CREATE_COMMENT";
 
 /**
  * Composio-backed connector for every human-coordination source. One class, per-tool routing — the
@@ -9,12 +17,13 @@ export type Tool = "slack" | "jira" | "notion" | "confluence";
  *   Jira:       JIRA_GET_ALL_PROJECTS, JIRA_SEARCH_ISSUES (JQL)
  *   Notion:     NOTION_SEARCH_NOTION_PAGE, NOTION_QUERY_DATABASE, NOTION_GET_PAGE_MARKDOWN
  *   Confluence: CONFLUENCE_SEARCH, CONFLUENCE_GET_PAGE_BY_ID (best-effort; verify against installed SDK)
+ *   Notion docs (v3, UNVERIFIED — see consts above): block children + comment create
  *
  * The @composio/core SDK loads via a computed dynamic import so this file typechecks / the worker builds
  * even without the package (CI runs only StubConnector). `exec()` is the one place the SDK call shape
  * lives; it's exercised by the live test, not CI. Composio holds the OAuth token; we never see it.
  */
-export class ComposioConnector implements SourceConnector {
+export class ComposioConnector implements SourceConnector, DocumentConnector {
   private client: unknown;
 
   constructor(
@@ -203,6 +212,62 @@ export class ComposioConnector implements SourceConnector {
     }
     return units;
   }
+
+  /* ── Documents (v3 product layer — Notion only) ── */
+
+  private assertNotion(method: string): void {
+    if (this.tool !== "notion") throw new Error(`${method} requires the notion tool (got ${this.tool})`);
+  }
+
+  async listDocuments(containerRef: string, statusProperty: string | null): Promise<DocMeta[]> {
+    this.assertNotion("listDocuments");
+    const d = await this.exec("NOTION_QUERY_DATABASE", { database_id: containerRef, page_size: 100 });
+    return arr(d.results).flatMap((page) => {
+      const pageId = str(page.id);
+      if (!pageId) return [];
+      const props = (page.properties ?? {}) as Record<string, unknown>;
+      return [
+        {
+          externalId: pageId,
+          containerRef,
+          title: notionTitle(page),
+          url: str(page.url) || null,
+          rawStateValue: statusProperty ? notionStatusValue(props[statusProperty]) : null,
+          ownerRef: str((page.created_by as Record<string, unknown> | undefined)?.id) || null,
+          lastEditedTime: str(page.last_edited_time) || new Date().toISOString(),
+        },
+      ];
+    });
+  }
+
+  async fetchDocumentSections(pageId: string): Promise<DocSection[]> {
+    this.assertNotion("fetchDocumentSections");
+    // Walk the page's direct children (with pagination, no recursion into nested blocks — D8);
+    // sections start at heading_1/2/3, anchored on the heading block id.
+    const blocks: Array<Record<string, unknown>> = [];
+    let cursor: string | null = null;
+    do {
+      const d = await this.exec(NOTION_BLOCK_CHILDREN_SLUG, {
+        block_id: pageId,
+        page_size: 100,
+        ...(cursor ? { start_cursor: cursor } : {}),
+      });
+      blocks.push(...arr(d.results ?? d.blocks));
+      cursor = d.has_more ? str(d.next_cursor) || null : null;
+    } while (cursor);
+    return sectionize(pageId, blocks);
+  }
+
+  async writeComment(pageId: string, body: string, _anchorBlockId?: string | null): Promise<{ commentRef: string }> {
+    this.assertNotion("writeComment");
+    // Notion's comment-create takes a page parent or an existing discussion_id; a block id is neither,
+    // so the anchor rides in the body's deep link and the comment lands at page level.
+    const d = await this.exec(NOTION_CREATE_COMMENT_SLUG, {
+      parent: { page_id: pageId },
+      rich_text: [{ type: "text", text: { content: body } }],
+    });
+    return { commentRef: str(d.id) || pageId };
+  }
 }
 
 /* helpers — defensive against varying Composio response shapes */
@@ -237,4 +302,62 @@ function notionTitle(page: Record<string, unknown>): string {
     }
   }
   return str(page.title) || "(untitled)";
+}
+function notionStatusValue(prop: unknown): string | null {
+  // Notion exposes the status column as either a `select` or a `status` property type — handle both.
+  const p = prop as Record<string, unknown> | undefined;
+  const sel = (p?.select ?? p?.status) as Record<string, unknown> | undefined;
+  return sel && typeof sel.name === "string" ? sel.name : null;
+}
+function headingLevel(block: Record<string, unknown>): number | null {
+  const m = str(block.type).match(/^heading_([123])$/);
+  return m ? Number(m[1]) : null;
+}
+function blockPlain(block: Record<string, unknown>): string {
+  const payload = block[str(block.type)] as Record<string, unknown> | undefined;
+  const rich = payload?.rich_text as Array<{ plain_text?: string }> | undefined;
+  return Array.isArray(rich) ? rich.map((r) => r.plain_text ?? "").join("") : "";
+}
+function snippetOf(body: string): string {
+  return body.replace(/\s+/g, " ").trim().slice(0, 120);
+}
+/** Split a page's block list into heading-anchored sections (the pre-heading preamble anchors at the pageId). */
+function sectionize(pageId: string, blocks: Array<Record<string, unknown>>): DocSection[] {
+  const sections: DocSection[] = [];
+  const stack: Array<{ level: number; text: string }> = [];
+  let i = 0;
+  const preamble: string[] = [];
+  while (i < blocks.length && headingLevel(blocks[i]!) === null) {
+    const t = blockPlain(blocks[i]!);
+    if (t) preamble.push(t);
+    i++;
+  }
+  if (preamble.length) {
+    const body = preamble.join("\n");
+    sections.push({ anchorKey: pageId, headingPath: [], text: body, snippet: snippetOf(body) });
+  }
+  // Each heading's section runs until the next same-or-higher-level heading, so an h2 section includes
+  // its h3 subsections' text — and the h3s also anchor their own, finer-grained sections.
+  for (; i < blocks.length; i++) {
+    const level = headingLevel(blocks[i]!);
+    if (level === null) continue;
+    const headingText = blockPlain(blocks[i]!);
+    while (stack.length && stack[stack.length - 1]!.level >= level) stack.pop();
+    stack.push({ level, text: headingText });
+    const bodyParts: string[] = [];
+    for (let j = i + 1; j < blocks.length; j++) {
+      const l = headingLevel(blocks[j]!);
+      if (l !== null && l <= level) break;
+      const t = blockPlain(blocks[j]!);
+      if (t) bodyParts.push(t);
+    }
+    const body = bodyParts.join("\n");
+    sections.push({
+      anchorKey: str(blocks[i]!.id) || `${pageId}:${i}`,
+      headingPath: stack.map((h) => h.text),
+      text: [headingText, body].filter(Boolean).join("\n"),
+      snippet: snippetOf(body || headingText),
+    });
+  }
+  return sections;
 }

@@ -9,7 +9,7 @@ import { graphNodes, graphEdges, members, decisions, decisionVersions } from "..
  * reads this graph for topic-scoped decisions.
  */
 
-async function upsertNodeTx(
+export async function upsertNodeTx(
   tx: Tx,
   orgId: string,
   projectId: string,
@@ -30,7 +30,7 @@ async function upsertNodeTx(
   return row.id;
 }
 
-async function upsertEdgeTx(
+export async function upsertEdgeTx(
   tx: Tx,
   orgId: string,
   projectId: string,

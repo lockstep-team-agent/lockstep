@@ -1,0 +1,109 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { composeDigestBlocks, digestFallbackText, type SlackDigestPayload, type DigestCandidate } from "./digest.js";
+
+function candidate(over: Partial<DigestCandidate> = {}): DigestCandidate {
+  return {
+    decisionId: "dec-1",
+    ruleText: "Guest checkout must not require account creation.",
+    scopeRef: "capability:guest-checkout",
+    constraintKind: null,
+    confidencePct: 85,
+    anchorUrl: "https://notion.example.com/prd-142#block-7",
+    conflict: null,
+    ...over,
+  };
+}
+
+function payload(over: Partial<SlackDigestPayload> = {}): SlackDigestPayload {
+  return {
+    orgId: "org-1",
+    documentId: "doc-1",
+    docTitle: "Guest Checkout PRD",
+    docUrl: "https://notion.example.com/prd-142",
+    docState: "active",
+    candidates: [candidate()],
+    ...over,
+  };
+}
+
+// Blocks are `unknown[]` by design — a loose shape for assertions.
+type Block = { type: string; text?: { text: string }; elements?: Array<Record<string, unknown>> };
+
+test("composeDigestBlocks: header links the doc and renders active as Approved", () => {
+  const blocks = composeDigestBlocks(payload()) as Block[];
+  const header = blocks[0]!;
+  assert.equal(header.type, "section");
+  assert.match(header.text!.text, /^📋 <https:\/\/notion\.example\.com\/prd-142\|Guest Checkout PRD> is \*Approved\*/);
+  assert.match(header.text!.text, /1 constraint\(s\) await your ratification/);
+});
+
+test("composeDigestBlocks: non-active states and missing title/url render plainly", () => {
+  const blocks = composeDigestBlocks(payload({ docTitle: null, docUrl: null, docState: "review" })) as Block[];
+  assert.match(blocks[0]!.text!.text, /^📋 Untitled PRD is \*review\*/);
+  assert.doesNotMatch(blocks[0]!.text!.text, /</);
+});
+
+test("composeDigestBlocks: per-candidate section, context line, and buttons", () => {
+  const blocks = composeDigestBlocks(payload()) as Block[];
+  const [, rule, ctx, actions] = blocks;
+  assert.equal(rule!.text!.text, '1️⃣ "Guest checkout must not require account creation."');
+  assert.equal(
+    (ctx!.elements![0] as { text: string }).text,
+    "scope capability:guest-checkout · confidence 85% · <https://notion.example.com/prd-142#block-7|view in PRD ↗>",
+  );
+  assert.equal(actions!.type, "actions");
+  const btns = actions!.elements as Array<{ action_id: string; style?: string; value: string; text: { text: string } }>;
+  assert.deepEqual(btns.map((b) => b.action_id), ["ratify", "edit", "reject"]);
+  assert.equal(btns[0]!.style, "primary");
+  assert.equal(btns[1]!.style, undefined);
+  assert.equal(btns[2]!.style, "danger");
+  // All three buttons carry the same routing value, and it round-trips through JSON.
+  for (const b of btns) {
+    assert.deepEqual(JSON.parse(b.value), { orgId: "org-1", decisionId: "dec-1" });
+  }
+});
+
+test("composeDigestBlocks: constraintKind appends to the context line; no anchor drops the link", () => {
+  const blocks = composeDigestBlocks(
+    payload({ candidates: [candidate({ constraintKind: "policy", anchorUrl: null })] }),
+  ) as Block[];
+  const ctx = blocks[2]!;
+  assert.equal((ctx.elements![0] as { text: string }).text, "scope capability:guest-checkout · confidence 85% · policy");
+});
+
+test("composeDigestBlocks: conflict warning appears only when a conflict is attached", () => {
+  const withConflict = composeDigestBlocks(
+    payload({
+      candidates: [candidate({ conflict: { engDecisionId: "eng-1", engRuleText: "JWT only", surface: "http:POST /checkout" } })],
+    }),
+  ) as Block[];
+  const warning = withConflict.find(
+    (b) => (b as Block).type === "context" && ((b as Block).elements![0] as { text: string }).text.startsWith("⚠"),
+  ) as Block | undefined;
+  assert.ok(warning);
+  assert.equal(
+    (warning.elements![0] as { text: string }).text,
+    "⚠ may conflict with a binding decision on http:POST /checkout — review both",
+  );
+  const without = composeDigestBlocks(payload()) as Block[];
+  assert.ok(!without.some((b) => b.type === "context" && (b.elements![0] as { text: string }).text.startsWith("⚠")));
+});
+
+test("composeDigestBlocks: divider between candidates, numbering advances, ten+ falls back to digits", () => {
+  const candidates = Array.from({ length: 10 }, (_, i) => candidate({ decisionId: `dec-${i}` }));
+  const blocks = composeDigestBlocks(payload({ candidates })) as Block[];
+  assert.equal(blocks.filter((b) => b.type === "divider").length, 9);
+  const rules = blocks.filter((b) => b.type === "section" && b.text!.text.includes('"')).map((b) => b.text!.text);
+  assert.match(rules[0]!, /^1️⃣ /);
+  assert.match(rules[1]!, /^2️⃣ /);
+  assert.match(rules[9]!, /^10\. /);
+});
+
+test("digestFallbackText: title + count, with a placeholder for untitled docs", () => {
+  assert.equal(digestFallbackText(payload()), "Guest Checkout PRD: 1 constraint(s) await your ratification");
+  assert.equal(
+    digestFallbackText(payload({ docTitle: null, candidates: [] })),
+    "A PRD: 0 constraint(s) await your ratification",
+  );
+});

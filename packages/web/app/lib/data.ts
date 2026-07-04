@@ -83,6 +83,100 @@ export interface GraphEdge {
 export const getGraph = (orgId: string, projectId: string) =>
   apiGet<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/orgs/${orgId}/projects/${projectId}/graph`);
 
+/* ── v3 product layer ── */
+
+export type DocState = "draft" | "review" | "active" | "archived";
+export type ConstraintKind = "behavioral" | "launch_gate" | "scope_exclusion";
+
+export interface SourceDocument {
+  id: string;
+  tool: "notion";
+  stateAuthority: "mirrored" | "native";
+  title: string | null;
+  url: string | null;
+  state: DocState;
+  ownerMemberId: string | null;
+  constraintCounts: { binding: number; total: number };
+  openConflicts: number;
+  anchors: { total: number; needsReverify: number };
+  lastSyncedAt: string | null;
+}
+
+export interface PendingStatusValue {
+  connectionId: string;
+  containerRef: string;
+  containerName: string | null;
+  value: string;
+  firstSeenAt: string;
+}
+
+export interface DocumentDetail extends SourceDocument {
+  constraints: Array<{
+    id: string;
+    ruleText: string;
+    status: string;
+    constraintKind: ConstraintKind | null;
+    scopeRef: string;
+    anchor: { heading: string | null; url: string | null; healthy: boolean };
+  }>;
+  extractionHistory: Array<{ id: string; at: string; status: string; confidence: number | null }>;
+  writeBackLog: Array<{ id: string; at: string; kind: string; status: string; url: string | null }>;
+}
+
+export interface RatificationCandidate {
+  id: string;
+  ruleText: string;
+  scopeKind: string;
+  scopeRef: string;
+  decisionType: string;
+  constraintKind: ConstraintKind | null;
+  confidence: number | null;
+  provenances: ProvenanceRow[];
+  doc: { id: string; title: string | null; url: string | null; state: DocState };
+  anchor: { heading: string | null; url: string | null };
+  conflict: { engDecisionId: string; engRuleText: string; surface: string } | null;
+  lowConfidence: boolean;
+  canRatify: boolean;
+  blockedReason: string | null;
+}
+
+export interface StateMappingContainer {
+  containerRef: string;
+  containerName: string | null;
+  statusProperty: string | null;
+  knownValues: string[];
+  mappings: Array<{ sourceValue: string; canonicalState: string }>;
+  pendingValues: Array<{ value: string; firstSeenAt: string }>;
+}
+
+export interface ProjectCounts {
+  review: { proposed: number; ratifications: number; conflicts: number; total: number };
+  sources: number;
+}
+
+export const getDocuments = (orgId: string, projectId: string) =>
+  apiGet<{ documents: SourceDocument[]; pendingStatusValues: PendingStatusValue[] }>(
+    `/orgs/${orgId}/projects/${projectId}/documents`,
+  );
+
+export const getDocument = (orgId: string, projectId: string, docId: string) =>
+  apiGet<DocumentDetail>(`/orgs/${orgId}/projects/${projectId}/documents/${docId}`);
+
+export const getRatifications = (orgId: string, projectId: string) =>
+  apiGet<{ candidates: RatificationCandidate[]; viewer: { memberId: string; role: string } }>(
+    `/orgs/${orgId}/projects/${projectId}/ratifications`,
+  );
+
+export const getStateMappings = (orgId: string, projectId: string, connectionId: string) =>
+  apiGet<{ containers: StateMappingContainer[] }>(
+    `/orgs/${orgId}/projects/${projectId}/connections/${connectionId}/state-mappings`,
+  );
+
+export const getCounts = (orgId: string, projectId: string) =>
+  apiGet<ProjectCounts>(`/orgs/${orgId}/projects/${projectId}/counts`);
+
+export const constraintKindLabel = (k: ConstraintKind): string => k.replace(/_/g, " ");
+
 export function timeAgo(iso: string): string {
   const d = new Date(iso).getTime();
   if (Number.isNaN(d)) return "";

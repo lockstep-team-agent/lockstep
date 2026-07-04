@@ -81,6 +81,13 @@ export const IconInbox = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3 13l3-8h12l3 8M3 13v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5M3 13h5l1.5 2.5h5L16 13h5" />
   </svg>
 );
+export const IconDoc = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M9 13h6M9 17h4" />
+  </svg>
+);
 export const IconRepo = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M6 3h11a2 2 0 0 1 2 2v15l-4-2-4 2-4-2V5a2 2 0 0 1 2-2z" />

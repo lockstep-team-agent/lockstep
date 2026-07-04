@@ -5,7 +5,7 @@ import { Nav } from "@/components/Nav";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { IconLogout } from "@/components/icons";
 import { logoutAction } from "@/actions";
-import { getProposed } from "@/lib/data";
+import { getProposed, getCounts } from "@/lib/data";
 import type { Me, OrgOverview, ProjectOverview } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,9 @@ export default async function ProjectLayout({
 
   const org = await apiGet<OrgOverview>(`/orgs/${orgId}/overview`);
   const o = await apiGet<ProjectOverview>(`/orgs/${orgId}/projects/${projectId}/overview`);
-  const proposed = await getProposed(orgId, projectId);
+  const projectCounts = await getCounts(orgId, projectId);
+  // Fall back to the old proposed-count fetch while core's /counts endpoint isn't deployed yet.
+  const proposed = projectCounts ? null : await getProposed(orgId, projectId);
   const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const base = `/project/${orgId}/${projectId}`;
   const counts = {
@@ -32,7 +34,8 @@ export default async function ProjectLayout({
     tasks: o?.tasks.filter((t) => t.status !== "closed").length,
     contracts: o?.contracts.length,
     dependencies: o?.dependencies.length,
-    review: proposed?.decisions.length,
+    review: projectCounts?.review.total ?? proposed?.decisions.length,
+    sources: projectCounts?.sources,
   };
   const initial = (me.principal.githubLogin[0] ?? "?").toUpperCase();
 

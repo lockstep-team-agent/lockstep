@@ -1,8 +1,15 @@
-import type { SourceConnector, Unit, Channel } from "./SourceConnector.js";
+import type { SourceConnector, Unit, Channel, DocumentConnector, DocMeta, DocSection } from "./SourceConnector.js";
+import { goldenPrdMeta, goldenPrdSections } from "../eval/golden-prd.js";
 
 /** Canned data for deterministic tests and local demos — no network, no Composio, no Slack app. */
-export class StubConnector implements SourceConnector {
-  constructor(private readonly units: Unit[] = StubConnector.sample()) {}
+export class StubConnector implements SourceConnector, DocumentConnector {
+  /** writeComment calls, recorded for assertions (the stub never talks to Notion). */
+  readonly comments: Array<{ pageId: string; body: string; anchorBlockId: string | null }> = [];
+
+  constructor(
+    private readonly units: Unit[] = StubConnector.sample(),
+    private readonly opts: { docStateValue?: string } = {},
+  ) {}
 
   async listChannels(): Promise<Channel[]> {
     return [{ id: "C_STUB", name: "eng-decisions" }];
@@ -10,6 +17,21 @@ export class StubConnector implements SourceConnector {
 
   async listUnitsSince(sourceRef: string, _sinceCursor: string | null): Promise<Unit[]> {
     return this.units.filter((u) => u.sourceRef === sourceRef);
+  }
+
+  /* ── DocumentConnector — the guest-checkout PRD fixture, shared with eval (golden-prd.ts) ── */
+
+  async listDocuments(containerRef: string, _statusProperty: string | null): Promise<DocMeta[]> {
+    return [{ ...goldenPrdMeta(this.opts.docStateValue ?? "In review"), containerRef }];
+  }
+
+  async fetchDocumentSections(_pageId: string): Promise<DocSection[]> {
+    return goldenPrdSections();
+  }
+
+  async writeComment(pageId: string, body: string, anchorBlockId?: string | null): Promise<{ commentRef: string }> {
+    this.comments.push({ pageId, body, anchorBlockId: anchorBlockId ?? null });
+    return { commentRef: "stub-comment-1" };
   }
 
   static sample(): Unit[] {

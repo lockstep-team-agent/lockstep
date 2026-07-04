@@ -11,6 +11,7 @@ import {
   decisionVersions,
   dependencyEdges,
   contracts,
+  projectMembers,
 } from "../db/schema.js";
 import { inArray } from "drizzle-orm";
 
@@ -35,7 +36,7 @@ export async function orgOverview(orgId: string): Promise<{
   });
 }
 
-export async function projectOverview(orgId: string, projectId: string) {
+export async function projectOverview(orgId: string, projectId: string, viewerMemberId?: string) {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select().from(decisions).where(eq(decisions.projectId, projectId));
     const decisionList = [];
@@ -104,6 +105,22 @@ export async function projectOverview(orgId: string, projectId: string) {
         .orderBy(desc(auditEvents.createdAt))
         .limit(50)
     ).map((a) => ({ action: a.action, entityKind: a.entityKind, createdAt: a.createdAt }));
+    // v3: project-scoped member roster with roles, and the viewer's own role — the dashboard gates
+    // ratify/role-change ACTIONS on these (pages stay open to every member).
+    const pms = await tx.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
+    const memberList = pms.map((pm) => ({
+      id: pm.id,
+      memberId: pm.memberId,
+      githubLogin: pm.invitedGithubLogin,
+      role: pm.role,
+      status: pm.status,
+    }));
+    const viewer = viewerMemberId
+      ? {
+          memberId: viewerMemberId,
+          role: pms.find((pm) => pm.memberId === viewerMemberId && pm.status === "active")?.role ?? "member",
+        }
+      : undefined;
     return {
       decisions: decisionList,
       questions: qs,
@@ -112,6 +129,8 @@ export async function projectOverview(orgId: string, projectId: string) {
       dependencies: deps,
       contracts: contractRows,
       audit,
+      members: memberList,
+      viewer,
     };
   });
 }
