@@ -7,6 +7,9 @@ import { encrypt, decrypt } from "./crypto.js";
 import { env } from "../env.js";
 import { ingestCodeownersFromGitHub } from "../graph/ownership-service.js";
 import { writeAudit } from "../audit/audit-service.js";
+import { getProjectRoleTx } from "./permissions.js";
+
+const PROJECT_ROLES = ["member", "pm", "owner"];
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -168,8 +171,18 @@ export async function invite(
   githubLogin: string,
   role = "member",
 ): Promise<{ inviteId: string; status: string }> {
+  // Whitelist the role — it lands verbatim in project_members and (post-#2) gates every write.
+  if (!PROJECT_ROLES.includes(role)) throw Object.assign(new Error("invalid role"), { statusCode: 400 });
   const me = await ensureMember(orgId, principal.id);
   return withOrg(orgId, async (tx) => {
+    // Inviting is a project-admin action: only owners/PMs may invite at all, and only an owner may
+    // grant owner/pm (a PM can invite members only). Org membership alone is NOT enough — otherwise any
+    // org member could self-invite into a walled project or mint themselves owner on any project.
+    const actorRole = await getProjectRoleTx(tx, projectId, me.id);
+    if (actorRole !== "owner" && actorRole !== "pm")
+      throw Object.assign(new Error("only owners/PMs can invite"), { statusCode: 403 });
+    if ((role === "owner" || role === "pm") && actorRole !== "owner")
+      throw Object.assign(new Error("only owners can grant owner/pm"), { statusCode: 403 });
     const row = one(
       await tx
         .insert(projectMembers)

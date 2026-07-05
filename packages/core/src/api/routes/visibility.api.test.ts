@@ -49,9 +49,10 @@ async function setup() {
       return { memberId: m.id, token: await issueTokenTx(tx, p.id) };
     };
     const owner = await mk("owner", "owner"); // project member (owner) — can flip settings
+    const pm = await mk("pm", "pm"); // project member (pm)
     const member = await mk("member", "member"); // project member
     const outsider = await mk("outsider", null); // org member, NOT a project member
-    return { orgId: org.id, projectId: proj.id, owner, member, outsider };
+    return { orgId: org.id, projectId: proj.id, n, owner, pm, member, outsider };
   });
 }
 
@@ -106,6 +107,33 @@ test("write gates: connector/graph mutations require owner/pm — a plain member
     const asOwner = await app.inject({ method: "POST", url: w.url, headers: auth(s.owner.token), payload: w.payload });
     assert.ok(asOwner.statusCode < 400, `owner allowed on ${w.url} (got ${asOwner.statusCode})`);
   }
+});
+
+test("invite gate: only owners/PMs invite, only owners grant owner/pm, role is whitelisted", async (t) => {
+  const app: FastifyInstance = buildApp();
+  t.after(() => app.close());
+  const s = await setup();
+  const url = `/orgs/${s.orgId}/projects/${s.projectId}/invite`;
+  const call = (token: string, body: Record<string, unknown>) =>
+    app.inject({ method: "POST", url, headers: auth(token), payload: body });
+
+  // The self-invite exploit: an org member who is NOT in the project cannot invite themselves in.
+  const selfInvite = await call(s.outsider.token, { githubLogin: `outsider-${s.n}` });
+  assert.equal(selfInvite.statusCode, 403, "outsider self-invite blocked");
+
+  // A plain member cannot invite at all.
+  assert.equal((await call(s.member.token, { githubLogin: `x-${s.n}` })).statusCode, 403);
+
+  // Privilege escalation: nobody below owner can mint owner/pm.
+  assert.equal((await call(s.member.token, { githubLogin: `y-${s.n}`, role: "owner" })).statusCode, 403);
+  assert.equal((await call(s.pm.token, { githubLogin: `z-${s.n}`, role: "owner" })).statusCode, 403, "pm cannot grant owner");
+
+  // Whitelist: a bogus role is rejected.
+  assert.equal((await call(s.owner.token, { githubLogin: `w-${s.n}`, role: "superuser" })).statusCode, 400);
+
+  // The allowed paths: owner grants any role; pm grants member.
+  assert.ok((await call(s.owner.token, { githubLogin: `newowner-${s.n}`, role: "owner" })).statusCode < 400, "owner grants owner");
+  assert.ok((await call(s.pm.token, { githubLogin: `newmember-${s.n}`, role: "member" })).statusCode < 400, "pm grants member");
 });
 
 test("visibility: org overview hides a walled project from non-members", async (t) => {
