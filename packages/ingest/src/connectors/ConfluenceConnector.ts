@@ -2,12 +2,19 @@ import type { DocumentConnector, DocMeta, DocSection } from "./SourceConnector.j
 import { slug } from "./GDocsConnector.js";
 
 /**
- * Composio slugs for the Confluence doc layer — plausible picks from Composio's Confluence action list
- * but NOT yet verified against live Composio (mirrors GDocsConnector's UNVERIFIED consts). Each is
- * referenced exactly once, so a rename is a one-line fix once verified. VERIFY BEFORE THE FIRST REAL SWEEP.
+ * Composio slugs for the Confluence doc layer. Slug NAMES + input keys verified against Composio's public
+ * toolkit docs (docs.composio.dev/toolkits/confluence). Composio's Confluence tools are built on the
+ * Confluence Cloud REST API **v2** — so `id` is a NUMERIC page id (our parseConfluencePageId already only
+ * matches `/pages/<digits>`), and the v1 `expand=body.storage` param is gone.
+ *   - CONFLUENCE_GET_PAGE_BY_ID: input `id` (numeric), optional `draft`/`version`. NO `expand`. The v2 body
+ *     is requested via `body-format` in the underlying API; Composio's tool doesn't surface that param, so
+ *     whether it returns body.storage by default is THE remaining live-verification risk — if the body comes
+ *     back empty, fetchDocumentSections yields no sections (never crashes; the parser is empty-tolerant).
+ *   - CONFLUENCE_CREATE_FOOTER_COMMENT: target `pageId` (one of pageId/blogPostId/attachmentId/customContentId);
+ *     body is an OBJECT `{ representation, value }`, not a plain string.
  */
-const CONFLUENCE_GET_PAGE_SLUG = "CONFLUENCE_GET_PAGE_BY_ID"; // input { id, expand: "body.storage,version" } — matches ComposioConnector.confluenceUnits
-const CONFLUENCE_CREATE_COMMENT_SLUG = "CONFLUENCE_CREATE_FOOTER_COMMENT"; // VERIFY — alternates: CONFLUENCE_CREATE_COMMENT, CONFLUENCE_ADD_COMMENT (input { id/pageId, body })
+const CONFLUENCE_GET_PAGE_SLUG = "CONFLUENCE_GET_PAGE_BY_ID";
+const CONFLUENCE_CREATE_COMMENT_SLUG = "CONFLUENCE_CREATE_FOOTER_COMMENT";
 
 /**
  * Confluence document connector — parallel to GDocsConnector (NOT a subclass), because Confluence is a
@@ -57,7 +64,7 @@ export class ConfluenceConnector implements DocumentConnector {
   }
 
   async fetchDocumentSections(pageId: string): Promise<DocSection[]> {
-    const d = await this.exec(CONFLUENCE_GET_PAGE_SLUG, { id: pageId, expand: "body.storage,version" });
+    const d = await this.exec(CONFLUENCE_GET_PAGE_SLUG, { id: pageId });
     // Composio may wrap the page under `page`, or hand back the raw Confluence REST object.
     const page = (d.page ?? d) as Record<string, unknown>;
     const storage = ((page.body as Record<string, unknown> | undefined)?.storage ?? {}) as Record<string, unknown>;
@@ -67,7 +74,7 @@ export class ConfluenceConnector implements DocumentConnector {
   async writeComment(pageId: string, body: string, _anchor?: string | null): Promise<{ commentRef: string }> {
     // Footer comments attach at page level (no stable block id to anchor on), so the fuzzy anchor rides
     // in the body's deep link — same trade-off as the GDocs/Notion writeComment.
-    const d = await this.exec(CONFLUENCE_CREATE_COMMENT_SLUG, { id: pageId, pageId, body });
+    const d = await this.exec(CONFLUENCE_CREATE_COMMENT_SLUG, { pageId, body: { representation: "storage", value: body } });
     return { commentRef: str(d.id) || pageId };
   }
 }

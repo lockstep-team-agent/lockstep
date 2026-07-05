@@ -1,14 +1,17 @@
 import type { DocumentConnector, DocMeta, DocSection } from "./SourceConnector.js";
 
 /**
- * Composio slugs for the Google Docs doc layer — plausible picks from Composio's Google action list but
- * NOT yet verified against live Composio (mirrors ComposioConnector's UNVERIFIED Notion consts). Each is
- * referenced exactly once, so a rename is a one-line fix once verified. VERIFY BEFORE THE FIRST REAL SWEEP.
+ * Composio slugs for the Google Docs doc layer. Slug NAMES + input keys verified against Composio's public
+ * toolkit docs (docs.composio.dev/toolkits/googledocs, .../googledrive) — the RESPONSE shapes still need a
+ * live sweep to confirm (the connector is coverage-excluded; StubConnector carries CI).
+ *   - GOOGLEDOCS_GET_DOCUMENT_BY_ID: input `id` (44-char doc id), optional `includeTabsContent`.
+ *   - There is NO googledocs comment tool — comments are a Drive feature, so writeComment uses
+ *     GOOGLEDRIVE_CREATE_COMMENT (app "googledrive", input `file_id`/`content`). This requires the connected
+ *     account to carry Drive scope; a docs-only connection can't post the comment (degrades to a failed
+ *     writeback, retried — never silent).
  */
-const GDOCS_GET_DOCUMENT_SLUG = "GOOGLEDOCS_GET_DOCUMENT"; // alternates: GOOGLEDOCS_GET_DOCUMENT_BY_ID, GOOGLEDOCS_EXPORT_DOCUMENT
-// Comments are a Drive feature; if the verified slug is GOOGLEDRIVE_CREATE_COMMENT the exec `app` below
-// must switch to "googledrive" for this call. Kept as a googledocs slug to match the single-app seam.
-const GDOCS_CREATE_COMMENT_SLUG = "GOOGLEDOCS_CREATE_COMMENT"; // alternate: GOOGLEDRIVE_CREATE_COMMENT (app: "googledrive")
+const GDOCS_GET_DOCUMENT_SLUG = "GOOGLEDOCS_GET_DOCUMENT_BY_ID";
+const GDRIVE_CREATE_COMMENT_SLUG = "GOOGLEDRIVE_CREATE_COMMENT";
 
 /**
  * Google Docs document connector — parallel to ComposioConnector (NOT a subclass), because GDocs is a
@@ -37,11 +40,11 @@ export class GDocsConnector implements DocumentConnector {
     return this.client as Record<string, unknown>;
   }
 
-  private async exec(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async exec(slug: string, input: Record<string, unknown>, app = "googledocs"): Promise<Record<string, unknown>> {
     const client = (await this.getClient()) as { tools: { execute: (args: unknown) => Promise<unknown> } };
     const res = (await client.tools.execute({
       entity: this.entity,
-      app: "googledocs",
+      app,
       tool: slug,
       input,
     })) as { data?: Record<string, unknown>; successful?: boolean; error?: string };
@@ -57,16 +60,17 @@ export class GDocsConnector implements DocumentConnector {
   }
 
   async fetchDocumentSections(fileId: string): Promise<DocSection[]> {
-    const d = await this.exec(GDOCS_GET_DOCUMENT_SLUG, { document_id: fileId });
+    const d = await this.exec(GDOCS_GET_DOCUMENT_SLUG, { id: fileId });
     // Composio may wrap the document under `document`, or hand back the raw Docs API object.
     const doc = (d.document ?? d) as Record<string, unknown>;
     return sectionize(fileId, paragraphs(doc));
   }
 
   async writeComment(fileId: string, body: string, _anchor?: string | null): Promise<{ commentRef: string }> {
-    // The fuzzy anchor rides in the body's deep link (there's no stable block id to attach to), so the
+    // Comments are a Drive feature (no googledocs tool exists) — post via the Drive slug on the googledrive
+    // app. The fuzzy anchor rides in the body's deep link (there's no stable block id to attach to), so the
     // comment lands at document level — same trade-off as the Notion writeComment.
-    const d = await this.exec(GDOCS_CREATE_COMMENT_SLUG, { document_id: fileId, content: body });
+    const d = await this.exec(GDRIVE_CREATE_COMMENT_SLUG, { file_id: fileId, content: body }, "googledrive");
     return { commentRef: str(d.id) || fileId };
   }
 }

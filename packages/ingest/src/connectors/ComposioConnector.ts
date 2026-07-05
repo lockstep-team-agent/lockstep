@@ -7,7 +7,9 @@ export type Tool = "slack" | "jira" | "notion" | "confluence";
  * verified against live Composio (plan A7 risk #1: verify these before the first real doc sweep).
  * Each is referenced exactly once, so a rename is a one-line fix.
  */
-const NOTION_BLOCK_CHILDREN_SLUG = "NOTION_FETCH_BLOCK_CONTENTS"; // alternates: NOTION_GET_BLOCK_CHILDREN, NOTION_FETCH_BLOCK_METADATA
+// Verified against Composio docs: NOTION_FETCH_BLOCK_CONTENTS takes `block_id`; NOTION_CREATE_COMMENT takes
+// `parent_page_id` (or `discussion_id`) + a `comment` rich-text object ({content}).
+const NOTION_BLOCK_CHILDREN_SLUG = "NOTION_FETCH_BLOCK_CONTENTS";
 const NOTION_CREATE_COMMENT_SLUG = "NOTION_CREATE_COMMENT";
 
 /**
@@ -205,7 +207,8 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
     for (const r of arr(d.results ?? d.pages)) {
       const id = str(r.id ?? (r.content as Record<string, unknown>)?.id);
       if (!id) continue;
-      const page = await this.exec("CONFLUENCE_GET_PAGE_BY_ID", { id, expand: "body.storage,version" });
+      // Composio's Confluence tools are Cloud API v2 — no `expand`; body.storage retrieval is the live risk.
+      const page = await this.exec("CONFLUENCE_GET_PAGE_BY_ID", { id });
       const body = plain((page.body as Record<string, unknown>)?.storage ?? page.body);
       const ts = str((page.version as Record<string, unknown>)?.when) || this.sinceIso(cursor);
       units.push({ externalId: `${spaceKey}/${id}`, sourceRef: spaceKey, ts, text: `${str(page.title)}\n${body}`.trim(), authors: [], permalink: str(page._links && (page._links as Record<string, unknown>).webui) || undefined });
@@ -262,9 +265,11 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
     this.assertNotion("writeComment");
     // Notion's comment-create takes a page parent or an existing discussion_id; a block id is neither,
     // so the anchor rides in the body's deep link and the comment lands at page level.
+    // Composio flattens the parent + rich-text into `parent_page_id` + a `comment` rich-text object
+    // ({content}) — NOT the raw Notion API `parent`/`rich_text` shape (verified against Composio docs).
     const d = await this.exec(NOTION_CREATE_COMMENT_SLUG, {
-      parent: { page_id: pageId },
-      rich_text: [{ type: "text", text: { content: body } }],
+      parent_page_id: pageId,
+      comment: { content: body },
     });
     return { commentRef: str(d.id) || pageId };
   }
