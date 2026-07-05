@@ -11,7 +11,7 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { getProjectRoleTx } from "../auth/permissions.js";
-import { recomputeCapabilityImpactTx } from "../ledger/ledger-service.js";
+import { recomputeCapabilityImpactTx, openDriftForConfirmedCapabilityTx } from "../ledger/ledger-service.js";
 import { setEdgeStatusTx, deleteEdgeTx, capabilityRefForNodeTx } from "../graph/graph-service.js";
 
 /**
@@ -240,7 +240,11 @@ export async function confirmGovernsEdge(
     const res = await setEdgeStatusTx(tx, projectId, edgeId, "confirmed");
     if (!res) throw Object.assign(new Error("edge not found"), { statusCode: 404 });
     const capRef = await capabilityRefForNodeTx(tx, projectId, res.fromId);
-    if (capRef) await recomputeCapabilityImpactTx(tx, projectId, capRef);
+    if (capRef) {
+      await recomputeCapabilityImpactTx(tx, projectId, capRef);
+      // Backstop: confirming this edge may expose drift with a pre-existing binding eng decision.
+      await openDriftForConfirmedCapabilityTx(tx, orgId, projectId, capRef);
+    }
     await writeAudit(tx, { orgId, projectId, actorMemberId: memberId, action: "edge.confirmed", entityKind: "graph_edge", entityId: edgeId });
     return { ok: true };
   });

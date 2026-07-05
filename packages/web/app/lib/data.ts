@@ -215,6 +215,38 @@ export const getFeatures = (orgId: string, projectId: string) =>
 export const getFeature = (orgId: string, projectId: string, ref: string) =>
   apiGet<FeatureDetail>(`/orgs/${orgId}/projects/${projectId}/features/${encodeURIComponent(ref)}`);
 
+export type ConflictKind = "pre_approval" | "drift";
+export type ConflictStatus =
+  | "open"
+  | "resolved_eng_revised"
+  | "resolved_prd_amended"
+  | "dismissed";
+
+export interface ConflictView {
+  id: string;
+  kind: ConflictKind;
+  status: ConflictStatus;
+  surface: string;
+  constraintDecisionId: string;
+  engDecisionId: string | null;
+  constraintRuleText: string;
+  engRuleText: string | null;
+  docId: string | null;
+  docTitle: string | null;
+  docUrl: string | null;
+  dismissReason: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+}
+
+export const getConflicts = (orgId: string, projectId: string, status?: string) =>
+  apiGet<{ conflicts: ConflictView[] }>(
+    `/orgs/${orgId}/projects/${projectId}/conflicts${status ? `?status=${status}` : ""}`,
+  );
+
+export const conflictKindLabel = (k: ConflictKind): string =>
+  k === "pre_approval" ? "pre-approval" : "drift";
+
 export const constraintKindLabel = (k: ConstraintKind): string => k.replace(/_/g, " ");
 
 export function timeAgo(iso: string): string {

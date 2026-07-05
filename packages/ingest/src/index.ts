@@ -171,7 +171,7 @@ async function docSweepOnce(
       targets.push({ docId: d.docId, externalId: d.externalId, title: d.externalId, url: null, knownSectionHashes: d.knownSectionHashes });
     }
     for (const t of targets) {
-      const { items, stats, docContentHash } = await runDocFunnel({
+      const { items, stats, docContentHash, extractedAnchorKeys } = await runDocFunnel({
         connector,
         doc: { externalId: t.externalId, title: t.title, url: t.url },
         knownSectionHashes: t.knownSectionHashes,
@@ -179,10 +179,10 @@ async function docSweepOnce(
         batch: opts.batch,
         log: (m) => console.log(m),
       });
-      const res = await ls.postDocCandidates(t.docId, items, docContentHash);
+      const res = await ls.postDocCandidates(t.docId, items, docContentHash, extractedAnchorKeys);
       console.log(
         `[docs] doc ${t.title}: sections=${stats.sections} skipped=${stats.skipped} proposed=${stats.proposed} ` +
-          `low=${stats.lowConfidence} → filed=${res.filed} conflicts=${res.conflicts}`,
+          `low=${stats.lowConfidence} → filed=${res.filed} reversioned=${res.reversioned} staled=${res.staled} conflicts=${res.conflicts}`,
       );
     }
   }

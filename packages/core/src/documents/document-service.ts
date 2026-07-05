@@ -15,7 +15,7 @@ import {
   projects,
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
-import { fileProposedDecision } from "../ledger/ledger-service.js";
+import { fileProposedDecision, reproposeDocConstraint } from "../ledger/ledger-service.js";
 import { getProjectRoleTx } from "../auth/permissions.js";
 import { reconcileCandidateTx, type DocForReconcile } from "./reconcile-service.js";
 
@@ -503,7 +503,8 @@ export async function fileDocCandidates(
   docId: string,
   items: DocCandidateItem[],
   docContentHash?: string,
-): Promise<{ filed: number; fused: number; deduped: number; conflicts: number }> {
+  extractedAnchorKeys?: string[],
+): Promise<{ filed: number; fused: number; deduped: number; reversioned: number; staled: number; conflicts: number }> {
   const doc = await withSystem(async (tx) => {
     return (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
   });
@@ -521,12 +522,72 @@ export async function fileDocCandidates(
     url: doc.url,
     title: doc.title,
   };
+  // Existing document constraints for this doc, keyed by anchor — so an edited section RE-VERSIONS its
+  // constraint (re-enters ratification) instead of minting a duplicate (F10 re-extraction diff).
+  const existingByAnchor = await withOrg(doc.orgId, async (tx) => {
+    const rows = await constraintsForDocTx(tx, doc);
+    const m = new Map<string, { decisionId: string; ruleText: string; status: string }>();
+    for (const r of rows) {
+      const anchorKey = (r.provenance.anchorKey as string | undefined) ?? (r.provRow?.anchor as { blockId?: string } | null)?.blockId;
+      if (!anchorKey) continue;
+      const prev = m.get(anchorKey);
+      // Prefer a live (non-rejected/stale) decision if duplicates exist from the pre-Phase-C bug.
+      const live = r.decision.status !== "rejected" && r.decision.status !== "stale" && r.decision.status !== "superseded";
+      if (!prev || live) m.set(anchorKey, { decisionId: r.decision.id, ruleText: r.ruleText, status: r.decision.status });
+    }
+    return m;
+  });
+
   let filed = 0;
   let fused = 0;
   let deduped = 0;
+  let reversioned = 0;
+  let staled = 0;
   let opened = 0;
   let freshDigestible = 0;
+  const seenAnchors = new Set<string>();
+  const provenanceFor = (it: DocCandidateItem) => ({
+    source: doc.tool,
+    connectionId: doc.connectionId,
+    externalId: it.externalId,
+    url: anchorUrl(doc.url, it.anchor?.blockId),
+    evidence: it.evidence,
+    confidence: it.confidence / 100,
+    rationale: it.rationale,
+    documentId: doc.id,
+    anchorKey: it.anchor?.blockId,
+    heading: it.anchor?.headingPath?.at(-1) ?? null,
+    lowConfidence: it.lowConfidence,
+    expiresHint: it.expiresHint || undefined,
+    constraintKind: it.constraintKind,
+    surfaceCandidates: it.surfaceCandidates ?? [],
+  });
+
   for (const it of items) {
+    const anchorKey = it.anchor?.blockId;
+    if (anchorKey) seenAnchors.add(anchorKey);
+    const existing = anchorKey ? existingByAnchor.get(anchorKey) : undefined;
+
+    if (existing) {
+      // Same anchor as an existing constraint → re-version (or no-op if the rule is unchanged).
+      const r = await reproposeDocConstraint(doc.orgId, {
+        projectId: doc.projectId,
+        existingDecisionId: existing.decisionId,
+        ruleText: it.ruleText,
+        provenance: provenanceFor(it),
+        constraintKind: it.constraintKind,
+        expiresAt: it.expiresAt ? new Date(it.expiresAt) : null,
+        anchor: it.anchor,
+        connectionId: doc.connectionId ?? doc.id,
+        externalId: it.externalId,
+        contentHash: it.contentHash,
+        confidence: it.confidence,
+      });
+      if (r.reversioned) reversioned++;
+      else deduped++;
+      continue;
+    }
+
     const r = await fileProposedDecision(doc.orgId, {
       projectId: doc.projectId,
       scopeKind: it.scopeKind,
@@ -537,22 +598,7 @@ export async function fileDocCandidates(
       constraintKind: it.constraintKind,
       expiresAt: it.expiresAt ? new Date(it.expiresAt) : null,
       anchor: it.anchor,
-      provenance: {
-        source: doc.tool,
-        connectionId: doc.connectionId,
-        externalId: it.externalId,
-        url: anchorUrl(doc.url, it.anchor?.blockId),
-        evidence: it.evidence,
-        confidence: it.confidence / 100,
-        rationale: it.rationale,
-        documentId: doc.id,
-        anchorKey: it.anchor?.blockId,
-        heading: it.anchor?.headingPath?.at(-1) ?? null,
-        lowConfidence: it.lowConfidence,
-        expiresHint: it.expiresHint || undefined,
-        constraintKind: it.constraintKind,
-        surfaceCandidates: it.surfaceCandidates ?? [],
-      },
+      provenance: provenanceFor(it),
       // Native docs with no connector scope idempotency on the doc id itself.
       connectionId: doc.connectionId ?? doc.id,
       externalId: it.externalId,
@@ -577,17 +623,44 @@ export async function fileDocCandidates(
       opened += conflictsOpened.length;
     }
   }
+
+  // Stale pass: a section that was re-visited this run (its text changed) but no longer yields the
+  // constraint it used to → the requirement was removed from the PRD. Retire that constraint.
+  const revisited = new Set(extractedAnchorKeys ?? []);
+  if (revisited.size > 0) {
+    await withOrg(doc.orgId, async (tx) => {
+      for (const [anchorKey, ex] of existingByAnchor) {
+        if (!revisited.has(anchorKey) || seenAnchors.has(anchorKey)) continue;
+        if (ex.status !== "binding" && ex.status !== "proposed") continue;
+        await tx.update(decisions).set({ status: "stale" }).where(eq(decisions.id, ex.decisionId));
+        await tx
+          .update(conflicts)
+          .set({ status: "dismissed", dismissReason: "constraint_removed", resolvedAt: new Date() })
+          .where(and(eq(conflicts.constraintDecisionId, ex.decisionId), eq(conflicts.status, "open")));
+        await writeAudit(tx, {
+          orgId: doc.orgId,
+          projectId: doc.projectId,
+          action: "constraint.staled",
+          entityKind: "decision",
+          entityId: ex.decisionId,
+          payload: { reason: "removed_from_prd", anchorKey },
+        });
+        staled++;
+      }
+    });
+  }
+
   await withSystem(async (tx) => {
     await tx
       .update(sourceDocuments)
       .set({ contentHash: docContentHash ?? doc.contentHash, lastExtractedAt: new Date() })
       .where(eq(sourceDocuments.id, docId));
-    // Doc already active (native flip or PRD edited post-approval): follow-up digest for new items.
-    if (doc.state === "active" && freshDigestible > 0) {
+    // Doc already active (native flip or PRD edited post-approval): follow-up digest for new/amended items.
+    if (doc.state === "active" && freshDigestible + reversioned > 0) {
       await enqueueDigestTx(tx, doc.orgId, { ...doc, contentHash: docContentHash ?? doc.contentHash });
     }
   });
-  return { filed, fused, deduped, conflicts: opened };
+  return { filed, fused, deduped, reversioned, staled, conflicts: opened };
 }
 
 /* ───────────────────────────── Constraints & digest ───────────────────────────── */

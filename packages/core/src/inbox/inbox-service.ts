@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { withOrg } from "../db/rls.js";
+import { withOrg, type Tx } from "../db/rls.js";
 import {
   inboxes,
   inboxItems,
@@ -8,6 +8,7 @@ import {
   tasks,
   decisions,
   decisionVersions,
+  conflicts,
   repos,
   members,
 } from "../db/schema.js";
@@ -19,6 +20,18 @@ export interface InboxView {
   questions: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
   tasks: Array<{ id: string; title: string; runState: string; status: string }>;
   decisions: Array<{ id: string; scopeRef: string; ruleText: string; status: string; impact: number }>;
+  // v3 drift: the eng author's own decisions now in tension with a ratified product constraint.
+  conflicts: Array<{ id: string; surface: string; constraintRuleText: string; engRuleText: string }>;
+}
+
+/** Current-version rule text for a decision id (best-effort). */
+async function ruleTextTx(tx: Tx, id: string): Promise<string> {
+  const d = (await tx.select().from(decisions).where(eq(decisions.id, id)).limit(1))[0];
+  if (!d) return "";
+  const v = (
+    await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, id), eq(decisionVersions.version, d.currentVersion))).limit(1)
+  )[0];
+  return v?.ruleText ?? "";
 }
 
 /**
@@ -39,7 +52,7 @@ export async function readInbox(
         )
         .limit(1)
     )[0];
-    if (!inbox) return { unread: 0, changes: [], questions: [], tasks: [], decisions: [] };
+    if (!inbox) return { unread: 0, changes: [], questions: [], tasks: [], decisions: [], conflicts: [] };
 
     const items = await tx
       .select()
@@ -50,6 +63,7 @@ export async function readInbox(
     const questionIds = items.filter((i) => i.kind === "question").map((i) => i.refId);
     const taskIds = items.filter((i) => i.kind === "task").map((i) => i.refId);
     const decisionIds = items.filter((i) => i.kind === "decision").map((i) => i.refId);
+    const conflictIds = items.filter((i) => i.kind === "conflict").map((i) => i.refId);
 
     const changeRows = changeIds.length
       ? await tx.select().from(changeFeedEntries).where(inArray(changeFeedEntries.id, changeIds))
@@ -76,6 +90,20 @@ export async function readInbox(
       }
     }
 
+    const conflictRows: Array<{ id: string; surface: string; constraintRuleText: string; engRuleText: string }> = [];
+    if (conflictIds.length) {
+      const cs = await tx.select().from(conflicts).where(inArray(conflicts.id, conflictIds));
+      for (const c of cs) {
+        if (c.status !== "open") continue; // only surface still-open drift
+        conflictRows.push({
+          id: c.id,
+          surface: c.surface,
+          constraintRuleText: await ruleTextTx(tx, c.constraintDecisionId),
+          engRuleText: c.engDecisionId ? await ruleTextTx(tx, c.engDecisionId) : "",
+        });
+      }
+    }
+
     return {
       unread: items.length,
       changes: changeRows.map((c) => ({
@@ -94,6 +122,7 @@ export async function readInbox(
       })),
       tasks: taskRows.map((t) => ({ id: t.id, title: t.title, runState: t.runState, status: t.status })),
       decisions: decisionRows,
+      conflicts: conflictRows,
     };
   });
 }
@@ -143,6 +172,7 @@ export interface InboxPeek {
   tasks: number;
   changes: number;
   decisions: number;
+  conflicts: number;
 }
 
 /**
@@ -163,7 +193,7 @@ export async function peekInbox(
         )
         .limit(1)
     )[0];
-    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0, conflicts: 0 };
 
     const items = await tx
       .select()
@@ -176,6 +206,7 @@ export async function peekInbox(
       tasks: items.filter((i) => i.kind === "task").length,
       changes: items.filter((i) => i.kind === "change").length,
       decisions: items.filter((i) => i.kind === "decision").length,
+      conflicts: items.filter((i) => i.kind === "conflict").length,
     };
   });
 }
@@ -191,7 +222,7 @@ export async function peekInboxByRemote(
 ): Promise<InboxPeek> {
   return withSystem(async (tx) => {
     const repo = (await tx.select().from(repos).where(eq(repos.gitRemote, gitRemote)).limit(1))[0];
-    if (!repo) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+    if (!repo) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0, conflicts: 0 };
 
     const member = (
       await tx
@@ -200,7 +231,7 @@ export async function peekInboxByRemote(
         .where(and(eq(members.orgId, repo.orgId), eq(members.principalId, principalId)))
         .limit(1)
     )[0];
-    if (!member) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+    if (!member) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0, conflicts: 0 };
 
     const inbox = (
       await tx
@@ -211,7 +242,7 @@ export async function peekInboxByRemote(
         )
         .limit(1)
     )[0];
-    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0 };
+    if (!inbox) return { unread: 0, questions: 0, tasks: 0, changes: 0, decisions: 0, conflicts: 0 };
 
     const items = await tx
       .select()
@@ -224,6 +255,7 @@ export async function peekInboxByRemote(
       tasks: items.filter((i) => i.kind === "task").length,
       changes: items.filter((i) => i.kind === "change").length,
       decisions: items.filter((i) => i.kind === "decision").length,
+      conflicts: items.filter((i) => i.kind === "conflict").length,
     };
   });
 }

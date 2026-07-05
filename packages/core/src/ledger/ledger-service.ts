@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { withOrg, type Tx } from "../db/rls.js";
 import {
   decisions,
@@ -21,7 +21,8 @@ import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
 import { upsertNodeTx, upsertEdgeTx, upsertGovernsEdgeTx, confirmGovernsEdgesForSurfacesTx } from "../graph/graph-service.js";
 import { canRatifyTx } from "../auth/permissions.js";
-import { sourceDocuments, conflicts } from "../db/schema.js";
+import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
+import { notifyConflictTx } from "../routing/routing-engine.js";
 import { inArray } from "drizzle-orm";
 
 function one<T>(rows: T[]): T {
@@ -172,6 +173,10 @@ export interface ProposeInput {
   baseVersion: number; // CAS: must equal the decision's current version (0 for new)
   decisionType?: string; // rule | architecture (default rule)
   provenance?: unknown;
+  // v3: the feature the agent declared it was working on (set_feature_context). Persisted into the
+  // version provenance so drift detection can SUPPRESS conflicts between a constraint and its own
+  // intended implementation (F7). Optional — un-tagged work trips drift, the safe default.
+  capabilityRef?: string;
 }
 
 /**
@@ -184,6 +189,9 @@ export async function proposeDecision(
   input: ProposeInput,
 ): Promise<{ decisionId: string; version: number; status: string; impact: number }> {
   return withOrg(orgId, async (tx: Tx) => {
+    // Agent decisions and product constraints (origin=document) can share a surface — they are
+    // SEPARATE decision streams. Never version a constraint from propose_decision; a co-location
+    // between the two is a drift conflict, handled below, not a new version of the constraint.
     const existing = (
       await tx
         .select()
@@ -193,6 +201,7 @@ export async function proposeDecision(
             eq(decisions.projectId, input.projectId),
             eq(decisions.scopeKind, input.scopeKind),
             eq(decisions.scopeRef, input.scopeRef),
+            ne(decisions.origin, "document"),
           ),
         )
         .limit(1)
@@ -234,13 +243,17 @@ export async function proposeDecision(
     const needsAck = impact > 0;
     const version = currentVersion + 1;
     const status = needsAck ? "open" : "binding";
+    // Carry the agent's declared feature tag on the version provenance (drift suppression, F7).
+    const provenance = input.capabilityRef
+      ? { ...((input.provenance as object | null) ?? {}), capabilityRef: input.capabilityRef }
+      : (input.provenance ?? null);
     await tx.insert(decisionVersions).values({
       orgId,
       decisionId,
       version,
       baseVersion: input.baseVersion,
       ruleText: input.ruleText,
-      provenance: input.provenance ?? null,
+      provenance,
       status,
       proposedBy: input.memberId,
     });
@@ -258,6 +271,18 @@ export async function proposeDecision(
       entityVersion: version,
       payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, status, impact },
     });
+    // Own-area decisions bind on assertion — check for drift against active product constraints.
+    if (status === "binding") {
+      await openDriftForEngDecisionTx(tx, orgId, {
+        decisionId,
+        projectId: input.projectId,
+        scopeKind: input.scopeKind,
+        scopeRef: input.scopeRef,
+        ruleText: input.ruleText,
+        authorMemberId: input.memberId,
+        capabilityRef: input.capabilityRef ?? null,
+      });
+    }
     // Fan out decisions awaiting acknowledgement so affected members see them in their inbox.
     if (needsAck) {
       await fanoutToProjectTx(tx, orgId, {
@@ -299,6 +324,25 @@ export async function ackDecision(
       entityVersion: version,
       payload: { verdict, status },
     });
+    // A cross-cutting decision that just bound on ack — check drift against active constraints.
+    if (status === "binding" && d.origin !== "document") {
+      const cur = (
+        await tx
+          .select()
+          .from(decisionVersions)
+          .where(and(eq(decisionVersions.decisionId, decisionId), eq(decisionVersions.version, d.currentVersion)))
+          .limit(1)
+      )[0];
+      await openDriftForEngDecisionTx(tx, orgId, {
+        decisionId,
+        projectId: d.projectId,
+        scopeKind: d.scopeKind,
+        scopeRef: d.scopeRef,
+        ruleText: cur?.ruleText ?? "",
+        authorMemberId: (cur?.proposedBy as string | null) ?? memberId,
+        capabilityRef: ((cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
+      });
+    }
     return { status };
   });
 }
@@ -540,6 +584,85 @@ export async function fileProposedDecision(
   });
 }
 
+export interface ReproposeInput {
+  projectId: string;
+  existingDecisionId: string;
+  ruleText: string;
+  provenance: unknown;
+  constraintKind?: string;
+  expiresAt?: Date | null;
+  anchor?: unknown;
+  connectionId: string;
+  externalId: string;
+  contentHash: string;
+  confidence?: number;
+}
+
+/**
+ * Re-file an EDITED document constraint against its EXISTING decision (matched by anchor key), instead
+ * of minting a duplicate: when the PRD section text changed but the extracted rule is the same, just
+ * record the artifact (so future sweeps skip it); when the rule changed, append a CAS version and set
+ * the decision back to `proposed` — it re-enters ratification, and ratifying it supersedes the prior
+ * (binding) version and auto-resolves any open drift as `resolved_prd_amended` (F10 concede path).
+ */
+export async function reproposeDocConstraint(
+  orgId: string,
+  input: ReproposeInput,
+): Promise<{ decisionId: string; reversioned: boolean; deduped: boolean }> {
+  return withOrg(orgId, async (tx) => {
+    const seen = (
+      await tx
+        .select()
+        .from(ingestArtifacts)
+        .where(and(eq(ingestArtifacts.connectionId, input.connectionId), eq(ingestArtifacts.externalId, input.externalId), eq(ingestArtifacts.contentHash, input.contentHash)))
+        .limit(1)
+    )[0];
+    if (seen) return { decisionId: input.existingDecisionId, reversioned: false, deduped: true };
+
+    const d = (await tx.select().from(decisions).where(eq(decisions.id, input.existingDecisionId)).limit(1))[0];
+    if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
+    const cur = (
+      await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion))).limit(1)
+    )[0];
+
+    const unchanged = (cur?.ruleText ?? "").trim() === input.ruleText.trim();
+    const recordArtifact = (status: string) =>
+      tx.insert(ingestArtifacts).values({ orgId, connectionId: input.connectionId, externalId: input.externalId, contentHash: input.contentHash, status, confidence: input.confidence ?? null, decisionId: d.id });
+
+    if (unchanged) {
+      // Section text drifted but the rule is identical — mark seen, don't churn a version.
+      await recordArtifact("deduped");
+      return { decisionId: d.id, reversioned: false, deduped: true };
+    }
+
+    const version = d.currentVersion + 1;
+    await tx.insert(decisionVersions).values({
+      orgId,
+      decisionId: d.id,
+      version,
+      baseVersion: d.currentVersion,
+      ruleText: input.ruleText,
+      provenance: input.provenance ?? cur?.provenance ?? null,
+      status: "proposed",
+    });
+    await tx
+      .update(decisions)
+      .set({ status: "proposed", currentVersion: version, constraintKind: input.constraintKind ?? d.constraintKind, expiresAt: input.expiresAt ?? d.expiresAt })
+      .where(eq(decisions.id, d.id));
+    await recordArtifact("proposed");
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      action: "decision.proposed",
+      entityKind: "decision",
+      entityId: d.id,
+      entityVersion: version,
+      payload: { scopeKind: d.scopeKind, scopeRef: d.scopeRef, origin: "document", status: "proposed", reversioned: true },
+    });
+    return { decisionId: d.id, reversioned: true, deduped: false };
+  });
+}
+
 /**
  * Confirm a proposed (ingested) decision: run the same impact/binding path as an agent-authored
  * decision (own-area binds on assertion; cross-cutting stays `open` until acked and fans out). Optional
@@ -607,6 +730,18 @@ export async function confirmDecision(
         kind: "decision",
         senderMemberId: memberId,
         reason: { scopeRef, ruleText, impact },
+      });
+    }
+    // Own-area confirmation binds immediately — check drift (skip the constraint side).
+    if (status === "binding" && d.origin !== "document") {
+      await openDriftForEngDecisionTx(tx, orgId, {
+        decisionId,
+        projectId: d.projectId,
+        scopeKind,
+        scopeRef,
+        ruleText,
+        authorMemberId: memberId,
+        capabilityRef: ((cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
       });
     }
     return { status, impact };
@@ -691,6 +826,26 @@ export async function ratifyDecision(
       for (const surface of candidates) {
         await upsertGovernsEdgeTx(tx, orgId, d.projectId, d.scopeRef, surface, "proposed", "extraction");
       }
+    }
+
+    // Concede path (F8): re-ratifying an amended constraint reconciles any open drift on it. On a
+    // FIRST ratification there is no open drift (drift needs the constraint already binding), so this
+    // is a no-op then; after a PRD amendment it auto-resolves the drift the amendment addressed.
+    const openDrift = await tx
+      .select()
+      .from(conflicts)
+      .where(and(eq(conflicts.constraintDecisionId, decisionId), eq(conflicts.kind, "drift"), eq(conflicts.status, "open")));
+    for (const k of openDrift) {
+      await tx.update(conflicts).set({ status: "resolved_prd_amended", resolvedAt: new Date(), resolvedBy: memberId }).where(eq(conflicts.id, k.id));
+      await writeAudit(tx, {
+        orgId,
+        projectId: d.projectId,
+        actorMemberId: memberId,
+        action: "conflict.resolved",
+        entityKind: "conflict",
+        entityId: k.id,
+        payload: { resolution: "resolved_prd_amended", auto: true },
+      });
     }
 
     await writeAudit(tx, {
@@ -1207,6 +1362,198 @@ async function constraintsInScopeTx(tx: Tx, projectId: string, repoId: string): 
   return out;
 }
 
+/* ───────────────────────────── v3: drift detection (eng decision → active constraint) ───────────────────────────── */
+
+/** The capability a constraint belongs to: its own scopeRef if capability-scoped, else the capability its source doc owns. */
+async function constraintCapabilityRefTx(
+  tx: Tx,
+  projectId: string,
+  constraint: typeof decisions.$inferSelect,
+  doc: typeof sourceDocuments.$inferSelect | undefined,
+): Promise<string | null> {
+  if (constraint.scopeKind === "capability") return constraint.scopeRef;
+  if (!doc) return null;
+  const docNode = (
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "doc"), eq(graphNodes.ref, `${doc.tool}:${doc.externalId}`)))
+      .limit(1)
+  )[0];
+  if (!docNode) return null;
+  const owns = (
+    await tx
+      .select()
+      .from(graphEdges)
+      .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.fromId, docNode.id), eq(graphEdges.kind, "owns")))
+      .limit(1)
+  )[0];
+  if (!owns) return null;
+  const capNode = (
+    await tx.select().from(graphNodes).where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.id, owns.toId), eq(graphNodes.kind, "capability"))).limit(1)
+  )[0];
+  return capNode?.ref ?? null;
+}
+
+/** Queue an informational drift Slack DM to the constraint owner (rule-vs-rule, links both ways). */
+async function enqueueDriftAlertTx(
+  tx: Tx,
+  orgId: string,
+  input: {
+    projectId: string;
+    conflictId: string;
+    surface: string;
+    doc: typeof sourceDocuments.$inferSelect;
+    constraintText: string;
+    engText: string;
+    engAuthorLogin: string | null;
+  },
+): Promise<void> {
+  const recipientId = input.doc.ownerMemberId ?? input.doc.registeredBy;
+  const recipient = recipientId
+    ? (await tx.select().from(members).where(eq(members.id, recipientId)).limit(1))[0]
+    : undefined;
+  if (!recipient?.slackUserId) {
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      action: "digest.skipped",
+      entityKind: "conflict",
+      entityId: input.conflictId,
+      payload: { reason: recipient ? "no_slack_user" : "no_recipient", kind: "drift_alert" },
+    });
+    return;
+  }
+  await tx
+    .insert(writebacks)
+    .values({
+      orgId,
+      projectId: input.projectId,
+      connectionId: null,
+      tool: "slack",
+      kind: "drift_alert",
+      targetRef: recipient.slackUserId,
+      payload: {
+        conflictId: input.conflictId,
+        surface: input.surface,
+        constraint: { ruleText: input.constraintText, docTitle: input.doc.title, docUrl: input.doc.url },
+        eng: { ruleText: input.engText, author: input.engAuthorLogin },
+      },
+      dedupeKey: `drift:${input.conflictId}`,
+    })
+    .onConflictDoNothing();
+}
+
+/**
+ * When an engineering decision reaches `binding`, open a `drift` conflict against every active-doc,
+ * binding product constraint governing the same surface — unless this decision IS the constraint's
+ * intended implementation (same feature tag, F7 suppression). Mirror of reconcileCandidateTx, reversed.
+ * Runs in the same tx as the binding transition.
+ */
+export async function openDriftForEngDecisionTx(
+  tx: Tx,
+  orgId: string,
+  eng: {
+    decisionId: string;
+    projectId: string;
+    scopeKind: string;
+    scopeRef: string;
+    ruleText: string;
+    authorMemberId: string;
+    capabilityRef: string | null;
+  },
+): Promise<Array<{ conflictId: string; constraintDecisionId: string }>> {
+  if (eng.scopeKind !== "surface") return []; // only surface-scoped eng decisions co-locate with constraints
+  const surface = eng.scopeRef;
+  const capRefs = new Set(await surfaceCapabilitiesTx(tx, eng.projectId, surface));
+  const constraints = await tx
+    .select()
+    .from(decisions)
+    .where(and(eq(decisions.projectId, eng.projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")));
+  const engLogin = (await tx.select({ l: members.githubLogin }).from(members).where(eq(members.id, eng.authorMemberId)).limit(1))[0]?.l ?? null;
+  const opened: Array<{ conflictId: string; constraintDecisionId: string }> = [];
+  for (const c of constraints) {
+    const governs = (c.scopeKind === "surface" && c.scopeRef === surface) || (c.scopeKind === "capability" && capRefs.has(c.scopeRef));
+    if (!governs) continue;
+    // Resolve the constraint's doc + capability for suppression + the DM recipient.
+    const cv = (
+      await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, c.id), eq(decisionVersions.version, c.currentVersion))).limit(1)
+    )[0];
+    const docId = (cv?.provenance as { documentId?: string } | null)?.documentId;
+    const doc = docId ? (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0] : undefined;
+    if (!doc || doc.state !== "active") continue; // only active-doc constraints drift
+    // Implementation suppression: the eng decision is tagged with the constraint's own feature.
+    if (eng.capabilityRef) {
+      const constraintCap = await constraintCapabilityRefTx(tx, eng.projectId, c, doc);
+      if (constraintCap && constraintCap === eng.capabilityRef) continue;
+    }
+    const inserted = (
+      await tx
+        .insert(conflicts)
+        .values({
+          orgId,
+          projectId: eng.projectId,
+          constraintDecisionId: c.id,
+          engDecisionId: eng.decisionId,
+          surface,
+          kind: "drift",
+          status: "open",
+        })
+        .onConflictDoNothing()
+        .returning()
+    )[0];
+    if (!inserted) continue; // already open — never re-notify
+    await writeAudit(tx, {
+      orgId,
+      projectId: eng.projectId,
+      action: "conflict.opened",
+      entityKind: "conflict",
+      entityId: inserted.id,
+      payload: { kind: "drift", surface, constraintDecisionId: c.id, engDecisionId: eng.decisionId },
+    });
+    await enqueueDriftAlertTx(tx, orgId, {
+      projectId: eng.projectId,
+      conflictId: inserted.id,
+      surface,
+      doc,
+      constraintText: cv?.ruleText ?? "",
+      engText: eng.ruleText,
+      engAuthorLogin: engLogin,
+    });
+    // Inbox item to the eng author: their decision is now in tension with a ratified constraint.
+    await notifyConflictTx(tx, orgId, { projectId: eng.projectId, memberId: eng.authorMemberId, conflictId: inserted.id });
+    opened.push({ conflictId: inserted.id, constraintDecisionId: c.id });
+  }
+  return opened;
+}
+
+/**
+ * Backstop: when a governs edge is confirmed for `capabilityRef`, a binding eng decision on one of the
+ * capability's (now-)governed surfaces may not have tripped drift at bind time. Re-scan those surfaces.
+ */
+export async function openDriftForConfirmedCapabilityTx(tx: Tx, orgId: string, projectId: string, capabilityRef: string): Promise<void> {
+  const surfaces = await capabilitySurfacesTx(tx, projectId, capabilityRef);
+  for (const surface of surfaces) {
+    const engs = await tx
+      .select()
+      .from(decisions)
+      .where(and(eq(decisions.projectId, projectId), eq(decisions.scopeKind, "surface"), eq(decisions.scopeRef, surface), eq(decisions.status, "binding")));
+    for (const e of engs) {
+      if (e.origin === "document") continue;
+      const ev = (await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, e.id), eq(decisionVersions.version, e.currentVersion))).limit(1))[0];
+      await openDriftForEngDecisionTx(tx, orgId, {
+        decisionId: e.id,
+        projectId,
+        scopeKind: e.scopeKind,
+        scopeRef: e.scopeRef,
+        ruleText: ev?.ruleText ?? "",
+        authorMemberId: (ev?.proposedBy as string | null) ?? "",
+        capabilityRef: ((ev?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
+      });
+    }
+  }
+}
+
 /** Briefing token budget; constraints may consume at most 15% of it (PRD §14). No tokenizer dep. */
 export const BRIEFING_TOKEN_BUDGET = 2000;
 const CONSTRAINT_BUDGET = Math.floor(BRIEFING_TOKEN_BUDGET * 0.15);
@@ -1344,6 +1691,9 @@ export async function reconcile(
     const confirmed = await confirmGovernsEdgesForSurfacesTx(tx, projectId, contractSurfaces);
     for (const ref of new Set(confirmed.map((c) => c.capabilityRef))) {
       await recomputeCapabilityImpactTx(tx, projectId, ref);
+      // Backstop: a newly-confirmed edge may place an already-binding eng decision under this
+      // capability's constraints — scan for drift that bind-time detection couldn't have seen.
+      await openDriftForConfirmedCapabilityTx(tx, orgId, projectId, ref);
     }
     return {
       ok: violations.length === 0,

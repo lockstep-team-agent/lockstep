@@ -1,6 +1,13 @@
 import type { LockstepClient, PendingWriteback } from "./client.js";
 import type { DocumentConnector } from "./connectors/SourceConnector.js";
-import { composeDigestBlocks, digestFallbackText, type SlackDigestPayload } from "./slack/digest.js";
+import {
+  composeDigestBlocks,
+  composeDriftBlocks,
+  digestFallbackText,
+  driftFallbackText,
+  type DriftAlertPayload,
+  type SlackDigestPayload,
+} from "./slack/digest.js";
 import { sendDigest as defaultSendDigest } from "./slack/send.js";
 
 /** Payload core composes for a conflict_comment write-back (reconcile-service). */
@@ -23,9 +30,9 @@ export interface DrainOpts {
 
 /**
  * Drain core's write-back queue: conflict_comment → Notion page comment via the row's connector,
- * slack_digest → ratification DM via the bot token. Every row is acked with markWritebackDone —
- * ok:false leaves it queued for retry (core fails it after three attempts). Per-row errors never
- * abort the drain.
+ * slack_digest → ratification DM via the bot token, drift_alert → informational conflict DM (also
+ * via the bot token). Every row is acked with markWritebackDone — ok:false leaves it queued for
+ * retry (core fails it after three attempts). Per-row errors never abort the drain.
  */
 export async function drainWritebacks(
   client: WritebackClient,
@@ -38,31 +45,51 @@ export async function drainWritebacks(
   let failed = 0;
   for (const row of rows) {
     try {
-      if (row.kind === "conflict_comment") {
-        const connector = opts.connectorFor(row);
-        if (!connector) {
-          log(`[writeback] ${row.id}: no connector for ${row.tool} — skipping`);
-          await client.markWritebackDone(row.id, false);
-          failed++;
-          continue;
+      switch (row.kind) {
+        case "conflict_comment": {
+          const connector = opts.connectorFor(row);
+          if (!connector) {
+            log(`[writeback] ${row.id}: no connector for ${row.tool} — skipping`);
+            await client.markWritebackDone(row.id, false);
+            failed++;
+            continue;
+          }
+          const p = row.payload as ConflictCommentPayload;
+          const { commentRef } = await connector.writeComment(row.targetRef, p.body, p.anchorBlockId);
+          await client.markWritebackDone(row.id, true, commentRef);
+          posted++;
+          break;
         }
-        const p = row.payload as ConflictCommentPayload;
-        const { commentRef } = await connector.writeComment(row.targetRef, p.body, p.anchorBlockId);
-        await client.markWritebackDone(row.id, true, commentRef);
-        posted++;
-      } else {
-        // slack_digest — targetRef is the recipient's Slack user id.
-        if (!opts.slackBotToken) {
-          log(`[writeback] ${row.id}: SLACK_BOT_TOKEN not set — cannot send digest`);
-          await client.markWritebackDone(row.id, false);
-          failed++;
-          continue;
+        case "slack_digest": {
+          // targetRef is the recipient's Slack user id.
+          if (!opts.slackBotToken) {
+            log(`[writeback] ${row.id}: SLACK_BOT_TOKEN not set — cannot send digest`);
+            await client.markWritebackDone(row.id, false);
+            failed++;
+            continue;
+          }
+          const p = row.payload as SlackDigestPayload;
+          const r = await send(opts.slackBotToken, row.targetRef, composeDigestBlocks(p), digestFallbackText(p));
+          await client.markWritebackDone(row.id, r.ok, r.ts);
+          if (r.ok) posted++;
+          else failed++;
+          break;
         }
-        const p = row.payload as SlackDigestPayload;
-        const r = await send(opts.slackBotToken, row.targetRef, composeDigestBlocks(p), digestFallbackText(p));
-        await client.markWritebackDone(row.id, r.ok, r.ts);
-        if (r.ok) posted++;
-        else failed++;
+        case "drift_alert": {
+          // Informational conflict DM — targetRef is the constraint owner's Slack user id.
+          if (!opts.slackBotToken) {
+            log(`[writeback] ${row.id}: SLACK_BOT_TOKEN not set — cannot send drift alert`);
+            await client.markWritebackDone(row.id, false);
+            failed++;
+            continue;
+          }
+          const p = row.payload as DriftAlertPayload;
+          const r = await send(opts.slackBotToken, row.targetRef, composeDriftBlocks(p), driftFallbackText(p));
+          await client.markWritebackDone(row.id, r.ok, r.ts);
+          if (r.ok) posted++;
+          else failed++;
+          break;
+        }
       }
     } catch (e) {
       log(`[writeback] ${row.id} failed: ${e instanceof Error ? e.message : String(e)}`);

@@ -112,3 +112,23 @@ export async function fanoutToProjectTx(tx: Tx, orgId: string, args: ProjectFano
   }
   return delivered;
 }
+
+/**
+ * Deliver a `conflict` inbox item to one member (the eng decision's author) across every repo they're
+ * in for the project — "your decision is now in tension with a ratified product constraint" (v3 drift).
+ */
+export async function notifyConflictTx(
+  tx: Tx,
+  orgId: string,
+  args: { projectId: string; memberId: string; conflictId: string },
+): Promise<void> {
+  if (!args.memberId) return;
+  const projectRepos = await tx.select().from(repos).where(eq(repos.projectId, args.projectId));
+  for (const repo of projectRepos) {
+    const inboxId = await ensureInbox(tx, orgId, args.memberId, repo.id, args.projectId);
+    await tx
+      .insert(inboxItems)
+      .values({ orgId, inboxId, kind: "conflict", refId: args.conflictId, reason: null })
+      .onConflictDoNothing();
+  }
+}

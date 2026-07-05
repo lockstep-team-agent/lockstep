@@ -172,6 +172,19 @@ export async function rejectGovernsEdgeAction(formData: FormData): Promise<void>
   revalidatePath(`/project/${orgId}/${projectId}/graph`);
 }
 
+export async function resolveConflictAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const resolution = String(formData.get("resolution") ?? "");
+  const reason = String(formData.get("reason") ?? "");
+  await apiPost(`/orgs/${orgId}/conflicts/${id}/resolve`, {
+    resolution,
+    ...(reason ? { reason } : {}),
+  });
+  revalidatePath(`/project/${orgId}/${projectId}/review-queue`);
+}
+
 export async function updateMemberRoleAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");

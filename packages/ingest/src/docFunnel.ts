@@ -42,6 +42,9 @@ export interface DocFunnelResult {
   stats: DocFunnelStats;
   /** sha256 over ALL section hashes (skipped included) — the doc's overall change fingerprint. */
   docContentHash: string;
+  /** Anchor keys of sections re-visited this run (changed since last extraction) — lets core stale
+   *  constraints whose section changed but no longer yields them (F10 re-extraction diff). */
+  extractedAnchorKeys: string[];
 }
 
 /** Sections whose heading can never yield a constraint — dropped before any LLM spend (A-4). */
@@ -90,6 +93,7 @@ export async function runDocFunnel(opts: {
   type Survivor = { section: DocSection; text: string; hash: string };
   const survivors: Survivor[] = [];
   const sectionHashes: string[] = [];
+  const extractedAnchorKeys: string[] = [];
   for (const s of sections) {
     stats.sections++;
     const hash = sha256(s.text);
@@ -99,6 +103,8 @@ export async function runDocFunnel(opts: {
       stats.skipped++;
       continue;
     }
+    // Changed/new section — record it so core can diff (re-version or stale) against what it yields.
+    extractedAnchorKeys.push(s.anchorKey);
     const heading = s.headingPath[s.headingPath.length - 1] ?? "";
     if (NEVER_EXTRACT_HEADING.test(heading)) {
       stats.discarded++;
@@ -168,5 +174,5 @@ export async function runDocFunnel(opts: {
     else stats.proposed++;
     log(`    ${action === "propose" ? "✓ proposed" : "~ low-confidence"} [${scope.scopeRef}] ${x.rule_text.slice(0, 80)}`);
   }
-  return { items, stats, docContentHash: sha256(sectionHashes.join("\n")) };
+  return { items, stats, docContentHash: sha256(sectionHashes.join("\n")), extractedAnchorKeys };
 }

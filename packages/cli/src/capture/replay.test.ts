@@ -77,3 +77,12 @@ test("empty briefing (no constraints, overflow 0) leaves prior behavior intact",
   const empty: BriefingResp = { constraints: [], overflow: 0 };
   assert.equal(formatReplay(null, decisions, empty), formatReplay(null, decisions, null));
 });
+
+test("drift conflicts from the inbox render their own briefing section", () => {
+  const inbox = {
+    conflicts: [{ id: "k7", surface: "http:POST /payments/init", constraintRuleText: "no OTP before payment", engRuleText: "OTP on all inits" }],
+  };
+  const out = formatReplay(inbox, null, null);
+  assert.match(out, /⚔️ 1 drift conflict\(s\)/);
+  assert.match(out, /\[http:POST \/payments\/init\] your "OTP on all inits" vs constraint "no OTP before payment" — review both/);
+});

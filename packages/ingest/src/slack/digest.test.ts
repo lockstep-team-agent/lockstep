@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { composeDigestBlocks, digestFallbackText, type SlackDigestPayload, type DigestCandidate } from "./digest.js";
+import {
+  composeDigestBlocks,
+  composeDriftBlocks,
+  digestFallbackText,
+  driftFallbackText,
+  type DigestCandidate,
+  type DriftAlertPayload,
+  type SlackDigestPayload,
+} from "./digest.js";
 
 function candidate(over: Partial<DigestCandidate> = {}): DigestCandidate {
   return {
@@ -105,5 +113,84 @@ test("digestFallbackText: title + count, with a placeholder for untitled docs", 
   assert.equal(
     digestFallbackText(payload({ docTitle: null, candidates: [] })),
     "A PRD: 0 constraint(s) await your ratification",
+  );
+});
+
+function driftPayload(over: Partial<DriftAlertPayload> = {}): DriftAlertPayload {
+  return {
+    conflictId: "conf-1",
+    surface: "http:POST /checkout",
+    constraint: {
+      ruleText: "Guest checkout must not require account creation.",
+      docTitle: "Guest Checkout PRD",
+      docUrl: "https://notion.example.com/prd-142",
+    },
+    eng: { ruleText: "Checkout requires a signed-in JWT.", author: "Dana" },
+    ...over,
+  };
+}
+
+test("composeDriftBlocks: surface header + both rule texts, with the doc link and author", () => {
+  const blocks = composeDriftBlocks(driftPayload()) as Block[];
+  assert.equal(blocks[0]!.text!.text, "⚠ Drift on `http:POST /checkout`");
+  assert.equal(
+    blocks[1]!.text!.text,
+    '*Constraint:* "Guest checkout must not require account creation." <https://notion.example.com/prd-142|Guest Checkout PRD ↗>',
+  );
+  assert.equal(blocks[2]!.text!.text, '*Engineering:* "Checkout requires a signed-in JWT." — Dana');
+  assert.equal((blocks[3]!.elements![0] as { text: string }).text, "may conflict — review both");
+});
+
+test("composeDriftBlocks: emits no action buttons", () => {
+  const blocks = composeDriftBlocks(driftPayload()) as Block[];
+  assert.ok(!blocks.some((b) => b.type === "actions"), "drift alerts are informational — no actions block");
+});
+
+test("composeDriftBlocks: missing docUrl drops the link; docTitle placeholder never surfaces", () => {
+  const blocks = composeDriftBlocks(
+    driftPayload({ constraint: { ruleText: "No account required.", docTitle: null, docUrl: null } }),
+  ) as Block[];
+  assert.equal(blocks[1]!.text!.text, '*Constraint:* "No account required."');
+  assert.doesNotMatch(blocks[1]!.text!.text, /</);
+});
+
+test("composeDriftBlocks: a docUrl without a title labels the link with a placeholder", () => {
+  const blocks = composeDriftBlocks(
+    driftPayload({
+      constraint: { ruleText: "No account required.", docTitle: null, docUrl: "https://notion.example.com/x" },
+    }),
+  ) as Block[];
+  assert.equal(blocks[1]!.text!.text, '*Constraint:* "No account required." <https://notion.example.com/x|source doc ↗>');
+});
+
+test("composeDriftBlocks: a null author drops the trailing attribution", () => {
+  const blocks = composeDriftBlocks(
+    driftPayload({ eng: { ruleText: "Checkout requires a signed-in JWT.", author: null } }),
+  ) as Block[];
+  assert.equal(blocks[2]!.text!.text, '*Engineering:* "Checkout requires a signed-in JWT."');
+});
+
+test("composeDriftBlocks: resolve line links the web url when set, else plain text", () => {
+  const prev = process.env.LOCKSTEP_WEB_URL;
+  try {
+    process.env.LOCKSTEP_WEB_URL = "https://app.lockstep.dev/conflicts/conf-1";
+    const linked = composeDriftBlocks(driftPayload()) as Block[];
+    assert.equal(
+      (linked[4]!.elements![0] as { text: string }).text,
+      "<https://app.lockstep.dev/conflicts/conf-1|Review & resolve in Lockstep>",
+    );
+    delete process.env.LOCKSTEP_WEB_URL;
+    const plain = composeDriftBlocks(driftPayload()) as Block[];
+    assert.equal((plain[4]!.elements![0] as { text: string }).text, "Review & resolve in the Lockstep dashboard");
+  } finally {
+    if (prev === undefined) delete process.env.LOCKSTEP_WEB_URL;
+    else process.env.LOCKSTEP_WEB_URL = prev;
+  }
+});
+
+test("driftFallbackText: names the surface and the conflict", () => {
+  assert.equal(
+    driftFallbackText(driftPayload()),
+    "Drift on http:POST /checkout: a constraint and an engineering decision may conflict — review both",
   );
 });

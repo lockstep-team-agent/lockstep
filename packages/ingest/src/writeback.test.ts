@@ -37,6 +37,28 @@ function digestRow(over: Partial<PendingWriteback> = {}): PendingWriteback {
   };
 }
 
+function driftRow(over: Partial<PendingWriteback> = {}): PendingWriteback {
+  return {
+    id: "wb-3",
+    orgId: "org-1",
+    tool: "slack",
+    kind: "drift_alert",
+    targetRef: "U456",
+    payload: {
+      conflictId: "conf-1",
+      surface: "http:POST /checkout",
+      constraint: {
+        ruleText: "Guest checkout must not require account creation.",
+        docTitle: "Guest Checkout PRD",
+        docUrl: "https://notion.example.com/prd-142",
+      },
+      eng: { ruleText: "Checkout requires a signed-in JWT.", author: "Dana" },
+    },
+    connection: null,
+    ...over,
+  };
+}
+
 /** Records markWritebackDone calls — the drain's only side channel back to core. */
 class FakeClient {
   readonly done: Array<{ id: string; ok: boolean; resultRef?: string }> = [];
@@ -115,6 +137,44 @@ test("drainWritebacks: slack_digest without a bot token never calls send", async
   assert.deepEqual(res, { posted: 0, failed: 1 });
   assert.equal(called, false);
   assert.deepEqual(client.done, [{ id: "wb-2", ok: false, resultRef: undefined }]);
+});
+
+test("drainWritebacks: drift_alert composes blocks and acks with the message ts", async () => {
+  const client = new FakeClient([driftRow()]);
+  const sent: Array<{ token: string; user: string; blocks: unknown[]; text: string }> = [];
+  const res = await drainWritebacks(client, {
+    connectorFor: () => null,
+    slackBotToken: "xoxb-test",
+    sendDigestFn: async (token, user, blocks, text) => {
+      sent.push({ token, user, blocks, text });
+      return { ok: true, ts: "1699.99" };
+    },
+  });
+  assert.deepEqual(res, { posted: 1, failed: 0 });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.token, "xoxb-test");
+  assert.equal(sent[0]!.user, "U456");
+  assert.equal(
+    sent[0]!.text,
+    "Drift on http:POST /checkout: a constraint and an engineering decision may conflict — review both",
+  );
+  assert.ok(sent[0]!.blocks.length >= 1, "composed Block Kit blocks are passed through");
+  assert.deepEqual(client.done, [{ id: "wb-3", ok: true, resultRef: "1699.99" }]);
+});
+
+test("drainWritebacks: drift_alert without a bot token reports failure without sending", async () => {
+  const client = new FakeClient([driftRow()]);
+  let called = false;
+  const res = await drainWritebacks(client, {
+    connectorFor: () => null,
+    sendDigestFn: async () => {
+      called = true;
+      return { ok: true };
+    },
+  });
+  assert.deepEqual(res, { posted: 0, failed: 1 });
+  assert.equal(called, false);
+  assert.deepEqual(client.done, [{ id: "wb-3", ok: false, resultRef: undefined }]);
 });
 
 test("drainWritebacks: a thrown row is acked failed and the drain continues", async () => {

@@ -82,6 +82,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       baseVersion?: number;
       decisionType?: string;
       provenance?: unknown;
+      capabilityRef?: string;
     };
     if (!b?.scopeKind || !b?.scopeRef || !b?.ruleText || b.baseVersion === undefined) {
       return reply.code(400).send({ error: "scopeKind, scopeRef, ruleText, baseVersion required" });
@@ -95,6 +96,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       baseVersion: b.baseVersion,
       decisionType: b.decisionType,
       provenance: b.provenance,
+      capabilityRef: b.capabilityRef,
     });
   });
 

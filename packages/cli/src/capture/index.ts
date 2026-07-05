@@ -24,6 +24,7 @@ interface InboxResp {
   questions?: Array<{ id: string; body: string; scopeRef: string | null; urgent: boolean; status: string }>;
   tasks?: Array<{ id: string; title: string; runState: string; status: string }>;
   decisions?: Array<{ id: string; scopeRef: string; ruleText: string; status: string; impact?: number }>;
+  conflicts?: Array<{ id: string; surface: string; constraintRuleText: string; engRuleText: string }>;
 }
 interface DecisionsResp {
   decisions?: Array<{ scopeRef: string; status: string; ruleText: string; impact?: number }>;
@@ -64,6 +65,12 @@ export function formatReplay(
   if (pendingDecisions.length) {
     lines.push(`⚖️ ${pendingDecisions.length} decision(s) pending your acknowledgment:`);
     for (const d of pendingDecisions.slice(0, 8)) lines.push(`  • [${d.scopeRef}] ${d.ruleText}`);
+  }
+  const conflicts = inbox?.conflicts ?? [];
+  if (conflicts.length) {
+    lines.push(`⚔️ ${conflicts.length} drift conflict(s) — your work may conflict with a ratified product constraint:`);
+    for (const c of conflicts.slice(0, 8))
+      lines.push(`  • [${c.surface}] your "${c.engRuleText}" vs constraint "${c.constraintRuleText}" — review both`);
   }
   const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding").sort(byImpact);
   const constraints = briefing?.constraints ?? [];

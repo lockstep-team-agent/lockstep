@@ -79,3 +79,43 @@ export function composeDigestBlocks(payload: SlackDigestPayload): unknown[] {
 export function digestFallbackText(payload: SlackDigestPayload): string {
   return `${payload.docTitle ?? "A PRD"}: ${payload.candidates.length} constraint(s) await your ratification`;
 }
+
+/**
+ * Drift alert — the INFORMATIONAL Slack DM a constraint owner gets when an engineering decision
+ * looks like it may conflict with their binding constraint on the same surface. Rule-vs-rule with
+ * links both ways and a "review & resolve" pointer; deliberately NO action buttons (unlike the
+ * ratification digest) — the human resolves it in Lockstep, not from the DM. Composed by core
+ * (reconcile-service); mirror the shape exactly.
+ */
+export interface DriftAlertPayload {
+  conflictId: string;
+  surface: string;
+  constraint: { ruleText: string; docTitle: string | null; docUrl: string | null };
+  eng: { ruleText: string; author: string | null };
+}
+
+export function composeDriftBlocks(payload: DriftAlertPayload): unknown[] {
+  const { surface, constraint, eng } = payload;
+  // Link the constraint back to its source doc when we have a url; the title (or a placeholder) is
+  // the link label. docUrl/docTitle/author are all defensively null-safe.
+  const docLabel = constraint.docTitle ?? "source doc";
+  const constraintDoc = constraint.docUrl ? ` <${constraint.docUrl}|${docLabel} ↗>` : "";
+  const engAuthor = eng.author ? ` — ${eng.author}` : "";
+  // Web url points at the dashboard where the human reviews & resolves; fall back to plain text.
+  const webUrl = process.env.LOCKSTEP_WEB_URL;
+  const resolveText = webUrl
+    ? `<${webUrl}|Review & resolve in Lockstep>`
+    : "Review & resolve in the Lockstep dashboard";
+  return [
+    { type: "section", text: { type: "mrkdwn", text: `⚠ Drift on \`${surface}\`` } },
+    { type: "section", text: { type: "mrkdwn", text: `*Constraint:* "${constraint.ruleText}"${constraintDoc}` } },
+    { type: "section", text: { type: "mrkdwn", text: `*Engineering:* "${eng.ruleText}"${engAuthor}` } },
+    { type: "context", elements: [{ type: "mrkdwn", text: "may conflict — review both" }] },
+    { type: "context", elements: [{ type: "mrkdwn", text: resolveText }] },
+  ];
+}
+
+/** Notification-tray fallback for the drift alert. */
+export function driftFallbackText(payload: DriftAlertPayload): string {
+  return `Drift on ${payload.surface}: a constraint and an engineering decision may conflict — review both`;
+}

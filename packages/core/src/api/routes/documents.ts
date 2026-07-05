@@ -24,7 +24,7 @@ import {
   type SweptDoc,
   type DocCandidateItem,
 } from "../../documents/document-service.js";
-import { listConflicts, dismissConflict } from "../../documents/reconcile-service.js";
+import { listConflicts, dismissConflict, resolveConflict } from "../../documents/reconcile-service.js";
 import { listFeatures, getFeature, confirmGovernsEdge, rejectGovernsEdge } from "../../documents/features-service.js";
 import { ratifyDecision } from "../../ledger/ledger-service.js";
 
@@ -49,9 +49,9 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   app.post("/internal/documents/:id/candidates", async (req, reply) => {
     if (!workerAuthed(req, reply)) return;
     const { id } = req.params as { id: string };
-    const b = req.body as { items?: DocCandidateItem[]; docContentHash?: string };
+    const b = req.body as { items?: DocCandidateItem[]; docContentHash?: string; extractedAnchorKeys?: string[] };
     if (!Array.isArray(b?.items)) return reply.code(400).send({ error: "items[] required" });
-    return fileDocCandidates(id, b.items, b.docContentHash);
+    return fileDocCandidates(id, b.items, b.docContentHash, b.extractedAnchorKeys);
   });
 
   app.get("/internal/writebacks/pending", async (req, reply) => {
@@ -211,6 +211,19 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     return { conflicts: await listConflicts(orgId, projectId, status) };
   });
 
+  // Resolve an open drift/pre-approval conflict: holds (constraint wins) | dismiss (false positive).
+  app.post("/orgs/:orgId/conflicts/:id/resolve", async (req, reply) => {
+    const { orgId, id } = req.params as { orgId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    const b = req.body as { resolution?: string; reason?: string };
+    if (b?.resolution !== "holds" && b?.resolution !== "dismiss") {
+      return reply.code(400).send({ error: "resolution must be holds | dismiss" });
+    }
+    return resolveConflict(orgId, id, memberId, { resolution: b.resolution, reason: b.reason });
+  });
+
+  // Back-compat alias for the Phase A dismiss route.
   app.post("/orgs/:orgId/conflicts/:id/dismiss", async (req, reply) => {
     const { orgId, id } = req.params as { orgId: string; id: string };
     const memberId = await ensureMember(req, reply, orgId);

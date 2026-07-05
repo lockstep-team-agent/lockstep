@@ -892,6 +892,28 @@ form.inline {
   font-style: italic;
 }
 
+/* neutral quoted text — same as .evidence but a muted (non-violet) left border, for the engineering side of a conflict */
+.evidence.plain {
+  border-left-color: var(--border);
+}
+
+/* conflict resolution status pills */
+.pill.resolved_eng_revised,
+.pill.resolved_prd_amended {
+  color: var(--green);
+  background: rgba(63, 185, 80, 0.12);
+}
+.pill.dismissed {
+  color: var(--dim);
+  background: var(--surface-3);
+}
+
+/* recently-resolved conflict — muted, struck title */
+.resolved {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
 /* amber-tinted notice banner */
 .banner {
   display: flex;

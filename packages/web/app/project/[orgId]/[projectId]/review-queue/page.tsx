@@ -1,11 +1,11 @@
-import { getProposed, getRatifications, constraintKindLabel } from "@/lib/data";
-import type { RatificationCandidate } from "@/lib/data";
+import { getProposed, getRatifications, getConflicts, constraintKindLabel, conflictKindLabel } from "@/lib/data";
+import type { RatificationCandidate, ConflictView } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconQuestions, IconDoc } from "@/components/icons";
 import { EvidenceBlock } from "@/components/review/EvidenceBlock";
 import { ConflictWarning } from "@/components/review/ConflictWarning";
 import { Tabs } from "@/components/review/Tabs";
-import { confirmDecisionAction, rejectDecisionAction, ratifyDecisionAction } from "@/actions";
+import { confirmDecisionAction, rejectDecisionAction, ratifyDecisionAction, resolveConflictAction } from "@/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,16 +17,95 @@ export default async function Page({
   searchParams: { tab?: string };
 }) {
   const { orgId, projectId } = params;
-  const tab = searchParams.tab === "ratifications" ? "ratifications" : "proposed";
-  const [proposedData, ratificationData] = await Promise.all([
+  const tab =
+    searchParams.tab === "ratifications"
+      ? "ratifications"
+      : searchParams.tab === "conflicts"
+        ? "conflicts"
+        : "proposed";
+  const [proposedData, ratificationData, conflictData] = await Promise.all([
     getProposed(orgId, projectId),
     getRatifications(orgId, projectId),
+    getConflicts(orgId, projectId),
   ]);
   const items = proposedData?.decisions ?? [];
   const candidates = ratificationData?.candidates ?? [];
   const main = candidates.filter((c) => !c.lowConfidence);
   const low = candidates.filter((c) => c.lowConfidence);
+  const conflicts = conflictData?.conflicts ?? [];
+  const openConflicts = conflicts.filter((c) => c.status === "open");
+  const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+  const recentlyResolved = conflicts.filter(
+    (c) => c.status !== "open" && c.resolvedAt !== null && Date.now() - new Date(c.resolvedAt).getTime() <= SEVEN_DAYS,
+  );
   const base = `/project/${orgId}/${projectId}/review-queue`;
+
+  const renderConflict = (c: ConflictView, resolved: boolean) => (
+    <div className="card animate-in" key={c.id} style={{ marginBottom: 14 }}>
+      <div className="body" style={{ padding: "4px 2px" }}>
+        <div className="meta" style={{ marginBottom: 8, marginTop: 0 }}>
+          <span className="code-ref">{c.surface}</span>
+          <span className="pill conflict">{conflictKindLabel(c.kind)}</span>
+          <StatusPill status={c.status} />
+        </div>
+
+        <div className={`meta${resolved ? " resolved" : ""}`} style={{ marginTop: 6 }}>
+          <IconDoc style={{ width: 15, height: 15 }} />
+          <span>{c.docTitle ?? "Untitled document"}</span>
+          {c.docUrl && (
+            <a href={c.docUrl} target="_blank" rel="noreferrer" className="code-ref">
+              Notion ↗
+            </a>
+          )}
+        </div>
+        <blockquote className="evidence">“{c.constraintRuleText}”</blockquote>
+
+        <ConflictWarning>
+          May conflict on <span className="code-ref">{c.surface}</span> — review both.
+        </ConflictWarning>
+        {c.engRuleText && <blockquote className="evidence plain">“{c.engRuleText}”</blockquote>}
+
+        {c.dismissReason && (
+          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>Dismissed: {c.dismissReason}</p>
+        )}
+
+        {!resolved && (
+          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <form action={resolveConflictAction}>
+              <input type="hidden" name="orgId" value={orgId} />
+              <input type="hidden" name="projectId" value={projectId} />
+              <input type="hidden" name="id" value={c.id} />
+              <input type="hidden" name="resolution" value="holds" />
+              <button className="btn primary">Constraint holds</button>
+            </form>
+            <details className="collapse">
+              <summary>Dismiss</summary>
+              <form action={resolveConflictAction} style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <input type="hidden" name="orgId" value={orgId} />
+                <input type="hidden" name="projectId" value={projectId} />
+                <input type="hidden" name="id" value={c.id} />
+                <input type="hidden" name="resolution" value="dismiss" />
+                <input
+                  type="text"
+                  name="reason"
+                  className="input"
+                  placeholder="Why dismiss this conflict?"
+                  style={{ minWidth: 260, maxWidth: "100%" }}
+                />
+                <button className="btn">Dismiss</button>
+              </form>
+            </details>
+          </div>
+        )}
+
+        {!resolved && (
+          <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 13 }}>
+            To amend the requirement, edit the PRD in Notion — Lockstep will pick it up.
+          </p>
+        )}
+      </div>
+    </div>
+  );
 
   const renderCandidate = (c: RatificationCandidate) => {
     const conf = typeof c.confidence === "number" ? Math.round(c.confidence * 100) : null;
@@ -117,6 +196,7 @@ export default async function Page({
         tabs={[
           { key: "proposed", label: "Proposed", href: base, count: items.length },
           { key: "ratifications", label: "Ratifications", href: `${base}?tab=ratifications`, count: candidates.length },
+          { key: "conflicts", label: "Conflicts", href: `${base}?tab=conflicts`, count: openConflicts.length },
         ]}
       />
 
@@ -196,6 +276,23 @@ export default async function Page({
               <details className="collapse animate-in" style={{ marginTop: 10 }}>
                 <summary>Low confidence ({low.length})</summary>
                 <div className="rows" style={{ marginTop: 10 }}>{low.map(renderCandidate)}</div>
+              </details>
+            )}
+          </>
+        ))}
+
+      {tab === "conflicts" &&
+        (openConflicts.length === 0 && recentlyResolved.length === 0 ? (
+          <EmptyState icon={<IconQuestions />} title="No conflicts 🎉">
+            When an engineering decision lands on a surface a ratified constraint governs, it shows up here.
+          </EmptyState>
+        ) : (
+          <>
+            <div className="rows stagger">{openConflicts.map((c) => renderConflict(c, false))}</div>
+            {recentlyResolved.length > 0 && (
+              <details className="collapse animate-in" style={{ marginTop: 10 }}>
+                <summary>Recently resolved ({recentlyResolved.length})</summary>
+                <div className="rows" style={{ marginTop: 10 }}>{recentlyResolved.map((c) => renderConflict(c, true))}</div>
               </details>
             )}
           </>

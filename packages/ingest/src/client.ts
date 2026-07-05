@@ -68,8 +68,8 @@ export interface PendingWriteback {
   id: string;
   orgId: string;
   tool: "notion" | "slack";
-  kind: "conflict_comment" | "slack_digest";
-  targetRef: string; // notion page id (conflict_comment) or Slack user id (slack_digest)
+  kind: "conflict_comment" | "slack_digest" | "drift_alert";
+  targetRef: string; // notion page id (conflict_comment) or Slack user id (slack_digest / drift_alert)
   payload: unknown;
   connection: { entity: string; connectedAccountId: string | null; tool: string } | null;
 }
@@ -133,8 +133,9 @@ export class LockstepClient {
     docId: string,
     items: ProposedDocItem[],
     docContentHash?: string,
-  ): Promise<{ filed: number; fused: number; deduped: number; conflicts: number }> {
-    return this.req("POST", `/internal/documents/${docId}/candidates`, { items, docContentHash });
+    extractedAnchorKeys?: string[],
+  ): Promise<{ filed: number; fused: number; deduped: number; reversioned: number; staled: number; conflicts: number }> {
+    return this.req("POST", `/internal/documents/${docId}/candidates`, { items, docContentHash, extractedAnchorKeys });
   }
 
   async getPendingWritebacks(): Promise<PendingWriteback[]> {
