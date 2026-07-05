@@ -92,7 +92,7 @@ export type ConstraintKind = "behavioral" | "launch_gate" | "scope_exclusion";
 
 export interface SourceDocument {
   id: string;
-  tool: "notion";
+  tool: "notion" | "gdocs";
   stateAuthority: "mirrored" | "native";
   title: string | null;
   url: string | null;

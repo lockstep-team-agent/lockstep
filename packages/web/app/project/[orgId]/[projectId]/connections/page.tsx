@@ -11,12 +11,13 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const TOOLS = ["slack", "jira", "notion", "confluence"] as const;
-const SOURCE_KIND: Record<string, string> = { slack: "channel", jira: "project", notion: "database", confluence: "space" };
+const TOOLS = ["slack", "jira", "notion", "gdocs", "confluence"] as const;
+const SOURCE_KIND: Record<string, string> = { slack: "channel", jira: "project", notion: "database", gdocs: "folder", confluence: "space" };
 const SOURCE_HINT: Record<string, string> = {
   slack: "channel id e.g. C0123456789",
   jira: "project key e.g. PLATFORM",
   notion: "database id or search term",
+  gdocs: "folder id or search term",
   confluence: "space key e.g. ENG",
 };
 const CANONICAL_STATES = ["draft", "review", "active", "archived"] as const;

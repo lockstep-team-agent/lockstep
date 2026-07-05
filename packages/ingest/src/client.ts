@@ -41,8 +41,9 @@ export interface DocWorkItem {
   entity: string;
   connectedAccountId: string | null;
   containers: Array<{ containerRef: string; containerName: string | null; statusProperty: string | null }>;
-  /** Standalone/native docs (registered by URL, not swept from a database) that need extraction. */
-  docs: Array<{ docId: string; externalId: string; state: string; knownSectionHashes: string[] }>;
+  /** Standalone/native docs (registered by URL, not swept from a database) that need extraction.
+   *  `tool` selects the doc connector per doc (e.g. "gdocs" vs "notion"); absent ⇒ the connection's tool. */
+  docs: Array<{ docId: string; externalId: string; state: string; knownSectionHashes: string[]; tool?: string }>;
 }
 
 /** Raw listing-level doc facts from the sweep — core owns state resolution, never the worker (D4). */
@@ -134,8 +135,14 @@ export class LockstepClient {
     items: ProposedDocItem[],
     docContentHash?: string,
     extractedAnchorKeys?: string[],
+    currentSections?: Array<{ anchorKey: string; headingPath: string[]; snippet: string }>,
   ): Promise<{ filed: number; fused: number; deduped: number; reversioned: number; staled: number; conflicts: number }> {
-    return this.req("POST", `/internal/documents/${docId}/candidates`, { items, docContentHash, extractedAnchorKeys });
+    return this.req("POST", `/internal/documents/${docId}/candidates`, {
+      items,
+      docContentHash,
+      extractedAnchorKeys,
+      currentSections,
+    });
   }
 
   async getPendingWritebacks(): Promise<PendingWriteback[]> {

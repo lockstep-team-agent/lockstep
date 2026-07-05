@@ -2,9 +2,16 @@ import Link from "next/link";
 import { getDocuments, timeAgo } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconDoc } from "@/components/icons";
-import { resyncDocumentAction } from "@/actions";
+import {
+  resyncDocumentAction,
+  registerDocumentAction,
+  setDocumentStateAction,
+  unregisterDocumentAction,
+} from "@/actions";
 
 export const dynamic = "force-dynamic";
+
+const NATIVE_STATES = ["review", "active", "archived"] as const;
 
 export default async function Page({ params }: { params: { orgId: string; projectId: string } }) {
   const { orgId, projectId } = params;
@@ -29,6 +36,22 @@ export default async function Page({ params }: { params: { orgId: string; projec
           <Link href={`${base}/connections`}>Map them in Connections →</Link>
         </div>
       )}
+
+      <form action={registerDocumentAction} className="card animate-in" style={{ padding: 16, marginBottom: 16 }}>
+        <input type="hidden" name="orgId" value={orgId} />
+        <input type="hidden" name="projectId" value={projectId} />
+        <div className="title" style={{ marginBottom: 8 }}>Register a document</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            name="url"
+            className="input"
+            placeholder="Paste a Notion page or Google Doc URL"
+            style={{ flex: 1, minWidth: 280 }}
+            required
+          />
+          <button className="btn primary">Register</button>
+        </div>
+      </form>
 
       {docs.length === 0 ? (
         <EmptyState icon={<IconDoc />} title="No documents yet">
@@ -71,7 +94,17 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <StatusPill status={d.state} />
                   </span>
                 ) : (
-                  <StatusPill status={d.state} />
+                  <form className="inline" action={setDocumentStateAction}>
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="projectId" value={projectId} />
+                    <input type="hidden" name="docId" value={d.id} />
+                    <select name="state" className="input" defaultValue={d.state} style={{ maxWidth: 120 }}>
+                      {NATIVE_STATES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <button className="btn">Set</button>
+                  </form>
                 )}
                 {d.url && (
                   <a href={d.url} target="_blank" rel="noreferrer" className="btn ghost">
@@ -84,6 +117,18 @@ export default async function Page({ params }: { params: { orgId: string; projec
                   <input type="hidden" name="docId" value={d.id} />
                   <button className="btn ghost">Re-sync</button>
                 </form>
+                <details className="collapse">
+                  <summary>Unregister</summary>
+                  <form action={unregisterDocumentAction} style={{ marginTop: 8 }}>
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="projectId" value={projectId} />
+                    <input type="hidden" name="docId" value={d.id} />
+                    <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+                      Unregister removes the document and retires its constraints (kept in history).
+                    </p>
+                    <button className="btn">Remove document</button>
+                  </form>
+                </details>
               </div>
             ))}
           </div>

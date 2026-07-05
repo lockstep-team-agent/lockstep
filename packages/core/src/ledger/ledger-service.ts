@@ -352,7 +352,7 @@ export async function ackDecision(
 const STOPWORDS = new Set(["the", "a", "an", "is", "are", "to", "of", "and", "or", "for", "with", "we", "our", "be", "on", "in"]);
 
 /** Cheap lexical similarity (Jaccard over content words) — the v1 dedup/fusion signal (no embeddings yet). */
-function similar(a: string, b: string): number {
+export function similar(a: string, b: string): number {
   const toks = (s: string) =>
     new Set(
       s
@@ -1665,6 +1665,15 @@ export async function reconcile(
   violations: string[];
   staleDependents: Array<{ surface: string; consumers: string[] }>;
   confirmedGovernsEdges: Array<{ surface: string; capabilityRef: string }>;
+  openConflicts: Array<{
+    conflictId: string;
+    surface: string;
+    kind: string;
+    constraintRuleText: string;
+    engRuleText: string;
+    docTitle: string | null;
+    docUrl: string | null;
+  }>;
 }> {
   return withOrg(orgId, async (tx) => {
     const violations: string[] = [];
@@ -1695,11 +1704,39 @@ export async function reconcile(
       // capability's constraints — scan for drift that bind-time detection couldn't have seen.
       await openDriftForConfirmedCapabilityTx(tx, orgId, projectId, ref);
     }
+    // v3 enforcement (FR-PR-1): open conflicts on the changed surfaces — the PR gate warns/blocks on
+    // these. Computed after the confirm loop so drift opened by this very reconcile is included.
+    const openConflicts: Array<{ conflictId: string; surface: string; kind: string; constraintRuleText: string; engRuleText: string; docTitle: string | null; docUrl: string | null }> = [];
+    if (contractSurfaces.length > 0) {
+      const rows = await tx
+        .select()
+        .from(conflicts)
+        .where(and(eq(conflicts.projectId, projectId), eq(conflicts.status, "open"), inArray(conflicts.surface, contractSurfaces)));
+      for (const k of rows) {
+        const detail = await constraintDetailTx(tx, (await tx.select().from(decisions).where(eq(decisions.id, k.constraintDecisionId)).limit(1))[0]!);
+        let engRuleText = "";
+        if (k.engDecisionId) {
+          const ed = (await tx.select().from(decisions).where(eq(decisions.id, k.engDecisionId)).limit(1))[0];
+          const ev = ed ? (await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, ed.id), eq(decisionVersions.version, ed.currentVersion))).limit(1))[0] : undefined;
+          engRuleText = ev?.ruleText ?? "";
+        }
+        openConflicts.push({
+          conflictId: k.id,
+          surface: k.surface,
+          kind: k.kind,
+          constraintRuleText: detail?.ruleText ?? "",
+          engRuleText,
+          docTitle: detail?.docTitle ?? null,
+          docUrl: detail?.docUrl ?? null,
+        });
+      }
+    }
     return {
       ok: violations.length === 0,
       violations,
       staleDependents,
       confirmedGovernsEdges: confirmed.map((c) => ({ surface: c.surface, capabilityRef: c.capabilityRef })),
+      openConflicts,
     };
   });
 }

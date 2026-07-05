@@ -1,4 +1,4 @@
-import { and, eq, like } from "drizzle-orm";
+import { and, eq, like, inArray } from "drizzle-orm";
 import { withOrg, withSystem, type Tx } from "../db/rls.js";
 import {
   sourceDocuments,
@@ -15,7 +15,7 @@ import {
   projects,
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
-import { fileProposedDecision, reproposeDocConstraint } from "../ledger/ledger-service.js";
+import { fileProposedDecision, reproposeDocConstraint, similar } from "../ledger/ledger-service.js";
 import { getProjectRoleTx } from "../auth/permissions.js";
 import { reconcileCandidateTx, type DocForReconcile } from "./reconcile-service.js";
 
@@ -38,6 +38,15 @@ export function productLayerEnabled(settings: unknown): boolean {
   return Boolean(s?.productLayer?.enabled);
 }
 
+/** GDocs support is a per-project sub-flag of the product layer (default off). */
+export function gdocsEnabled(settings: unknown): boolean {
+  const s = settings as { productLayer?: { gdocs?: boolean } } | null;
+  return Boolean(s?.productLayer?.gdocs);
+}
+
+/** Min interval between GDocs re-fetches (revision-watch debounce, FR-ING-6). Default 600s. */
+const GDOCS_DEBOUNCE_MS = (Number(process.env.LOCKSTEP_GDOCS_DEBOUNCE) || 600) * 1000;
+
 /**
  * Notion page ids appear as dashed UUIDs (API) and bare 32-hex tails (page URLs). Normalize both to
  * the dashed form so a URL-registered page and the same page seen by the sweep are one document.
@@ -48,6 +57,27 @@ export function parseNotionPageId(urlOrId: string): string | null {
   const h = urlOrId.replace(/[?#].*$/, "").match(/([0-9a-f]{32})(?:$|\/)/i)?.[1]?.toLowerCase();
   if (!h) return null;
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** Google Docs file id from a docs.google.com/document/d/<id>/… URL (or a bare Drive file id). */
+export function parseGDocsFileId(urlOrId: string): string | null {
+  const m = urlOrId.match(/docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]{20,})/)?.[1];
+  if (m) return m;
+  // A bare Drive file id (no dashes/dots, ≥25 chars) — distinct from a Notion 32-hex tail.
+  if (/^[a-zA-Z0-9_-]{25,}$/.test(urlOrId.trim()) && !/^[0-9a-f]{32}$/i.test(urlOrId.trim())) return urlOrId.trim();
+  return null;
+}
+
+/** Detect the source tool + external id from a pasted registration URL. */
+export function detectDocTool(url: string): { tool: "notion" | "gdocs"; externalId: string } | null {
+  if (/docs\.google\.com/.test(url)) {
+    const id = parseGDocsFileId(url);
+    return id ? { tool: "gdocs", externalId: id } : null;
+  }
+  const notion = parseNotionPageId(url);
+  if (notion) return { tool: "notion", externalId: notion };
+  const gdoc = parseGDocsFileId(url);
+  return gdoc ? { tool: "gdocs", externalId: gdoc } : null;
 }
 
 /** Notion deep link to a block: page url + #<block id without dashes>. */
@@ -68,15 +98,16 @@ export async function registerDocument(
   orgId: string,
   input: { projectId: string; memberId: string; url: string },
 ): Promise<{ documentId: string; externalId: string; state: string }> {
-  const externalId = parseNotionPageId(input.url);
-  if (!externalId) throw Object.assign(new Error("could not parse a Notion page id from url"), { statusCode: 400 });
+  const detected = detectDocTool(input.url);
+  if (!detected) throw Object.assign(new Error("could not parse a Notion page or Google Docs id from url"), { statusCode: 400 });
+  const { tool, externalId } = detected;
   return withOrg(orgId, async (tx) => {
-    // Attach the project's Notion connection when one exists so content can be fetched.
+    // Attach the project's connection for that tool when one exists so content can be fetched.
     const conn = (
       await tx
         .select()
         .from(sourceConnections)
-        .where(and(eq(sourceConnections.projectId, input.projectId), eq(sourceConnections.tool, "notion")))
+        .where(and(eq(sourceConnections.projectId, input.projectId), eq(sourceConnections.tool, tool)))
         .limit(1)
     )[0];
     const existing = (
@@ -94,7 +125,7 @@ export async function registerDocument(
           orgId,
           projectId: input.projectId,
           connectionId: conn?.id ?? null,
-          tool: "notion",
+          tool,
           externalId,
           url: input.url,
           state: "review",
@@ -110,7 +141,7 @@ export async function registerDocument(
       action: "document.registered",
       entityKind: "document",
       entityId: d.id,
-      payload: { externalId, stateAuthority: "native" },
+      payload: { externalId, tool, stateAuthority: "native" },
     });
     return { documentId: d.id, externalId, state: d.state };
   });
@@ -176,11 +207,34 @@ export async function requestResync(orgId: string, docId: string, memberId: stri
   });
 }
 
+/**
+ * Unregister a document — the escape hatch (§21). Its live constraints go `stale`, open conflicts
+ * auto-dismiss, and the source row is removed so it stops being swept. Constraints stay in history.
+ */
+export async function unregisterDocument(orgId: string, docId: string, memberId: string): Promise<{ ok: boolean }> {
+  return withOrg(orgId, async (tx) => {
+    const doc = (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
+    if (!doc) throw notFound("document");
+    await staleConstraintsTx(tx, orgId, doc);
+    await tx.delete(sourceDocuments).where(eq(sourceDocuments.id, docId));
+    await writeAudit(tx, {
+      orgId,
+      projectId: doc.projectId,
+      actorMemberId: memberId,
+      action: "document.unregistered",
+      entityKind: "document",
+      entityId: docId,
+      payload: { externalId: doc.externalId, tool: doc.tool },
+    });
+    return { ok: true };
+  });
+}
+
 /** Archiving a doc retires its constraints: binding/proposed → stale, open conflicts auto-dismiss. */
 async function staleConstraintsTx(
   tx: Tx,
   orgId: string,
-  doc: { id: string; projectId: string; connectionId: string | null; externalId: string },
+  doc: { id: string; projectId: string; connectionId: string | null; externalId: string; tool: string },
 ): Promise<void> {
   const rows = await constraintsForDocTx(tx, doc);
   for (const r of rows) {
@@ -204,7 +258,8 @@ export interface DocWorkItem {
   connectedAccountId: string | null;
   containers: Array<{ containerRef: string; containerName: string | null; statusProperty: string | null }>;
   // Native/standalone docs (registered by URL, not living in a swept database) that need extraction.
-  docs: Array<{ docId: string; externalId: string; state: string; knownSectionHashes: string[] }>;
+  // `tool` lets the worker pick the connector per doc (notion vs gdocs).
+  docs: Array<{ docId: string; externalId: string; tool: string; state: string; knownSectionHashes: string[] }>;
 }
 
 /**
@@ -217,11 +272,12 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
     const conns = await tx
       .select()
       .from(sourceConnections)
-      .where(and(eq(sourceConnections.status, "active"), eq(sourceConnections.tool, "notion")));
+      .where(and(eq(sourceConnections.status, "active"), inArray(sourceConnections.tool, ["notion", "gdocs"])));
     const items: DocWorkItem[] = [];
     for (const c of conns) {
       const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
       if (!proj || !productLayerEnabled(proj.settings)) continue;
+      if (c.tool === "gdocs" && !gdocsEnabled(proj.settings)) continue; // gdocs behind its own sub-flag
       const allow = await tx
         .select()
         .from(ingestAllowlist)
@@ -237,21 +293,31 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
         .from(documentStateMappings)
         .where(eq(documentStateMappings.connectionId, c.id));
       const mapFor = (ref: string) => mappings.find((m) => m.containerRef === ref);
-      // Standalone (native) docs of this project that are extractable and pending work.
+      // Standalone (native) docs served by THIS connection (scoped by connectionId so a gdocs doc
+      // rides the gdocs connection's work item — the sweep picks the connector per doc.tool).
       const standalone = await tx
         .select()
         .from(sourceDocuments)
-        .where(and(eq(sourceDocuments.projectId, c.projectId), eq(sourceDocuments.stateAuthority, "native")));
+        .where(and(eq(sourceDocuments.connectionId, c.id), eq(sourceDocuments.stateAuthority, "native")));
       const docs: DocWorkItem["docs"] = [];
+      const now = Date.now();
       for (const d of standalone) {
         if (d.state !== "review" && d.state !== "active") continue;
-        if (!d.forceResync && d.lastExtractedAt) continue; // re-extraction of native docs is resync-driven in Phase A
+        if (d.tool === "gdocs") {
+          // GDocs re-fetch on each window (per-section hashes skip unchanged), bounded by the debounce.
+          if (!d.forceResync && d.lastSweptAt && now - d.lastSweptAt.getTime() < GDOCS_DEBOUNCE_MS) continue;
+        } else if (!d.forceResync && d.lastExtractedAt) {
+          continue; // Notion native docs are resync-driven (Phase A)
+        }
         docs.push({
           docId: d.id,
           externalId: d.externalId,
+          tool: d.tool,
           state: d.state,
           knownSectionHashes: await sectionHashesTx(tx, d),
         });
+        // Claim it for this window so the debounce holds even if extraction yields nothing.
+        if (d.tool === "gdocs") await tx.update(sourceDocuments).set({ lastSweptAt: new Date() }).where(eq(sourceDocuments.id, d.id));
       }
       if (allow.length === 0 && docs.length === 0) continue;
       items.push({
@@ -499,12 +565,19 @@ export interface DocCandidateItem {
  * File extracted constraints for a doc: proposed decisions (origin=document, idempotent per section
  * content hash) → pre-approval reconciliation per fresh filing → digest if the doc is already active.
  */
+export interface CurrentSection {
+  anchorKey: string;
+  headingPath: string[];
+  snippet: string;
+}
+
 export async function fileDocCandidates(
   docId: string,
   items: DocCandidateItem[],
   docContentHash?: string,
   extractedAnchorKeys?: string[],
-): Promise<{ filed: number; fused: number; deduped: number; reversioned: number; staled: number; conflicts: number }> {
+  currentSections?: CurrentSection[],
+): Promise<{ filed: number; fused: number; deduped: number; reversioned: number; staled: number; conflicts: number; reverified: number }> {
   const doc = await withSystem(async (tx) => {
     return (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
   });
@@ -650,17 +723,80 @@ export async function fileDocCandidates(
     });
   }
 
+  // Anchor relocation (D3): re-verify each live constraint's anchor against the freshly-fetched
+  // sections. A block that vanished (Notion) or a snippet that can't be relocated (GDocs) flips to
+  // `reverify` — never a silent re-point. Only runs when the worker supplied the current sections.
+  let reverified = 0;
+  if (currentSections && currentSections.length > 0) {
+    reverified = await withOrg(doc.orgId, (tx) => relocateAnchorsTx(tx, doc, currentSections));
+  }
+
   await withSystem(async (tx) => {
     await tx
       .update(sourceDocuments)
-      .set({ contentHash: docContentHash ?? doc.contentHash, lastExtractedAt: new Date() })
+      .set({ contentHash: docContentHash ?? doc.contentHash, lastExtractedAt: new Date(), lastSweptAt: new Date() })
       .where(eq(sourceDocuments.id, docId));
     // Doc already active (native flip or PRD edited post-approval): follow-up digest for new/amended items.
     if (doc.state === "active" && freshDigestible + reversioned > 0) {
       await enqueueDigestTx(tx, doc.orgId, { ...doc, contentHash: docContentHash ?? doc.contentHash });
     }
   });
-  return { filed, fused, deduped, reversioned, staled, conflicts: opened };
+  return { filed, fused, deduped, reversioned, staled, conflicts: opened, reverified };
+}
+
+/** Whitespace-normalized lowercase — the first fuzzy-relocation rung. */
+function norm(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Relocate each of a doc's live constraint anchors against the current section list and update
+ * `anchorStatus`. Notion: valid iff the heading block id still exists. GDocs (`gdoc_fuzzy`): locate
+ * the stored snippet — exact/normalized/≥0.8-Jaccard within the heading's section; on a confident
+ * match re-point the heading path only (never the snippet); on failure → `reverify`, anchor untouched.
+ * Returns how many flipped to reverify.
+ */
+async function relocateAnchorsTx(tx: Tx, doc: typeof sourceDocuments.$inferSelect, sections: CurrentSection[]): Promise<number> {
+  const rows = await constraintsForDocTx(tx, doc);
+  const anchorKeys = new Set(sections.map((s) => s.anchorKey));
+  let reverified = 0;
+  for (const r of rows) {
+    if (r.decision.status === "rejected" || r.decision.status === "stale" || r.decision.status === "superseded") continue;
+    const prov = r.provRow;
+    const anchor = prov?.anchor as { type?: string; blockId?: string; snippet?: string; headingPath?: string[] } | null;
+    if (!prov || !anchor) continue;
+
+    let located: CurrentSection | null = null;
+    if (anchor.type === "gdoc_fuzzy") {
+      const target = norm(anchor.snippet ?? "");
+      if (target) {
+        // exact/normalized containment first, then Jaccard ≥0.8 (prefer same heading path).
+        located =
+          sections.find((s) => norm(s.snippet).includes(target) || target.includes(norm(s.snippet))) ??
+          sections
+            .map((s) => ({ s, score: similar(anchor.snippet ?? "", s.snippet) }))
+            .filter((x) => x.score >= 0.8)
+            .sort((a, b) => b.score - a.score)[0]?.s ??
+          null;
+      }
+    } else {
+      // notion_block (or any stable-id anchor): valid iff the block/section still exists.
+      located = anchor.blockId && anchorKeys.has(anchor.blockId) ? sections.find((s) => s.anchorKey === anchor.blockId) ?? null : null;
+    }
+
+    const nextStatus = located ? "valid" : "reverify";
+    const patch: Record<string, unknown> = {};
+    if (prov.anchorStatus !== nextStatus) patch.anchorStatus = nextStatus;
+    // Re-point the HEADING PATH only on a confident GDocs match (the snippet is never rewritten).
+    if (located && anchor.type === "gdoc_fuzzy" && JSON.stringify(located.headingPath) !== JSON.stringify(anchor.headingPath ?? [])) {
+      patch.anchor = { ...anchor, headingPath: located.headingPath };
+    }
+    if (Object.keys(patch).length > 0) {
+      await tx.update(decisionProvenances).set(patch).where(eq(decisionProvenances.id, prov.id));
+    }
+    if (nextStatus === "reverify" && prov.anchorStatus !== "reverify") reverified++;
+  }
+  return reverified;
 }
 
 /* ───────────────────────────── Constraints & digest ───────────────────────────── */
@@ -675,7 +811,7 @@ interface ConstraintRow {
 /** All constraints filed from a doc (via the per-section idempotency artifacts). */
 async function constraintsForDocTx(
   tx: Tx,
-  doc: { id: string; connectionId: string | null; externalId: string },
+  doc: { id: string; connectionId: string | null; externalId: string; tool: string },
 ): Promise<ConstraintRow[]> {
   const artifacts = await tx
     .select()
@@ -702,7 +838,7 @@ async function constraintsForDocTx(
       await tx
         .select()
         .from(decisionProvenances)
-        .where(and(eq(decisionProvenances.decisionId, id), eq(decisionProvenances.source, "notion")))
+        .where(and(eq(decisionProvenances.decisionId, id), eq(decisionProvenances.source, doc.tool)))
         .limit(1)
     )[0];
     out.push({

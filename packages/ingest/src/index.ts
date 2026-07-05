@@ -2,6 +2,7 @@
 import { LockstepClient } from "./client.js";
 import { StubConnector } from "./connectors/StubConnector.js";
 import { ComposioConnector, type Tool } from "./connectors/ComposioConnector.js";
+import { GDocsConnector } from "./connectors/GDocsConnector.js";
 import { NangoConnector } from "./connectors/NangoConnector.js";
 import type { DocumentConnector, SourceConnector } from "./connectors/SourceConnector.js";
 import { runFunnel } from "./funnel.js";
@@ -140,8 +141,9 @@ async function docSweepOnce(
     }
     const connector: DocumentConnector = opts.useStub ? new StubConnector() : composio(w.entity, w.tool as Tool);
     console.log(`[docs] connection ${w.connectionId} (${w.tool}) — ${w.containers.length} container(s), ${w.docs.length} native doc(s)`);
-    // What to extract: directives from each container sweep, plus core's standalone/native docs.
-    const targets: Array<{ docId: string; externalId: string; title: string; url: string | null; knownSectionHashes: string[] }> = [];
+    // What to extract: directives from each container sweep, plus core's standalone/native docs. `tool`
+    // rides on each target so a native GDocs doc gets a GDocsConnector while mirrored containers stay Notion.
+    const targets: Array<{ docId: string; externalId: string; title: string; url: string | null; knownSectionHashes: string[]; tool: string }> = [];
     for (const c of w.containers) {
       const metas = await connector.listDocuments(c.containerRef, c.statusProperty);
       const metaByExt = new Map(metas.map((m) => [m.externalId, m]));
@@ -164,22 +166,36 @@ async function docSweepOnce(
           title: meta?.title ?? d.externalId,
           url: meta?.url ?? null,
           knownSectionHashes: d.knownSectionHashes,
+          tool: w.tool, // mirrored container docs stay on the connection's (Notion) tool
         });
       }
     }
     for (const d of w.docs) {
-      targets.push({ docId: d.docId, externalId: d.externalId, title: d.externalId, url: null, knownSectionHashes: d.knownSectionHashes });
+      targets.push({
+        docId: d.docId,
+        externalId: d.externalId,
+        title: d.externalId,
+        url: null,
+        knownSectionHashes: d.knownSectionHashes,
+        tool: d.tool ?? w.tool,
+      });
     }
     for (const t of targets) {
-      const { items, stats, docContentHash, extractedAnchorKeys } = await runDocFunnel({
-        connector,
+      // GDocs is a separate, native-registered doc source; every other tool routes through the connection's
+      // Composio connector. In stub mode all targets share the one StubConnector (assertable, no network).
+      const isGdocs = t.tool === "gdocs";
+      const targetConnector: DocumentConnector =
+        !opts.useStub && isGdocs ? new GDocsConnector(env("COMPOSIO_API_KEY", true), w.entity) : connector;
+      const { items, stats, docContentHash, extractedAnchorKeys, currentSections } = await runDocFunnel({
+        connector: targetConnector,
         doc: { externalId: t.externalId, title: t.title, url: t.url },
         knownSectionHashes: t.knownSectionHashes,
+        anchorType: isGdocs ? "gdoc_fuzzy" : "notion_block",
         useHaiku: opts.useHaiku,
         batch: opts.batch,
         log: (m) => console.log(m),
       });
-      const res = await ls.postDocCandidates(t.docId, items, docContentHash, extractedAnchorKeys);
+      const res = await ls.postDocCandidates(t.docId, items, docContentHash, extractedAnchorKeys, currentSections);
       console.log(
         `[docs] doc ${t.title}: sections=${stats.sections} skipped=${stats.skipped} proposed=${stats.proposed} ` +
           `low=${stats.lowConfidence} → filed=${res.filed} reversioned=${res.reversioned} staled=${res.staled} conflicts=${res.conflicts}`,
@@ -189,8 +205,13 @@ async function docSweepOnce(
   // Drain queued write-backs. In stub mode everything routes to one StubConnector (assertable, no network).
   const stubConnector = opts.useStub ? new StubConnector() : null;
   const { posted, failed } = await drainWritebacks(ls, {
-    connectorFor: (row) =>
-      stubConnector ?? (row.connection?.connectedAccountId ? composio(row.connection.entity, row.connection.tool as Tool) : null),
+    connectorFor: (row) => {
+      if (stubConnector) return stubConnector;
+      if (!row.connection?.connectedAccountId) return null;
+      return row.connection.tool === "gdocs"
+        ? new GDocsConnector(env("COMPOSIO_API_KEY", true), row.connection.entity)
+        : composio(row.connection.entity, row.connection.tool as Tool);
+    },
     slackBotToken: env("SLACK_BOT_TOKEN") || undefined,
     log: (m) => console.log(m),
   });

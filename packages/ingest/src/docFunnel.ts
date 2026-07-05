@@ -29,7 +29,7 @@ export interface ProposedDocItem {
   confidence: number; // 0..100
   externalId: string; // `${docExternalId}#${anchorKey}` — idempotency key with contentHash
   contentHash: string; // sha256 of the raw section text
-  anchor: { type: "notion_block"; pageId: string; blockId: string; headingPath: string[]; snippet: string };
+  anchor: { type: "notion_block" | "gdoc_fuzzy"; pageId: string; blockId: string; headingPath: string[]; snippet: string };
   evidence: Array<{ externalId: string; quote: string }>;
   rationale: string;
   // Canonicalized surface candidates the extraction named — seed PROPOSED capability→surface governs
@@ -45,6 +45,9 @@ export interface DocFunnelResult {
   /** Anchor keys of sections re-visited this run (changed since last extraction) — lets core stale
    *  constraints whose section changed but no longer yields them (F10 re-extraction diff). */
   extractedAnchorKeys: string[];
+  /** ALL sections seen this run (hash-skipped included) — lets core relocate anchors against the live
+   *  doc (fuzzy re-verification via snippet for gdoc_fuzzy anchors whose synthetic key may have shifted). */
+  currentSections: Array<{ anchorKey: string; headingPath: string[]; snippet: string }>;
 }
 
 /** Sections whose heading can never yield a constraint — dropped before any LLM spend (A-4). */
@@ -68,6 +71,8 @@ export async function runDocFunnel(opts: {
   knownSectionHashes?: string[];
   useHaiku?: boolean;
   batch?: boolean;
+  /** Anchor addressing scheme for this doc's source — Notion block ids vs. GDocs synthetic keys (D-phase). */
+  anchorType?: "notion_block" | "gdoc_fuzzy";
   log?: (msg: string) => void;
   now?: Date;
   // Injectable for tests — default to the real connector/Haiku/Sonnet stages.
@@ -80,6 +85,7 @@ export async function runDocFunnel(opts: {
   const now = opts.now ?? new Date();
   const capabilityRef = opts.capabilityRef ?? capabilitySlug(opts.doc.title);
   const known = new Set(opts.knownSectionHashes ?? []);
+  const anchorType = opts.anchorType ?? "notion_block";
   const recall = opts.recallFn ?? defaultRecallDoc;
   const extract = opts.extractFn ?? defaultExtractDoc;
   const batchExtract = opts.batchExtractFn ?? extractDocBatch;
@@ -160,7 +166,7 @@ export async function runDocFunnel(opts: {
       externalId,
       contentHash: s.hash,
       anchor: {
-        type: "notion_block",
+        type: anchorType,
         pageId: opts.doc.externalId,
         blockId: s.section.anchorKey,
         headingPath: s.section.headingPath,
@@ -174,5 +180,10 @@ export async function runDocFunnel(opts: {
     else stats.proposed++;
     log(`    ${action === "propose" ? "✓ proposed" : "~ low-confidence"} [${scope.scopeRef}] ${x.rule_text.slice(0, 80)}`);
   }
-  return { items, stats, docContentHash: sha256(sectionHashes.join("\n")), extractedAnchorKeys };
+  const currentSections = sections.map((s) => ({
+    anchorKey: s.anchorKey,
+    headingPath: s.headingPath,
+    snippet: s.snippet,
+  }));
+  return { items, stats, docContentHash: sha256(sectionHashes.join("\n")), extractedAnchorKeys, currentSections };
 }

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { runDocFunnel } from "./docFunnel.js";
+import { slug } from "./connectors/GDocsConnector.js";
 import type { DocumentConnector, DocMeta, DocSection } from "./connectors/SourceConnector.js";
 import type { DocExtraction } from "./distill/rubric-doc.js";
 
@@ -199,4 +200,56 @@ test("runDocFunnel: batch mode uses the injected batch extractor; missing result
   assert.equal(res.items.length, 1);
   assert.equal(res.items[0]!.externalId, "prd-142#blk-c1");
   assert.equal(res.stats.discarded, 1);
+});
+
+test("runDocFunnel: anchorType defaults to notion_block; gdoc_fuzzy stamps the emitted anchor", async () => {
+  const s = section("checkout>c-1", ["Checkout", "C-1"], "Guests must check out without an account.");
+  const dflt = await runDocFunnel({
+    connector: new FakeDocConnector([s]),
+    doc,
+    recallFn: async () => true,
+    extractFn: async (k) => docx({ anchor_key: k }),
+  });
+  assert.equal(dflt.items[0]!.anchor.type, "notion_block", "unset anchorType ⇒ notion_block");
+
+  const gdoc = await runDocFunnel({
+    connector: new FakeDocConnector([s]),
+    doc,
+    anchorType: "gdoc_fuzzy",
+    recallFn: async () => true,
+    extractFn: async (k) => docx({ anchor_key: k }),
+  });
+  assert.equal(gdoc.items[0]!.anchor.type, "gdoc_fuzzy");
+  assert.equal(gdoc.items[0]!.anchor.pageId, "prd-142", "pageId stays the doc externalId");
+  assert.equal(gdoc.items[0]!.anchor.blockId, "checkout>c-1", "blockId stays the section anchorKey");
+});
+
+test("runDocFunnel: currentSections returns EVERY section seen (incl. hash-skipped) for anchor relocation", async () => {
+  const kept = section("checkout>c-1", ["Checkout", "C-1"], "Guests must check out without an account.");
+  const skipped = section("checkout>c-2", ["Checkout", "C-2"], "The flow must not present an OTP.");
+  const res = await runDocFunnel({
+    connector: new FakeDocConnector([kept, skipped]),
+    doc,
+    anchorType: "gdoc_fuzzy",
+    knownSectionHashes: [sha256(skipped.text)], // c-2 is unchanged → hash-skipped, never extracted
+    recallFn: async () => true,
+    extractFn: async (k) => docx({ anchor_key: k }),
+  });
+  assert.equal(res.items.length, 1, "only the changed section yields a candidate");
+  assert.equal(res.stats.skipped, 1);
+  // …but currentSections must still carry the skipped section so core can relocate its anchor.
+  assert.deepEqual(res.currentSections.map((s) => s.anchorKey).sort(), ["checkout>c-1", "checkout>c-2"]);
+  const skippedCur = res.currentSections.find((s) => s.anchorKey === "checkout>c-2")!;
+  assert.deepEqual(skippedCur.headingPath, ["Checkout", "C-2"]);
+  assert.equal(skippedCur.snippet, skipped.snippet);
+});
+
+test("slug: heading path → a stable lowercase alnum key (same path ⇒ same key)", () => {
+  assert.equal(
+    slug("Requirements>Guest flow>C-1 Account-free checkout"),
+    "requirements-guest-flow-c-1-account-free-checkout",
+  );
+  assert.equal(slug("  Launch Criteria!!  "), "launch-criteria", "trims leading/trailing separators");
+  assert.equal(slug(""), "");
+  assert.equal(slug("A>B"), slug("A>B"), "deterministic — the anchor stability guarantee");
 });

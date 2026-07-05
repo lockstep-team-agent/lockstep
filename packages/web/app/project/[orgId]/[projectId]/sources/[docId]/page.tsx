@@ -2,9 +2,15 @@ import Link from "next/link";
 import { getDocument, timeAgo, constraintKindLabel } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconDoc } from "@/components/icons";
-import { resyncDocumentAction } from "@/actions";
+import {
+  resyncDocumentAction,
+  setDocumentStateAction,
+  unregisterDocumentAction,
+} from "@/actions";
 
 export const dynamic = "force-dynamic";
+
+const NATIVE_STATES = ["review", "active", "archived"] as const;
 
 export default async function Page({
   params,
@@ -69,7 +75,17 @@ export default async function Page({
                 <StatusPill status={doc.state} />
               </span>
             ) : (
-              <StatusPill status={doc.state} />
+              <form className="inline" action={setDocumentStateAction}>
+                <input type="hidden" name="orgId" value={orgId} />
+                <input type="hidden" name="projectId" value={projectId} />
+                <input type="hidden" name="docId" value={doc.id} />
+                <select name="state" className="input" defaultValue={doc.state} style={{ maxWidth: 120 }}>
+                  {NATIVE_STATES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button className="btn">Set</button>
+              </form>
             )}
             {doc.url && (
               <a href={doc.url} target="_blank" rel="noreferrer" className="btn ghost">
@@ -82,6 +98,18 @@ export default async function Page({
               <input type="hidden" name="docId" value={doc.id} />
               <button className="btn ghost">Re-sync</button>
             </form>
+            <details className="collapse">
+              <summary>Unregister</summary>
+              <form action={unregisterDocumentAction} style={{ marginTop: 8 }}>
+                <input type="hidden" name="orgId" value={orgId} />
+                <input type="hidden" name="projectId" value={projectId} />
+                <input type="hidden" name="docId" value={doc.id} />
+                <p style={{ color: "var(--muted)", margin: "0 0 8px" }}>
+                  Unregister removes the document and retires its constraints (kept in history).
+                </p>
+                <button className="btn">Remove document</button>
+              </form>
+            </details>
           </div>
         </div>
       </div>

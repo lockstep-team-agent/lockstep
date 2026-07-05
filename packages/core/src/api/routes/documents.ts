@@ -11,6 +11,7 @@ import {
   getDocument,
   setDocumentState,
   requestResync,
+  unregisterDocument,
   getDocumentWork,
   upsertDocumentsFromSweep,
   fileDocCandidates,
@@ -49,9 +50,14 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   app.post("/internal/documents/:id/candidates", async (req, reply) => {
     if (!workerAuthed(req, reply)) return;
     const { id } = req.params as { id: string };
-    const b = req.body as { items?: DocCandidateItem[]; docContentHash?: string; extractedAnchorKeys?: string[] };
+    const b = req.body as {
+      items?: DocCandidateItem[];
+      docContentHash?: string;
+      extractedAnchorKeys?: string[];
+      currentSections?: Array<{ anchorKey: string; headingPath: string[]; snippet: string }>;
+    };
     if (!Array.isArray(b?.items)) return reply.code(400).send({ error: "items[] required" });
-    return fileDocCandidates(id, b.items, b.docContentHash, b.extractedAnchorKeys);
+    return fileDocCandidates(id, b.items, b.docContentHash, b.extractedAnchorKeys, b.currentSections);
   });
 
   app.get("/internal/writebacks/pending", async (req, reply) => {
@@ -107,6 +113,13 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
     return requestResync(orgId, docId, memberId);
+  });
+
+  app.delete("/orgs/:orgId/projects/:projectId/documents/:docId", async (req, reply) => {
+    const { orgId, docId } = req.params as { orgId: string; projectId: string; docId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    return unregisterDocument(orgId, docId, memberId);
   });
 
   /* ─── Ratifications queue ─── */

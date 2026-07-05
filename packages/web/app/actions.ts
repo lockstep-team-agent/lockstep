@@ -2,7 +2,7 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { apiPost } from "./lib/api";
+import { apiPost, apiDelete } from "./lib/api";
 
 export async function loginAction(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
@@ -112,6 +112,32 @@ export async function ratifyDecisionAction(formData: FormData): Promise<void> {
   const edited = ruleText.trim() !== "" && ruleText !== originalRuleText;
   await apiPost(`/orgs/${orgId}/decisions/${id}/ratify`, edited ? { ruleText } : {});
   revalidatePath(`/project/${orgId}/${projectId}/review-queue`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+}
+
+export async function registerDocumentAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const url = String(formData.get("url") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/documents`, { url });
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+}
+
+export async function setDocumentStateAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const docId = String(formData.get("docId") ?? "");
+  const state = String(formData.get("state") ?? "");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/documents/${docId}/state`, { state });
+  revalidatePath(`/project/${orgId}/${projectId}/sources`);
+  revalidatePath(`/project/${orgId}/${projectId}/sources/${docId}`);
+}
+
+export async function unregisterDocumentAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const docId = String(formData.get("docId") ?? "");
+  await apiDelete(`/orgs/${orgId}/projects/${projectId}/documents/${docId}`);
   revalidatePath(`/project/${orgId}/${projectId}/sources`);
 }
 

@@ -1,19 +1,23 @@
 /**
  * Tier-2 enforcement gate. On a PR:
  *   1. compute changed files (base...head)
- *   2. classify contract surfaces (same heuristic as Tier-1 capture)
+ *   2. canonicalize each changed contract file to the ledger's surface refs (vendored surface.mjs)
  *   3. register a session for this repo, call /reconcile
- *   4. fail the check if any changed contract surface has no binding decision;
- *      comment stale dependents.
+ *   4. FAIL if a changed contract surface has no binding decision (existing rule);
+ *      WARN (default) or FAIL (block-on-conflict) if a changed surface has an OPEN product-constraint
+ *      conflict; surface everything as GitHub annotations, and optionally a PR comment.
  *
- * Auth: a Lockstep CI token (input `token`). Production also supports GitHub OIDC exchange.
- * Relies on branch protection / required PRs to be airtight (a direct push skips CI).
+ * Auth: a Lockstep CI token (input `token`). An optional `github-token` enables a PR comment.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { extractSurfaces, isContractSurface } from "./surface.mjs";
 
 const API = process.env.INPUT_API_URL || process.env.LOCKSTEP_API_URL;
 const TOKEN = process.env.INPUT_TOKEN || process.env.LOCKSTEP_CI_TOKEN;
 const BASE = process.env.GITHUB_BASE_REF || "main";
+const BLOCK_ON_CONFLICT = /^(true|1|yes)$/i.test(process.env.INPUT_BLOCK_ON_CONFLICT || "");
+const GH_TOKEN = process.env.INPUT_GITHUB_TOKEN || "";
 
 function sh(args) {
   try {
@@ -21,12 +25,6 @@ function sh(args) {
   } catch {
     return "";
   }
-}
-function isContractSurface(path) {
-  if (/(openapi|swagger)/i.test(path) && /\.(ya?ml|json)$/i.test(path)) return true;
-  if (/\.(proto|graphql|gql)$/i.test(path)) return true;
-  if (/(^|\/)(routes?|controllers?|api|handlers?|endpoints?|contracts?)(\/|\.)/i.test(path)) return true;
-  return false;
 }
 function normalizeRemote(url) {
   return url
@@ -51,6 +49,38 @@ async function api(method, path, session, body) {
   return text ? JSON.parse(text) : null;
 }
 
+/** GitHub Actions workflow-command annotations (no token/permission needed). */
+const annotate = (level, msg) => console.log(`::${level}::${msg.replace(/\n/g, "%0A")}`);
+
+/** Best-effort PR comment (only when a github-token is supplied + we're on a pull_request event). */
+async function postPrComment(body) {
+  if (!GH_TOKEN) return;
+  const repo = process.env.GITHUB_REPOSITORY;
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!repo || !eventPath) return;
+  let prNumber;
+  try {
+    const ev = JSON.parse(readFileSync(eventPath, "utf8"));
+    prNumber = ev.pull_request?.number ?? ev.number;
+  } catch {
+    return;
+  }
+  if (!prNumber) return;
+  try {
+    await fetch(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${GH_TOKEN}`,
+        accept: "application/vnd.github+json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ body }),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 async function main() {
   if (!API || !TOKEN) {
     console.error("missing api-url / token");
@@ -60,30 +90,68 @@ async function main() {
   const files = sh(["diff", `origin/${BASE}...HEAD`, "--name-only"])
     .split("\n")
     .filter(Boolean);
-  const surfaces = files.filter(isContractSurface);
+
+  // Canonicalize changed contract files → the ledger's surface refs.
+  const surfaceSet = new Set();
+  for (const f of files.filter(isContractSurface)) {
+    let content = "";
+    try {
+      content = readFileSync(f, "utf8");
+    } catch {
+      continue; // deleted/renamed away — nothing to read on this side
+    }
+    for (const s of extractSurfaces(f, content)) surfaceSet.add(s);
+  }
+  const surfaces = [...surfaceSet];
   if (surfaces.length === 0) {
     console.log("Lockstep: no contract surfaces changed — pass.");
     return;
   }
+
   const remote = normalizeRemote(sh(["remote", "get-url", "origin"]));
   const session = (await api("POST", "/sessions/register", undefined, { gitRemote: remote })).sessionId;
   const result = await api("POST", "/reconcile", session, { contractSurfaces: surfaces });
 
   for (const s of result.staleDependents ?? []) {
-    console.log(`⚠ ${s.surface} is consumed by ${s.consumers.length} repo(s) — ensure they're updated.`);
+    annotate("warning", `${s.surface} is consumed by ${s.consumers.length} repo(s) — ensure they're updated.`);
   }
-  // v3: a shipped surface confirms its prospective product-capability mapping.
   for (const e of result.confirmedGovernsEdges ?? []) {
     console.log(`✓ Lockstep: linked ${e.surface} → ${e.capabilityRef}`);
   }
-  if (!result.ok) {
-    console.error(
-      `❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}`,
-    );
-    console.error("   Propose + ack a decision (e.g. via your agent's propose_decision) before merging.");
-    process.exit(1);
+
+  // Product-constraint conflicts on the changed surfaces (v3 drift/pre-approval).
+  const openConflicts = result.openConflicts ?? [];
+  const commentLines = [];
+  for (const c of openConflicts) {
+    const doc = c.docTitle ? ` (${c.docTitle}${c.docUrl ? ` — ${c.docUrl}` : ""})` : "";
+    const msg = `Product constraint conflict on ${c.surface}: "${c.constraintRuleText}"${doc} vs this change's "${c.engRuleText}". Review conflict ${c.conflictId}.`;
+    annotate(BLOCK_ON_CONFLICT ? "error" : "warning", `⚠ Lockstep: ${msg}`);
+    commentLines.push(`- **${c.surface}** — constraint "${c.constraintRuleText}"${doc} vs "${c.engRuleText}" (conflict \`${c.conflictId}\`)`);
   }
-  console.log("✅ Lockstep: all changed contract surfaces have binding decisions.");
+
+  // Missing-binding-decision violations (the existing hard gate).
+  let failed = false;
+  if (!result.ok) {
+    annotate("error", `❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}. Propose + ack a decision before merging.`);
+    failed = true;
+  }
+  if (openConflicts.length > 0) {
+    if (commentLines.length) {
+      await postPrComment(
+        `### ⚠ Lockstep: product-constraint conflict${openConflicts.length === 1 ? "" : "s"} on this PR\n\n` +
+          commentLines.join("\n") +
+          `\n\nResolve in the Lockstep dashboard (Review → Conflicts), or amend the PRD.`,
+      );
+    }
+    if (BLOCK_ON_CONFLICT) failed = true;
+  }
+
+  if (failed) process.exit(1);
+  console.log(
+    openConflicts.length > 0
+      ? `⚠ Lockstep: ${openConflicts.length} product-constraint conflict(s) on changed surfaces (warning; set block-on-conflict to enforce).`
+      : "✅ Lockstep: all changed contract surfaces have binding decisions and no open conflicts.",
+  );
 }
 
 main().catch((e) => {

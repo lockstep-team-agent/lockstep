@@ -20,6 +20,17 @@ export async function apiGet<T = unknown>(path: string): Promise<T | null> {
   return (await res.json()) as T;
 }
 
+export async function apiDelete<T = unknown>(path: string): Promise<T | null> {
+  const t = token();
+  const res = await fetch(`${API}${path}`, {
+    method: "DELETE",
+    headers: t ? { authorization: `Bearer ${t}` } : {},
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as T;
+}
+
 export async function apiPost<T = unknown>(path: string, body: unknown): Promise<T | null> {
   const t = token();
   const res = await fetch(`${API}${path}`, {

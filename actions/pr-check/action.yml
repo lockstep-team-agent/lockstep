@@ -7,6 +7,13 @@ inputs:
   token:
     description: "Lockstep CI token (or use GitHub OIDC exchange — see docs)"
     required: true
+  block-on-conflict:
+    description: "Fail the check (not just warn) when a changed surface has an open product-constraint conflict."
+    required: false
+    default: "false"
+  github-token:
+    description: "GitHub token (e.g. ${{ github.token }}) to post a PR comment naming conflicts. Needs pull-requests: write. Optional — annotations always emit without it."
+    required: false
 runs:
   using: "node20"
   main: "index.mjs"
