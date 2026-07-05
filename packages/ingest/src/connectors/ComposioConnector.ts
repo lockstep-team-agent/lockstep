@@ -103,6 +103,33 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
     return (acc.status ?? "").toUpperCase() === "ACTIVE";
   }
 
+  /**
+   * Enumerate the connected Slack workspace's users (id + profile email) so core can auto-link
+   * members.slack_user_id by email. Slug varies by Composio version — FLAG: verify live (alternates:
+   * SLACK_LIST_ALL_USERS, SLACK_FIND_USERS). Defensive against members/users response shapes and
+   * profile.email vs email. Empty for non-Slack tools.
+   */
+  async listSlackUsers(): Promise<Array<{ slackUserId: string; email: string | null }>> {
+    if (this.tool !== "slack") return [];
+    const out: Array<{ slackUserId: string; email: string | null }> = [];
+    let cursor: string | null = null;
+    do {
+      const d = await this.exec("SLACK_LIST_ALL_SLACK_TEAM_USERS_WITH_PAGINATION", {
+        limit: 200,
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const u of arr(d.members ?? d.users ?? d.results)) {
+        const id = str(u.id);
+        if (!id || u.deleted === true || u.is_bot === true) continue;
+        const profile = (u.profile ?? {}) as Record<string, unknown>;
+        out.push({ slackUserId: id, email: str(profile.email ?? u.email) || null });
+      }
+      const meta = (d.response_metadata ?? {}) as Record<string, unknown>;
+      cursor = str(meta.next_cursor) || null;
+    } while (cursor);
+    return out;
+  }
+
   /* ── Sources (channels / projects / spaces / databases) ── */
 
   async listChannels(): Promise<Channel[]> {

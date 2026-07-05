@@ -5,6 +5,7 @@ import { projectMembers, projects } from "../../db/schema.js";
 import { writeAudit } from "../../audit/audit-service.js";
 import { workerAuthed, ensureMember, requireProductLayer, ensureProjectVisible, canReadProject } from "../guards.js";
 import { getProjectRoleTx } from "../../auth/permissions.js";
+import { setMemberSlackId } from "../../auth/auth-service.js";
 import {
   registerDocument,
   listDocuments,
@@ -332,5 +333,22 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       });
       return { ok: true, settings };
     });
+  });
+
+  // Link (or clear) a member's Slack user id — the manual path that lights up the whole Slack loop
+  // (digests/alerts/buttons all resolve through members.slack_user_id). Owners/PMs link anyone; a
+  // member may link themselves. :memberId is the org member id (members.id).
+  app.post("/orgs/:orgId/projects/:projectId/members/:memberId/slack", async (req, reply) => {
+    const { orgId, projectId, memberId } = req.params as { orgId: string; projectId: string; memberId: string };
+    const actorId = await ensureMember(req, reply, orgId);
+    if (!actorId) return;
+    const b = req.body as { slackUserId?: string | null };
+    const slackUserId = b?.slackUserId ? String(b.slackUserId).trim() : null;
+    const role = await withOrg(orgId, (tx) => getProjectRoleTx(tx, projectId, actorId));
+    if (actorId !== memberId && role !== "owner" && role !== "pm") {
+      return reply.code(403).send({ error: "only owners/PMs can link another member" });
+    }
+    await setMemberSlackId(orgId, memberId, slackUserId, actorId);
+    return { ok: true };
   });
 }

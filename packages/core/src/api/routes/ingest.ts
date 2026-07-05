@@ -17,6 +17,7 @@ import {
   listProvenancesForProject,
 } from "../../ledger/ledger-service.js";
 import { deriveGraph, listGraph, addNode, addEdge } from "../../graph/graph-service.js";
+import { reconcileSlackMembersByEmail } from "../../auth/auth-service.js";
 
 export async function ingestRoutes(app: FastifyInstance): Promise<void> {
   /* ─── Worker endpoints (service-token auth) ─── */
@@ -77,6 +78,15 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     }
     await setWatermark(b.orgId, b.connectionId, b.sourceRef, b.cursor);
     return { ok: true };
+  });
+
+  // The worker hands over a Slack workspace's users (id + email from a Composio users-list call) so
+  // core can auto-link members.slack_user_id by email — only filling nulls (never clobbering a manual link).
+  app.post("/internal/slack/reconcile-members", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    const b = req.body as { orgId?: string; users?: Array<{ slackUserId: string; email: string | null }> };
+    if (!b?.orgId || !Array.isArray(b.users)) return reply.code(400).send({ error: "orgId + users[] required" });
+    return reconcileSlackMembersByEmail(b.orgId, b.users);
   });
 
   // The worker marks a connection active once Composio OAuth has completed.

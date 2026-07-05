@@ -114,6 +114,14 @@ export class LockstepClient {
     await this.req("POST", `/ingest/connections/${connectionId}/finalize`, { connectedAccountId });
   }
 
+  async reconcileSlackMembers(
+    orgId: string,
+    users: Array<{ slackUserId: string; email: string | null }>,
+  ): Promise<{ matched: number }> {
+    if (users.length === 0) return { matched: 0 };
+    return this.req("POST", "/internal/slack/reconcile-members", { orgId, users });
+  }
+
   /* ── v3 document layer ── */
 
   async getDocumentWork(): Promise<DocWorkItem[]> {

@@ -44,6 +44,15 @@ export async function inviteAction(formData: FormData): Promise<void> {
   revalidatePath(`/project/${orgId}/${projectId}`);
 }
 
+export async function setMemberSlackAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const memberId = String(formData.get("memberId") ?? "");
+  const slackUserId = String(formData.get("slackUserId") ?? "").trim();
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/members/${memberId}/slack`, { slackUserId });
+  revalidatePath(`/project/${orgId}/${projectId}/members`);
+}
+
 export async function setVisibilityAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");

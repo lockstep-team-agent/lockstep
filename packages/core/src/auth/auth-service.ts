@@ -6,6 +6,7 @@ import * as gh from "./github.js";
 import { encrypt, decrypt } from "./crypto.js";
 import { env } from "../env.js";
 import { ingestCodeownersFromGitHub } from "../graph/ownership-service.js";
+import { writeAudit } from "../audit/audit-service.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -379,6 +380,80 @@ export async function connectOrJoin(
   });
   await connectRepo(principal, orgId, projectId, gitRemote);
   return { orgId, projectId, projectName: pname, status: "created", createdOrg };
+}
+
+/**
+ * Set a member's Slack user id — the manual, always-works path for lighting up the Slack loop
+ * (ratification digests, drift alerts, weekly digests, interactive buttons all resolve through
+ * members.slack_user_id). Pass `null` to unlink. Audited.
+ */
+export async function setMemberSlackId(
+  orgId: string,
+  memberId: string,
+  slackUserId: string | null,
+  actorMemberId: string,
+): Promise<void> {
+  await withOrg(orgId, async (tx) => {
+    await tx.update(members).set({ slackUserId }).where(and(eq(members.orgId, orgId), eq(members.id, memberId)));
+    await writeAudit(tx, {
+      orgId,
+      actorMemberId,
+      action: "member.slack_linked",
+      entityKind: "member",
+      entityId: memberId,
+      payload: { slackUserId, via: "manual" },
+    });
+  });
+}
+
+/**
+ * Best-effort auto-link: given a Slack workspace's users (id + email, from a Composio users-list
+ * call in the worker), fill in members.slack_user_id for org members whose email matches — but ONLY
+ * where it's currently null, so a manual link is never clobbered. Match is case-insensitive against
+ * the member's email or, failing that, their principal's GitHub email. Returns the count linked.
+ */
+export async function reconcileSlackMembersByEmail(
+  orgId: string,
+  users: Array<{ slackUserId: string; email: string | null }>,
+): Promise<{ matched: number }> {
+  const byEmail = new Map<string, string>();
+  for (const u of users) {
+    if (u.email && u.slackUserId) byEmail.set(u.email.toLowerCase(), u.slackUserId);
+  }
+  if (byEmail.size === 0) return { matched: 0 };
+  // withSystem: `principals` is an RLS system-only table, so the principal-email fallback join is
+  // invisible under withOrg. The query is still explicitly scoped to this org via the members filter.
+  return withSystem(async (tx) => {
+    const rows = await tx
+      .select({
+        memberId: members.id,
+        slackUserId: members.slackUserId,
+        mEmail: members.email,
+        pEmail: principals.email,
+      })
+      .from(members)
+      .leftJoin(principals, eq(members.principalId, principals.id))
+      .where(eq(members.orgId, orgId));
+    let matched = 0;
+    for (const r of rows) {
+      if (r.slackUserId) continue; // never overwrite an existing (possibly manual) link
+      const email = (r.mEmail ?? r.pEmail)?.toLowerCase();
+      if (!email) continue;
+      const sid = byEmail.get(email);
+      if (!sid) continue;
+      await tx.update(members).set({ slackUserId: sid }).where(eq(members.id, r.memberId));
+      await writeAudit(tx, {
+        orgId,
+        actorMemberId: null,
+        action: "member.slack_linked",
+        entityKind: "member",
+        entityId: r.memberId,
+        payload: { slackUserId: sid, via: "email_automatch" },
+      });
+      matched++;
+    }
+    return { matched };
+  });
 }
 
 export async function listMemberships(

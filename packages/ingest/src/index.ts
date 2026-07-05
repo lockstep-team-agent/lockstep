@@ -129,6 +129,17 @@ async function sweepOnce(): Promise<void> {
       `[sweep] seen=${stats.seen} recalled=${stats.recalled} proposed=${stats.proposed} ` +
         `questions=${stats.questions} discarded=${stats.discarded} → filed=${res.filed} deduped=${res.deduped}`,
     );
+    // Auto-link members.slack_user_id by email so ratification/drift/weekly digests actually deliver.
+    // Idempotent (fills nulls only) + best-effort — a failed users-list never aborts the sweep.
+    if (w.tool === "slack" && !useStub && !useNango) {
+      try {
+        const users = await (connector as ComposioConnector).listSlackUsers();
+        const { matched } = await ls.reconcileSlackMembers(w.orgId, users);
+        if (matched > 0) console.log(`[sweep] auto-linked ${matched} Slack member(s) by email`);
+      } catch (e) {
+        console.log(`[sweep] slack member reconcile skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
   // v3 doc phase — its failure must never take the conversation sweep down with it.
   try {

@@ -2,7 +2,7 @@ import { apiGet } from "@/lib/api";
 import { getOverview } from "@/lib/data";
 import { PageHead, StatusPill } from "@/components/ui";
 import { IconRepo } from "@/components/icons";
-import { inviteAction, connectRepoAction, updateMemberRoleAction, setVisibilityAction } from "@/actions";
+import { inviteAction, connectRepoAction, updateMemberRoleAction, setVisibilityAction, setMemberSlackAction } from "@/actions";
 import type { OrgOverview } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -74,8 +74,28 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <div className="title">@{m.githubLogin}</div>
                     <div className="meta">
                       <StatusPill status={m.status} />
+                      {m.slackUserId ? (
+                        <span className="pill" style={{ marginLeft: 6 }}>Slack linked</span>
+                      ) : (
+                        <span className="pill" style={{ marginLeft: 6, color: "var(--dim)" }}>No Slack</span>
+                      )}
                     </div>
                   </div>
+                  {m.memberId ? (
+                    <form className="inline" action={setMemberSlackAction}>
+                      <input type="hidden" name="orgId" value={orgId} />
+                      <input type="hidden" name="projectId" value={projectId} />
+                      <input type="hidden" name="memberId" value={m.memberId} />
+                      <input
+                        className="input mono"
+                        name="slackUserId"
+                        defaultValue={m.slackUserId ?? ""}
+                        placeholder="U01ABC…"
+                        style={{ maxWidth: 130 }}
+                      />
+                      <button className="btn">Link Slack</button>
+                    </form>
+                  ) : null}
                   <form className="inline" action={updateMemberRoleAction}>
                     <input type="hidden" name="orgId" value={orgId} />
                     <input type="hidden" name="projectId" value={projectId} />

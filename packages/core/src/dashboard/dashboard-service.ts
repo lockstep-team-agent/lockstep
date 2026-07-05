@@ -124,12 +124,15 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
     // v3: project-scoped member roster with roles, and the viewer's own role — the dashboard gates
     // ratify/role-change ACTIONS on these (pages stay open to every member).
     const pms = await tx.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
+    const orgMembers = await tx.select().from(members).where(eq(members.orgId, orgId));
+    const slackById = new Map(orgMembers.map((m) => [m.id, m.slackUserId]));
     const memberList = pms.map((pm) => ({
       id: pm.id,
       memberId: pm.memberId,
       githubLogin: pm.invitedGithubLogin,
       role: pm.role,
       status: pm.status,
+      slackUserId: pm.memberId ? (slackById.get(pm.memberId) ?? null) : null,
     }));
     const viewer = viewerMemberId
       ? {
