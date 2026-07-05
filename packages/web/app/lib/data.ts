@@ -177,6 +177,21 @@ export const getStateMappings = (orgId: string, projectId: string, connectionId:
 export const getCounts = (orgId: string, projectId: string) =>
   apiGet<ProjectCounts>(`/orgs/${orgId}/projects/${projectId}/counts`);
 
+export interface ProjectInsights {
+  ratification: { ratified: number; rejected: number; rate: number };
+  conflicts: {
+    dismissed: number;
+    resolved: number;
+    rate: number;
+    dismissReasons: Array<{ reason: string; count: number }>;
+  };
+  lowConfidence: { accepted: number; total: number; rate: number };
+  anchors: { valid: number; total: number; rate: number };
+}
+
+export const getInsights = (orgId: string, projectId: string) =>
+  apiGet<ProjectInsights>(`/orgs/${orgId}/projects/${projectId}/insights`);
+
 export interface Feature {
   ref: string;
   label: string | null;

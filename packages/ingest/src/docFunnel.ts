@@ -29,7 +29,7 @@ export interface ProposedDocItem {
   confidence: number; // 0..100
   externalId: string; // `${docExternalId}#${anchorKey}` — idempotency key with contentHash
   contentHash: string; // sha256 of the raw section text
-  anchor: { type: "notion_block" | "gdoc_fuzzy"; pageId: string; blockId: string; headingPath: string[]; snippet: string };
+  anchor: { type: "notion_block" | "gdoc_fuzzy" | "confluence_xpath"; pageId: string; blockId: string; headingPath: string[]; snippet: string };
   evidence: Array<{ externalId: string; quote: string }>;
   rationale: string;
   // Canonicalized surface candidates the extraction named — seed PROPOSED capability→surface governs
@@ -72,7 +72,7 @@ export async function runDocFunnel(opts: {
   useHaiku?: boolean;
   batch?: boolean;
   /** Anchor addressing scheme for this doc's source — Notion block ids vs. GDocs synthetic keys (D-phase). */
-  anchorType?: "notion_block" | "gdoc_fuzzy";
+  anchorType?: "notion_block" | "gdoc_fuzzy" | "confluence_xpath";
   log?: (msg: string) => void;
   now?: Date;
   // Injectable for tests — default to the real connector/Haiku/Sonnet stages.

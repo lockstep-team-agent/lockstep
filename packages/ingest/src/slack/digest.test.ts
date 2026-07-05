@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import {
   composeDigestBlocks,
   composeDriftBlocks,
+  composeWeeklyBlocks,
   digestFallbackText,
   driftFallbackText,
+  weeklyFallbackText,
   type DigestCandidate,
   type DriftAlertPayload,
   type SlackDigestPayload,
+  type WeeklyDigestPayload,
 } from "./digest.js";
 
 function candidate(over: Partial<DigestCandidate> = {}): DigestCandidate {
@@ -192,5 +195,57 @@ test("driftFallbackText: names the surface and the conflict", () => {
   assert.equal(
     driftFallbackText(driftPayload()),
     "Drift on http:POST /checkout: a constraint and an engineering decision may conflict — review both",
+  );
+});
+
+function weeklyPayload(over: Partial<WeeklyDigestPayload> = {}): WeeklyDigestPayload {
+  return {
+    projectName: "acme",
+    expired: [{ scopeRef: "http:POST /payments/init" }],
+    reverifyDocs: [{ title: "Guest Checkout PRD" }],
+    openConflicts: 2,
+    ...over,
+  };
+}
+
+test("composeWeeklyBlocks: header, a line per active signal, and a dashboard link — no buttons", () => {
+  const prev = process.env.LOCKSTEP_WEB_URL;
+  process.env.LOCKSTEP_WEB_URL = "https://app.lockstep.dev";
+  try {
+    const blocks = composeWeeklyBlocks(weeklyPayload()) as Block[];
+    assert.equal(blocks.length, 3);
+    assert.ok((blocks[0]!.text as { text: string }).text.includes("Lockstep weekly — acme"));
+    const body = (blocks[1]!.text as { text: string }).text;
+    assert.ok(body.includes("*1* constraint(s) expired: `http:POST /payments/init`"));
+    assert.ok(body.includes("*1* doc(s) with anchors needing reverify: Guest Checkout PRD"));
+    assert.ok(body.includes("*2* open conflict(s) awaiting resolution"));
+    assert.equal((blocks[2]!.elements![0] as { text: string }).text, "<https://app.lockstep.dev|Open Lockstep>");
+    assert.ok(!blocks.some((b) => b.type === "actions"), "weekly digest carries no action buttons");
+  } finally {
+    if (prev === undefined) delete process.env.LOCKSTEP_WEB_URL;
+    else process.env.LOCKSTEP_WEB_URL = prev;
+  }
+});
+
+test("composeWeeklyBlocks: an all-quiet week reads the celebratory line; untitled docs get a placeholder; no web url falls back", () => {
+  const prev = process.env.LOCKSTEP_WEB_URL;
+  delete process.env.LOCKSTEP_WEB_URL;
+  try {
+    const quiet = composeWeeklyBlocks(weeklyPayload({ expired: [], reverifyDocs: [], openConflicts: 0 })) as Block[];
+    assert.equal((quiet[1]!.text as { text: string }).text, "Nothing needs attention this week. 🎉");
+    assert.equal((quiet[2]!.elements![0] as { text: string }).text, "Open the Lockstep dashboard");
+
+    const untitled = composeWeeklyBlocks(weeklyPayload({ expired: [], openConflicts: 0, reverifyDocs: [{ title: null }] })) as Block[];
+    assert.ok((untitled[1]!.text as { text: string }).text.includes("untitled"));
+  } finally {
+    if (prev === undefined) delete process.env.LOCKSTEP_WEB_URL;
+    else process.env.LOCKSTEP_WEB_URL = prev;
+  }
+});
+
+test("weeklyFallbackText: names the project and the three counts", () => {
+  assert.equal(
+    weeklyFallbackText(weeklyPayload()),
+    "Lockstep weekly — acme: 1 expired, 1 reverify, 2 open conflicts",
   );
 });

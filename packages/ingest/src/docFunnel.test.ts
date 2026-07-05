@@ -222,6 +222,17 @@ test("runDocFunnel: anchorType defaults to notion_block; gdoc_fuzzy stamps the e
   assert.equal(gdoc.items[0]!.anchor.type, "gdoc_fuzzy");
   assert.equal(gdoc.items[0]!.anchor.pageId, "prd-142", "pageId stays the doc externalId");
   assert.equal(gdoc.items[0]!.anchor.blockId, "checkout>c-1", "blockId stays the section anchorKey");
+
+  const confluence = await runDocFunnel({
+    connector: new FakeDocConnector([s]),
+    doc,
+    anchorType: "confluence_xpath",
+    recallFn: async () => true,
+    extractFn: async (k) => docx({ anchor_key: k }),
+  });
+  assert.equal(confluence.items[0]!.anchor.type, "confluence_xpath");
+  assert.equal(confluence.items[0]!.anchor.pageId, "prd-142", "pageId stays the doc externalId");
+  assert.equal(confluence.items[0]!.anchor.blockId, "checkout>c-1", "blockId stays the section anchorKey");
 });
 
 test("runDocFunnel: currentSections returns EVERY section seen (incl. hash-skipped) for anchor relocation", async () => {

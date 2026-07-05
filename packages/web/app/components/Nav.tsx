@@ -33,6 +33,7 @@ export function Nav({ base, counts }: { base: string; counts: NavCounts }) {
       label: "Overview",
       items: [
         { href: "", label: "Overview", Icon: IconOverview, badge: undefined as number | undefined },
+        { href: "/insights", label: "Insights", Icon: IconActivity, badge: undefined },
         { href: "/search", label: "Search", Icon: IconOverview, badge: undefined },
       ],
     },

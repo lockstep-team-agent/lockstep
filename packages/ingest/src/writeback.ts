@@ -3,10 +3,13 @@ import type { DocumentConnector } from "./connectors/SourceConnector.js";
 import {
   composeDigestBlocks,
   composeDriftBlocks,
+  composeWeeklyBlocks,
   digestFallbackText,
   driftFallbackText,
+  weeklyFallbackText,
   type DriftAlertPayload,
   type SlackDigestPayload,
+  type WeeklyDigestPayload,
 } from "./slack/digest.js";
 import { sendDigest as defaultSendDigest } from "./slack/send.js";
 
@@ -85,6 +88,21 @@ export async function drainWritebacks(
           }
           const p = row.payload as DriftAlertPayload;
           const r = await send(opts.slackBotToken, row.targetRef, composeDriftBlocks(p), driftFallbackText(p));
+          await client.markWritebackDone(row.id, r.ok, r.ts);
+          if (r.ok) posted++;
+          else failed++;
+          break;
+        }
+        case "weekly_digest": {
+          // Per-project operator summary DM — targetRef is an owner/pm Slack user id.
+          if (!opts.slackBotToken) {
+            log(`[writeback] ${row.id}: SLACK_BOT_TOKEN not set — cannot send weekly digest`);
+            await client.markWritebackDone(row.id, false);
+            failed++;
+            continue;
+          }
+          const p = row.payload as WeeklyDigestPayload;
+          const r = await send(opts.slackBotToken, row.targetRef, composeWeeklyBlocks(p), weeklyFallbackText(p));
           await client.markWritebackDone(row.id, r.ok, r.ts);
           if (r.ok) posted++;
           else failed++;

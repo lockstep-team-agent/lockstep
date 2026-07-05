@@ -28,6 +28,8 @@ import {
 import { listConflicts, dismissConflict, resolveConflict } from "../../documents/reconcile-service.js";
 import { listFeatures, getFeature, confirmGovernsEdge, rejectGovernsEdge } from "../../documents/features-service.js";
 import { ratifyDecision } from "../../ledger/ledger-service.js";
+import { expireConstraints } from "../../ledger/expiry-job.js";
+import { enqueueWeeklyDigests } from "../../documents/weekly-digest.js";
 
 /** v3 product layer: documents, state mappings, ratifications, conflicts, write-backs. */
 export async function documentRoutes(app: FastifyInstance): Promise<void> {
@@ -36,6 +38,18 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   app.get("/internal/documents/work", async (req, reply) => {
     if (!workerAuthed(req, reply)) return;
     return { work: await getDocumentWork() };
+  });
+
+  // Expiry sweep (FR-CORE-11): flip past-due launch gates binding → expired. Called on the worker tick.
+  app.post("/internal/expiry/run", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    return expireConstraints();
+  });
+
+  // Weekly operator digest: enqueue per-project Slack summaries (idempotent per ISO week).
+  app.post("/internal/digests/weekly/run", async (req, reply) => {
+    if (!workerAuthed(req, reply)) return;
+    return enqueueWeeklyDigests();
   });
 
   app.post("/internal/documents/upsert", async (req, reply) => {

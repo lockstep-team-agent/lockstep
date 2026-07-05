@@ -44,6 +44,12 @@ export function gdocsEnabled(settings: unknown): boolean {
   return Boolean(s?.productLayer?.gdocs);
 }
 
+/** Confluence support is a per-project sub-flag of the product layer (default off). */
+export function confluenceEnabled(settings: unknown): boolean {
+  const s = settings as { productLayer?: { confluence?: boolean } } | null;
+  return Boolean(s?.productLayer?.confluence);
+}
+
 /** Min interval between GDocs re-fetches (revision-watch debounce, FR-ING-6). Default 600s. */
 const GDOCS_DEBOUNCE_MS = (Number(process.env.LOCKSTEP_GDOCS_DEBOUNCE) || 600) * 1000;
 
@@ -68,11 +74,24 @@ export function parseGDocsFileId(urlOrId: string): string | null {
   return null;
 }
 
+/**
+ * Confluence page id from a Cloud page URL: /wiki/spaces/<key>/pages/<numeric id>/… . Legacy
+ * /display/<space>/<title> URLs carry no id in the path → null (register by the /pages/ URL instead).
+ */
+export function parseConfluencePageId(urlOrId: string): string | null {
+  return urlOrId.match(/\/wiki\/spaces\/[^/]+\/pages\/(\d+)/)?.[1] ?? null;
+}
+
 /** Detect the source tool + external id from a pasted registration URL. */
-export function detectDocTool(url: string): { tool: "notion" | "gdocs"; externalId: string } | null {
+export function detectDocTool(url: string): { tool: "notion" | "gdocs" | "confluence"; externalId: string } | null {
   if (/docs\.google\.com/.test(url)) {
     const id = parseGDocsFileId(url);
     return id ? { tool: "gdocs", externalId: id } : null;
+  }
+  // Confluence before the Notion/GDocs fallbacks — its numeric ids never look like a Notion 32-hex tail.
+  if (/atlassian\.net/.test(url) || /\/wiki\//.test(url)) {
+    const id = parseConfluencePageId(url);
+    return id ? { tool: "confluence", externalId: id } : null;
   }
   const notion = parseNotionPageId(url);
   if (notion) return { tool: "notion", externalId: notion };
@@ -272,12 +291,13 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
     const conns = await tx
       .select()
       .from(sourceConnections)
-      .where(and(eq(sourceConnections.status, "active"), inArray(sourceConnections.tool, ["notion", "gdocs"])));
+      .where(and(eq(sourceConnections.status, "active"), inArray(sourceConnections.tool, ["notion", "gdocs", "confluence"])));
     const items: DocWorkItem[] = [];
     for (const c of conns) {
       const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
       if (!proj || !productLayerEnabled(proj.settings)) continue;
       if (c.tool === "gdocs" && !gdocsEnabled(proj.settings)) continue; // gdocs behind its own sub-flag
+      if (c.tool === "confluence" && !confluenceEnabled(proj.settings)) continue; // confluence behind its own sub-flag
       const allow = await tx
         .select()
         .from(ingestAllowlist)
@@ -303,11 +323,13 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
       const now = Date.now();
       for (const d of standalone) {
         if (d.state !== "review" && d.state !== "active") continue;
-        if (d.tool === "gdocs") {
-          // GDocs re-fetch on each window (per-section hashes skip unchanged), bounded by the debounce.
+        // GDocs and Confluence are revision-watched: re-fetch on each window (per-section hashes skip
+        // unchanged), bounded by the debounce. Notion native docs are resync-driven (Phase A).
+        const revisionWatched = d.tool === "gdocs" || d.tool === "confluence";
+        if (revisionWatched) {
           if (!d.forceResync && d.lastSweptAt && now - d.lastSweptAt.getTime() < GDOCS_DEBOUNCE_MS) continue;
         } else if (!d.forceResync && d.lastExtractedAt) {
-          continue; // Notion native docs are resync-driven (Phase A)
+          continue;
         }
         docs.push({
           docId: d.id,
@@ -317,7 +339,7 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
           knownSectionHashes: await sectionHashesTx(tx, d),
         });
         // Claim it for this window so the debounce holds even if extraction yields nothing.
-        if (d.tool === "gdocs") await tx.update(sourceDocuments).set({ lastSweptAt: new Date() }).where(eq(sourceDocuments.id, d.id));
+        if (revisionWatched) await tx.update(sourceDocuments).set({ lastSweptAt: new Date() }).where(eq(sourceDocuments.id, d.id));
       }
       if (allow.length === 0 && docs.length === 0) continue;
       items.push({
@@ -751,8 +773,9 @@ function norm(s: string): string {
 
 /**
  * Relocate each of a doc's live constraint anchors against the current section list and update
- * `anchorStatus`. Notion: valid iff the heading block id still exists. GDocs (`gdoc_fuzzy`): locate
- * the stored snippet — exact/normalized/≥0.8-Jaccard within the heading's section; on a confident
+ * `anchorStatus`. Notion: valid iff the heading block id still exists. GDocs/Confluence (`gdoc_fuzzy` /
+ * `confluence_xpath`): locate the stored snippet — exact/normalized/≥0.8-Jaccard within the heading's
+ * section; on a confident
  * match re-point the heading path only (never the snippet); on failure → `reverify`, anchor untouched.
  * Returns how many flipped to reverify.
  */
@@ -767,7 +790,7 @@ async function relocateAnchorsTx(tx: Tx, doc: typeof sourceDocuments.$inferSelec
     if (!prov || !anchor) continue;
 
     let located: CurrentSection | null = null;
-    if (anchor.type === "gdoc_fuzzy") {
+    if (anchor.type === "gdoc_fuzzy" || anchor.type === "confluence_xpath") {
       const target = norm(anchor.snippet ?? "");
       if (target) {
         // exact/normalized containment first, then Jaccard ≥0.8 (prefer same heading path).
@@ -787,8 +810,8 @@ async function relocateAnchorsTx(tx: Tx, doc: typeof sourceDocuments.$inferSelec
     const nextStatus = located ? "valid" : "reverify";
     const patch: Record<string, unknown> = {};
     if (prov.anchorStatus !== nextStatus) patch.anchorStatus = nextStatus;
-    // Re-point the HEADING PATH only on a confident GDocs match (the snippet is never rewritten).
-    if (located && anchor.type === "gdoc_fuzzy" && JSON.stringify(located.headingPath) !== JSON.stringify(anchor.headingPath ?? [])) {
+    // Re-point the HEADING PATH only on a confident fuzzy (GDocs/Confluence) match (the snippet is never rewritten).
+    if (located && (anchor.type === "gdoc_fuzzy" || anchor.type === "confluence_xpath") && JSON.stringify(located.headingPath) !== JSON.stringify(anchor.headingPath ?? [])) {
       patch.anchor = { ...anchor, headingPath: located.headingPath };
     }
     if (Object.keys(patch).length > 0) {
@@ -962,9 +985,20 @@ export interface PendingWriteback {
 }
 
 /** Drainable queue for the worker. Attempts increment on pull; three strikes → failed. */
-export async function pendingWritebacks(limit = 50): Promise<PendingWriteback[]> {
+/**
+ * Drain window for the worker. Cross-org (withSystem) by default — one worker serves every org.
+ * `orgId` narrows to a single org: unused in production, but it keeps this deterministic in the
+ * shared-DB e2e suite, where other files leave undrained `queued` rows that would otherwise crowd
+ * a fresh row out of the FIFO limit window.
+ */
+export async function pendingWritebacks(limit = 50, orgId?: string): Promise<PendingWriteback[]> {
   return withSystem(async (tx) => {
-    const rows = (await tx.select().from(writebacks).where(eq(writebacks.status, "queued"))).slice(0, limit);
+    const rows = await tx
+      .select()
+      .from(writebacks)
+      .where(orgId ? and(eq(writebacks.status, "queued"), eq(writebacks.orgId, orgId)) : eq(writebacks.status, "queued"))
+      .orderBy(writebacks.createdAt)
+      .limit(limit);
     const out: PendingWriteback[] = [];
     for (const w of rows) {
       if (w.attempts >= 3) {

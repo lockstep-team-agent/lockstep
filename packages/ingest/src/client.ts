@@ -69,7 +69,7 @@ export interface PendingWriteback {
   id: string;
   orgId: string;
   tool: "notion" | "slack";
-  kind: "conflict_comment" | "slack_digest" | "drift_alert";
+  kind: "conflict_comment" | "slack_digest" | "drift_alert" | "weekly_digest";
   targetRef: string; // notion page id (conflict_comment) or Slack user id (slack_digest / drift_alert)
   payload: unknown;
   connection: { entity: string; connectedAccountId: string | null; tool: string } | null;
@@ -152,5 +152,15 @@ export class LockstepClient {
 
   async markWritebackDone(id: string, ok: boolean, resultRef?: string): Promise<void> {
     await this.req("POST", `/internal/writebacks/${id}/done`, { ok, resultRef });
+  }
+
+  /** Expire past-due launch gates (FR-CORE-11) — called each serve tick. */
+  async runExpiry(): Promise<{ expired: number; conflictsDismissed: number }> {
+    return this.req("POST", "/internal/expiry/run");
+  }
+
+  /** Enqueue weekly operator digests (idempotent per ISO week) — called each serve tick. */
+  async runWeeklyDigests(): Promise<{ enqueued: number }> {
+    return this.req("POST", "/internal/digests/weekly/run");
   }
 }

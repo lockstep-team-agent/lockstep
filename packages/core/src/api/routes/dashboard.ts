@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ensureMember } from "../../auth/auth-service.js";
 import { orgOverview, projectOverview } from "../../dashboard/dashboard-service.js";
+import { projectInsights } from "../../documents/insights-service.js";
 
 /** Read endpoints for the dashboard — principal + org-membership guarded (no session needed). */
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
@@ -18,5 +19,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     const m = await ensureMember(orgId, p.id);
     return projectOverview(orgId, projectId, m.id);
+  });
+
+  app.get("/orgs/:orgId/projects/:projectId/insights", async (req, reply) => {
+    const p = req.principal;
+    if (!p) return reply.code(401).send({ error: "unauthorized" });
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    await ensureMember(orgId, p.id); // throws 403 if not a member
+    return projectInsights(orgId, projectId);
   });
 }

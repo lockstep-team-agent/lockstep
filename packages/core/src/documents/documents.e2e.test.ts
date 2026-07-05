@@ -340,7 +340,7 @@ test("A-2: co-location with a binding decision opens a pre_approval conflict and
   assert.equal(openAgain.length, 1, "one open conflict per (constraint, eng) pair");
 
   // Worker drains the queue; done records the comment ref on the conflict row.
-  const pending = await pendingWritebacks();
+  const pending = await pendingWritebacks(50, s.orgId);
   const mine = pending.find((w) => (w.payload as { conflictId?: string })?.conflictId === open[0]!.id);
   assert.ok(mine, "comment is drainable with connection info");
   assert.equal(mine!.connection?.connectedAccountId?.startsWith("ca-"), true);

@@ -3,6 +3,7 @@ import { LockstepClient } from "./client.js";
 import { StubConnector } from "./connectors/StubConnector.js";
 import { ComposioConnector, type Tool } from "./connectors/ComposioConnector.js";
 import { GDocsConnector } from "./connectors/GDocsConnector.js";
+import { ConfluenceConnector } from "./connectors/ConfluenceConnector.js";
 import { NangoConnector } from "./connectors/NangoConnector.js";
 import type { DocumentConnector, SourceConnector } from "./connectors/SourceConnector.js";
 import { runFunnel } from "./funnel.js";
@@ -44,6 +45,22 @@ function composio(entity: string, tool: Tool = "slack"): ComposioConnector {
 }
 function toolFlag(): Tool {
   return (flag("tool") as Tool) ?? "slack";
+}
+/**
+ * The native-registered doc sources (registered by URL, swept via their own Composio app) each get a
+ * dedicated connector; every other tool routes through the connection's Composio connector (returns
+ * null so the caller falls back). Keeps the gdocs/confluence pick in one place.
+ */
+function docConnectorFor(tool: string, entity: string): DocumentConnector | null {
+  if (tool === "gdocs") return new GDocsConnector(env("COMPOSIO_API_KEY", true), entity);
+  if (tool === "confluence") return new ConfluenceConnector(env("COMPOSIO_API_KEY", true), entity);
+  return null;
+}
+/** Anchor addressing scheme per doc source — synthetic fuzzy keys for gdocs/confluence, block ids for Notion. */
+function docAnchorType(tool: string): "notion_block" | "gdoc_fuzzy" | "confluence_xpath" {
+  if (tool === "gdocs") return "gdoc_fuzzy";
+  if (tool === "confluence") return "confluence_xpath";
+  return "notion_block";
 }
 
 async function cmdChannels(): Promise<void> {
@@ -119,6 +136,15 @@ async function sweepOnce(): Promise<void> {
   } catch (e) {
     console.error("[docs] doc sweep error:", e);
   }
+  // v3 periodic jobs — expiry (idempotent, only past-due) + weekly digest (idempotent per ISO week).
+  try {
+    const exp = await ls.runExpiry();
+    if (exp.expired > 0) console.log(`[expiry] ${exp.expired} constraint(s) expired, ${exp.conflictsDismissed} conflict(s) dismissed`);
+    const wk = await ls.runWeeklyDigests();
+    if (wk.enqueued > 0) console.log(`[weekly] ${wk.enqueued} digest(s) enqueued`);
+  } catch (e) {
+    console.error("[jobs] periodic job error:", e);
+  }
   console.log("[sweep] done");
 }
 
@@ -181,16 +207,15 @@ async function docSweepOnce(
       });
     }
     for (const t of targets) {
-      // GDocs is a separate, native-registered doc source; every other tool routes through the connection's
-      // Composio connector. In stub mode all targets share the one StubConnector (assertable, no network).
-      const isGdocs = t.tool === "gdocs";
-      const targetConnector: DocumentConnector =
-        !opts.useStub && isGdocs ? new GDocsConnector(env("COMPOSIO_API_KEY", true), w.entity) : connector;
+      // GDocs/Confluence are separate, native-registered doc sources; every other tool routes through the
+      // connection's Composio connector. In stub mode all targets share the one StubConnector (assertable, no network).
+      const nativeConnector = opts.useStub ? null : docConnectorFor(t.tool, w.entity);
+      const targetConnector: DocumentConnector = nativeConnector ?? connector;
       const { items, stats, docContentHash, extractedAnchorKeys, currentSections } = await runDocFunnel({
         connector: targetConnector,
         doc: { externalId: t.externalId, title: t.title, url: t.url },
         knownSectionHashes: t.knownSectionHashes,
-        anchorType: isGdocs ? "gdoc_fuzzy" : "notion_block",
+        anchorType: docAnchorType(t.tool),
         useHaiku: opts.useHaiku,
         batch: opts.batch,
         log: (m) => console.log(m),
@@ -208,9 +233,10 @@ async function docSweepOnce(
     connectorFor: (row) => {
       if (stubConnector) return stubConnector;
       if (!row.connection?.connectedAccountId) return null;
-      return row.connection.tool === "gdocs"
-        ? new GDocsConnector(env("COMPOSIO_API_KEY", true), row.connection.entity)
-        : composio(row.connection.entity, row.connection.tool as Tool);
+      return (
+        docConnectorFor(row.connection.tool, row.connection.entity) ??
+        composio(row.connection.entity, row.connection.tool as Tool)
+      );
     },
     slackBotToken: env("SLACK_BOT_TOKEN") || undefined,
     log: (m) => console.log(m),

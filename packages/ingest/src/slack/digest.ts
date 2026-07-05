@@ -119,3 +119,31 @@ export function composeDriftBlocks(payload: DriftAlertPayload): unknown[] {
 export function driftFallbackText(payload: DriftAlertPayload): string {
   return `Drift on ${payload.surface}: a constraint and an engineering decision may conflict — review both`;
 }
+
+export interface WeeklyDigestPayload {
+  projectName: string;
+  expired: Array<{ scopeRef: string }>;
+  reverifyDocs: Array<{ title: string | null }>;
+  openConflicts: number;
+}
+
+/** The weekly operator digest — a plain status snapshot, no action buttons. */
+export function composeWeeklyBlocks(payload: WeeklyDigestPayload): unknown[] {
+  const lines: string[] = [];
+  if (payload.expired.length > 0)
+    lines.push(`• *${payload.expired.length}* constraint(s) expired: ${payload.expired.map((e) => `\`${e.scopeRef}\``).join(", ")}`);
+  if (payload.reverifyDocs.length > 0)
+    lines.push(`• *${payload.reverifyDocs.length}* doc(s) with anchors needing reverify: ${payload.reverifyDocs.map((d) => d.title ?? "untitled").join(", ")}`);
+  if (payload.openConflicts > 0) lines.push(`• *${payload.openConflicts}* open conflict(s) awaiting resolution`);
+  const webUrl = process.env.LOCKSTEP_WEB_URL;
+  const dash = webUrl ? `<${webUrl}|Open Lockstep>` : "Open the Lockstep dashboard";
+  return [
+    { type: "section", text: { type: "mrkdwn", text: `📊 *Lockstep weekly — ${payload.projectName}*` } },
+    { type: "section", text: { type: "mrkdwn", text: lines.join("\n") || "Nothing needs attention this week. 🎉" } },
+    { type: "context", elements: [{ type: "mrkdwn", text: dash }] },
+  ];
+}
+
+export function weeklyFallbackText(payload: WeeklyDigestPayload): string {
+  return `Lockstep weekly — ${payload.projectName}: ${payload.expired.length} expired, ${payload.reverifyDocs.length} reverify, ${payload.openConflicts} open conflicts`;
+}
