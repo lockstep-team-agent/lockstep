@@ -2,7 +2,7 @@ import { apiGet } from "@/lib/api";
 import { getOverview } from "@/lib/data";
 import { PageHead, StatusPill } from "@/components/ui";
 import { IconRepo } from "@/components/icons";
-import { inviteAction, connectRepoAction, updateMemberRoleAction } from "@/actions";
+import { inviteAction, connectRepoAction, updateMemberRoleAction, setVisibilityAction } from "@/actions";
 import type { OrgOverview } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,7 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const members = org?.members ?? [];
   const projectMembers = o?.members;
   const isOwner = o?.viewer?.role === "owner";
+  const visibility = o?.visibility ?? "shared";
   const repos = o?.repos ?? [];
   const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const api = process.env.LOCKSTEP_API_URL ?? "https://your-core";
@@ -35,6 +36,30 @@ export default async function Page({ params }: { params: { orgId: string; projec
   return (
     <>
       <PageHead title="Members & Repos" subtitle="People in this project, connected repos, and how to onboard more." />
+
+      <div className="section-title">Visibility</div>
+      <div className="card pad animate-in">
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>
+          <strong>Shared</strong> — any member of the org can read this project. <strong>Walled</strong> — only the
+          people listed below (project members) can read its decisions, graph, and surfaces. Walling an existing
+          project? Invite everyone who should keep access first.
+        </p>
+        <form className="inline" action={setVisibilityAction}>
+          <input type="hidden" name="orgId" value={orgId} />
+          <input type="hidden" name="projectId" value={projectId} />
+          <select name="visibility" className="input" defaultValue={visibility} disabled={!isOwner} style={{ maxWidth: 160 }}>
+            <option value="shared">Shared with org</option>
+            <option value="walled">Walled — members only</option>
+          </select>
+          {isOwner ? (
+            <button className="btn">Update visibility</button>
+          ) : (
+            <span className="tip" data-tip="Only project owners can change visibility">
+              <button className="btn" disabled>Update visibility</button>
+            </span>
+          )}
+        </form>
+      </div>
 
       <div className="section-title">Members</div>
       <div className="card animate-in">

@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { withOrg } from "../../db/rls.js";
 import { projectMembers, projects } from "../../db/schema.js";
 import { writeAudit } from "../../audit/audit-service.js";
-import { workerAuthed, ensureMember, requireProductLayer } from "../guards.js";
+import { workerAuthed, ensureMember, requireProductLayer, ensureProjectVisible, canReadProject } from "../guards.js";
 import { getProjectRoleTx } from "../../auth/permissions.js";
 import {
   registerDocument,
@@ -91,7 +91,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/documents", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     return listDocuments(orgId, projectId);
   });
@@ -108,7 +108,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/documents/:docId", async (req, reply) => {
     const { orgId, projectId, docId } = req.params as { orgId: string; projectId: string; docId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     return getDocument(orgId, docId);
   });
@@ -142,6 +142,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
+    if (!(await ensureProjectVisible(reply, orgId, projectId, memberId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     return listRatifications(orgId, projectId, memberId);
   });
@@ -158,7 +159,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/connections/:connectionId/state-mappings", async (req, reply) => {
     const { orgId, projectId, connectionId } = req.params as { orgId: string; projectId: string; connectionId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     return listStateMappings(orgId, projectId, connectionId);
   });
 
@@ -201,14 +202,14 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/features", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     return listFeatures(orgId, projectId);
   });
 
   app.get("/orgs/:orgId/projects/:projectId/features/:ref", async (req, reply) => {
     const { orgId, projectId, ref } = req.params as { orgId: string; projectId: string; ref: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     const feature = await getFeature(orgId, projectId, decodeURIComponent(ref));
     if (!feature) return reply.code(404).send({ error: "feature not found" });
@@ -233,7 +234,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/conflicts", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     const { status } = req.query as { status?: string };
     return { conflicts: await listConflicts(orgId, projectId, status) };
   });
@@ -263,7 +264,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/counts", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     return projectCounts(orgId, projectId);
   });
 

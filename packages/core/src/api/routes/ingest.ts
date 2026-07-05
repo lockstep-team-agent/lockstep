@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { workerAuthed, ensureMember } from "../guards.js";
+import { workerAuthed, ensureMember, ensureProjectVisible } from "../guards.js";
 import {
   listWork,
   setWatermark,
@@ -131,7 +131,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
   // (origin=document) have their own queue — the Ratifications tab — and are excluded here.
   app.get("/orgs/:orgId/projects/:projectId/proposed", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await ensureProjectVisible(reply, orgId, projectId, memberId))) return;
     const decisions = (await listDecisions(orgId, projectId, undefined, { status: "proposed" })).filter(
       (d) => d.origin !== "document",
     );
@@ -150,7 +152,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
   // Human decision search: "what did we decide about X?" over the ledger, with filters.
   app.get("/orgs/:orgId/projects/:projectId/decisions/search", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await ensureProjectVisible(reply, orgId, projectId, memberId))) return;
     const { q, status, origin, from, to } = req.query as {
       q?: string;
       status?: string;
@@ -183,7 +187,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/graph", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await ensureProjectVisible(reply, orgId, projectId, memberId))) return;
     return listGraph(orgId, projectId);
   });
 

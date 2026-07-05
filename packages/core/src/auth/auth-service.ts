@@ -13,6 +13,29 @@ function one<T>(rows: T[]): T {
   return r;
 }
 
+/**
+ * Backfill an authoritative project_members row for a member who joined by creating a project or by
+ * repo auto-join (not by invite). #2 "walled" visibility gates reads on this roster, so creators and
+ * auto-joiners MUST appear here — invites already do (activateInvites). Idempotent on the
+ * (projectId, invitedGithubLogin) unique index; never touches an existing row's role/status.
+ */
+async function ensureProjectMemberTx(
+  tx: Tx,
+  v: { orgId: string; projectId: string; memberId: string; githubLogin: string; role?: string },
+): Promise<void> {
+  await tx
+    .insert(projectMembers)
+    .values({
+      orgId: v.orgId,
+      projectId: v.projectId,
+      memberId: v.memberId,
+      invitedGithubLogin: v.githubLogin,
+      role: v.role ?? "member",
+      status: "active",
+    })
+    .onConflictDoNothing({ target: [projectMembers.projectId, projectMembers.invitedGithubLogin] });
+}
+
 export interface LoginOutcome {
   token: string;
   principalId: string;
@@ -132,6 +155,7 @@ export async function createProject(principal: Principal, orgId: string, name: s
   const me = await ensureMember(orgId, principal.id);
   return withOrg(orgId, async (tx) => {
     const p = one(await tx.insert(projects).values({ orgId, name, createdBy: me.id }).returning());
+    await ensureProjectMemberTx(tx, { orgId, projectId: p.id, memberId: me.id, githubLogin: principal.githubLogin, role: "owner" });
     return { projectId: p.id };
   });
 }
@@ -251,12 +275,24 @@ export async function connectOrJoin(
       if (hasAccess) {
         const repo = candidates[0]!;
         await withSystem(async (tx) => {
-          await tx.insert(members).values({
+          const m = one(
+            await tx
+              .insert(members)
+              .values({
+                orgId: repo.orgId,
+                principalId: principal.id,
+                githubUserId: principal.githubUserId,
+                githubLogin: principal.githubLogin,
+                displayName: principal.githubLogin,
+              })
+              .returning(),
+          );
+          // #2 roster: the auto-joiner becomes a project member of the repo's project (default role).
+          await ensureProjectMemberTx(tx, {
             orgId: repo.orgId,
-            principalId: principal.id,
-            githubUserId: principal.githubUserId,
+            projectId: repo.projectId,
+            memberId: m.id,
             githubLogin: principal.githubLogin,
-            displayName: principal.githubLogin,
           });
         });
         return {
@@ -298,6 +334,17 @@ export async function connectOrJoin(
     );
     if (existing) {
       await connectRepo(principal, oid, existing.id, gitRemote);
+      // #2 roster: ensure the joiner is a project member (a prior invite may already have activated it).
+      await withOrg(oid, async (tx) => {
+        const me = (
+          await tx
+            .select()
+            .from(members)
+            .where(and(eq(members.orgId, oid), eq(members.principalId, principal.id)))
+            .limit(1)
+        )[0];
+        if (me) await ensureProjectMemberTx(tx, { orgId: oid, projectId: existing.id, memberId: me.id, githubLogin: principal.githubLogin });
+      });
       return {
         orgId: oid,
         projectId: existing.id,
@@ -324,7 +371,11 @@ export async function connectOrJoin(
         .where(and(eq(members.orgId, orgId!), eq(members.principalId, principal.id)))
         .limit(1)
     )[0];
-    return one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning()).id;
+    const p = one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning());
+    if (me) {
+      await ensureProjectMemberTx(tx, { orgId: orgId!, projectId: p.id, memberId: me.id, githubLogin: principal.githubLogin, role: "owner" });
+    }
+    return p.id;
   });
   await connectRepo(principal, orgId, projectId, gitRemote);
   return { orgId, projectId, projectName: pname, status: "created", createdOrg };

@@ -44,6 +44,14 @@ export async function inviteAction(formData: FormData): Promise<void> {
   revalidatePath(`/project/${orgId}/${projectId}`);
 }
 
+export async function setVisibilityAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const visibility = String(formData.get("visibility") ?? "shared");
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/settings`, { visibility });
+  revalidatePath(`/project/${orgId}/${projectId}/members`);
+}
+
 /* ── v2 ingestion: review queue + connections ── */
 
 export async function confirmDecisionAction(formData: FormData): Promise<void> {

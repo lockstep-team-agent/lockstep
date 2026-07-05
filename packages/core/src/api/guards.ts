@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { withSystem, withOrg } from "../db/rls.js";
 import { members, projects } from "../db/schema.js";
 import { productLayerEnabled } from "../documents/document-service.js";
+import { getProjectRoleTx, projectVisibility } from "../auth/permissions.js";
 import { env } from "../env.js";
 
 /** Gate the worker endpoints on the shared ingest service token. */
@@ -59,4 +60,40 @@ export async function productLayerOn(orgId: string, projectId: string): Promise<
     const p = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
     return p ? productLayerEnabled(p.settings) : false;
   });
+}
+
+/**
+ * #2 per-project read gate. A "shared" project (default) is readable by any org member (unchanged
+ * behavior); a "walled" project requires an active project_members row. Call AFTER ensureMember,
+ * passing the resolved memberId. Returns true when visible, else sends 403 and returns false.
+ */
+export async function ensureProjectVisible(
+  reply: FastifyReply,
+  orgId: string,
+  projectId: string,
+  memberId: string,
+): Promise<boolean> {
+  const visible = await withOrg(orgId, async (tx) => {
+    const p = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
+    if (!p) return false;
+    if (projectVisibility(p.settings) === "shared") return true;
+    return (await getProjectRoleTx(tx, projectId, memberId)) !== null;
+  });
+  if (!visible) {
+    reply.code(403).send({ error: "project_forbidden" });
+    return false;
+  }
+  return true;
+}
+
+/** ensureMember + ensureProjectVisible for project READ routes that don't need the memberId. */
+export async function canReadProject(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  orgId: string,
+  projectId: string,
+): Promise<boolean> {
+  const memberId = await ensureMember(req, reply, orgId);
+  if (!memberId) return false;
+  return ensureProjectVisible(reply, orgId, projectId, memberId);
 }

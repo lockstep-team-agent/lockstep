@@ -3,6 +3,15 @@ import type { Tx } from "../db/rls.js";
 import { projectMembers } from "../db/schema.js";
 
 /**
+ * #2 per-project visibility mode. "shared" (default, and today's behavior) = any org member can read
+ * the project; "walled" = only active project_members may read it. Stored in projects.settings.
+ */
+export function projectVisibility(settings: unknown): "shared" | "walled" {
+  const s = settings as { visibility?: string } | null;
+  return s?.visibility === "walled" ? "walled" : "shared";
+}
+
+/**
  * Role-based action gates (v3). Pages stay open to every member — permissions gate ACTIONS only
  * (ratify, resolve, mapping admin). Roles live on project_members: owner | pm | member.
  */

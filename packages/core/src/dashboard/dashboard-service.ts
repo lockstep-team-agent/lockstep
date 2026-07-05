@@ -14,8 +14,12 @@ import {
   projectMembers,
 } from "../db/schema.js";
 import { inArray } from "drizzle-orm";
+import { projectVisibility } from "../auth/permissions.js";
 
-export async function orgOverview(orgId: string): Promise<{
+export async function orgOverview(
+  orgId: string,
+  viewerMemberId?: string,
+): Promise<{
   projects: Array<{ id: string; name: string; repos: Array<{ gitRemote: string }> }>;
   members: Array<{ id: string; githubLogin: string }>;
 }> {
@@ -23,10 +27,22 @@ export async function orgOverview(orgId: string): Promise<{
     const ps = await tx.select().from(projects).where(eq(projects.orgId, orgId));
     const rs = await tx.select().from(repos).where(eq(repos.orgId, orgId));
     const ms = await tx.select().from(members).where(eq(members.orgId, orgId));
+    // #2: a walled project only appears to its active project members; shared projects (default) to all.
+    const myProjectIds = viewerMemberId
+      ? new Set(
+          (
+            await tx
+              .select({ projectId: projectMembers.projectId })
+              .from(projectMembers)
+              .where(and(eq(projectMembers.memberId, viewerMemberId), eq(projectMembers.status, "active")))
+          ).map((r) => r.projectId),
+        )
+      : new Set<string>();
+    const visible = ps.filter((p) => projectVisibility(p.settings) === "shared" || myProjectIds.has(p.id));
     return {
       // Include each project's connected repos so the CLI can resolve which project a repo belongs
       // to by its git remote (e.g. for `lockstep invite`) instead of guessing from the remote name.
-      projects: ps.map((p) => ({
+      projects: visible.map((p) => ({
         id: p.id,
         name: p.name,
         repos: rs.filter((r) => r.projectId === p.id).map((r) => ({ gitRemote: r.gitRemote })),
@@ -121,6 +137,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
           role: pms.find((pm) => pm.memberId === viewerMemberId && pm.status === "active")?.role ?? "member",
         }
       : undefined;
+    const proj = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
     return {
       decisions: decisionList,
       questions: qs,
@@ -131,6 +148,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
       audit,
       members: memberList,
       viewer,
+      visibility: proj ? projectVisibility(proj.settings) : "shared",
     };
   });
 }
