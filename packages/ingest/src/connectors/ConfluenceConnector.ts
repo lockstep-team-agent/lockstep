@@ -6,10 +6,9 @@ import { slug } from "./GDocsConnector.js";
  * toolkit docs (docs.composio.dev/toolkits/confluence). Composio's Confluence tools are built on the
  * Confluence Cloud REST API **v2** — so `id` is a NUMERIC page id (our parseConfluencePageId already only
  * matches `/pages/<digits>`), and the v1 `expand=body.storage` param is gone.
- *   - CONFLUENCE_GET_PAGE_BY_ID: input `id` (numeric), optional `draft`/`version`. NO `expand`. The v2 body
- *     is requested via `body-format` in the underlying API; Composio's tool doesn't surface that param, so
- *     whether it returns body.storage by default is THE remaining live-verification risk — if the body comes
- *     back empty, fetchDocumentSections yields no sections (never crashes; the parser is empty-tolerant).
+ *   - CONFLUENCE_GET_PAGE_BY_ID: input `id` (numeric; also accepts `page_id`), optional `draft`/`version`.
+ *     NO `expand`/`body-format` — the tool returns storage format by default, at `data.body.storage.value`
+ *     (Confluence storage XHTML), which is exactly the path fetchDocumentSections reads. Confirmed via docs.
  *   - CONFLUENCE_CREATE_FOOTER_COMMENT: target `pageId` (one of pageId/blogPostId/attachmentId/customContentId);
  *     body is an OBJECT `{ representation, value }`, not a plain string.
  */

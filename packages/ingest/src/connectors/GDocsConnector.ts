@@ -1,10 +1,12 @@
 import type { DocumentConnector, DocMeta, DocSection } from "./SourceConnector.js";
 
 /**
- * Composio slugs for the Google Docs doc layer. Slug NAMES + input keys verified against Composio's public
- * toolkit docs (docs.composio.dev/toolkits/googledocs, .../googledrive) — the RESPONSE shapes still need a
- * live sweep to confirm (the connector is coverage-excluded; StubConnector carries CI).
- *   - GOOGLEDOCS_GET_DOCUMENT_BY_ID: input `id` (44-char doc id), optional `includeTabsContent`.
+ * Composio slugs for the Google Docs doc layer. Slug NAMES, input keys, AND response shapes verified against
+ * Composio's public toolkit docs (docs.composio.dev/toolkits/googledocs, .../googledrive).
+ *   - GOOGLEDOCS_GET_DOCUMENT_BY_ID: input `id` (44-char doc id), optional `includeTabsContent`. Returns the
+ *     RAW Google Docs API object (body.content[] → paragraph.elements[].textRun.content +
+ *     paragraphStyle.namedStyleType) — exactly what paragraphs() below walks. We omit includeTabsContent, so
+ *     Google returns legacy first-tab content; a multi-tab doc would need includeTabsContent:true (future).
  *   - There is NO googledocs comment tool — comments are a Drive feature, so writeComment uses
  *     GOOGLEDRIVE_CREATE_COMMENT (app "googledrive", input `file_id`/`content`). This requires the connected
  *     account to carry Drive scope; a docs-only connection can't post the comment (degrades to a failed
