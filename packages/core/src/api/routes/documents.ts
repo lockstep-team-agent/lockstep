@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { withOrg } from "../../db/rls.js";
 import { projectMembers, projects } from "../../db/schema.js";
 import { writeAudit } from "../../audit/audit-service.js";
-import { workerAuthed, ensureMember, requireProductLayer, ensureProjectVisible, canReadProject } from "../guards.js";
+import { workerAuthed, ensureMember, requireProductLayer, ensureProjectVisible, canReadProject, requireProjectRole } from "../guards.js";
 import { getProjectRoleTx } from "../../auth/permissions.js";
 import { setMemberSlackId } from "../../auth/auth-service.js";
 import {
@@ -101,6 +101,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
+    if (!(await ensureProjectVisible(reply, orgId, projectId, memberId))) return;
     if (!(await requireProductLayer(reply, orgId, projectId))) return;
     const b = req.body as { url?: string };
     if (!b?.url) return reply.code(400).send({ error: "url required" });
@@ -168,6 +169,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId, connectionId } = req.params as { orgId: string; projectId: string; connectionId: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { containerRef?: string; sourceValue?: string; canonicalState?: string };
     if (!b?.containerRef || !b?.sourceValue || !b?.canonicalState) {
       return reply.code(400).send({ error: "containerRef, sourceValue, canonicalState required" });
@@ -186,6 +188,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId, connectionId } = req.params as { orgId: string; projectId: string; connectionId: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { containerRef?: string; statusProperty?: string };
     if (!b?.containerRef || !b?.statusProperty) {
       return reply.code(400).send({ error: "containerRef, statusProperty required" });

@@ -16,7 +16,7 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fileProposedDecision, reproposeDocConstraint, similar } from "../ledger/ledger-service.js";
-import { getProjectRoleTx } from "../auth/permissions.js";
+import { getProjectRoleTx, canManageDocTx } from "../auth/permissions.js";
 import { reconcileCandidateTx, type DocForReconcile } from "./reconcile-service.js";
 
 function one<T>(rows: T[]): T {
@@ -181,6 +181,8 @@ export async function setDocumentState(
   return withOrg(orgId, async (tx) => {
     const doc = (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
     if (!doc) throw notFound("document");
+    if (!(await canManageDocTx(tx, { projectId: doc.projectId, memberId, doc })))
+      throw Object.assign(new Error("insufficient_permission"), { statusCode: 403, code: "insufficient_permission" });
     if (doc.stateAuthority !== "native")
       throw Object.assign(new Error("state_authority_mirrored"), { statusCode: 403, code: "state_authority_mirrored" });
     if (doc.state === state) return { state };
@@ -210,6 +212,8 @@ export async function requestResync(orgId: string, docId: string, memberId: stri
   return withOrg(orgId, async (tx) => {
     const doc = (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
     if (!doc) throw notFound("document");
+    if (!(await canManageDocTx(tx, { projectId: doc.projectId, memberId, doc })))
+      throw Object.assign(new Error("insufficient_permission"), { statusCode: 403, code: "insufficient_permission" });
     await tx
       .update(sourceDocuments)
       .set({ forceResync: true, updatedAt: new Date() })
@@ -234,6 +238,8 @@ export async function unregisterDocument(orgId: string, docId: string, memberId:
   return withOrg(orgId, async (tx) => {
     const doc = (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0];
     if (!doc) throw notFound("document");
+    if (!(await canManageDocTx(tx, { projectId: doc.projectId, memberId, doc })))
+      throw Object.assign(new Error("insufficient_permission"), { statusCode: 403, code: "insufficient_permission" });
     await staleConstraintsTx(tx, orgId, doc);
     await tx.delete(sourceDocuments).where(eq(sourceDocuments.id, docId));
     await writeAudit(tx, {

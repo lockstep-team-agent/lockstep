@@ -7,6 +7,7 @@ import {
   connectRepo,
   connectOrJoin,
 } from "../../auth/auth-service.js";
+import { ensureMember, requireProjectRole } from "../guards.js";
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {
@@ -57,6 +58,9 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     const p = req.principal;
     if (!p) return reply.code(401).send({ error: "unauthorized" });
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { gitRemote?: string; isMonorepo?: boolean } | undefined;
     if (!b?.gitRemote) return reply.code(400).send({ error: "gitRemote required" });
     return connectRepo(p, orgId, projectId, b.gitRemote, b.isMonorepo ?? false);

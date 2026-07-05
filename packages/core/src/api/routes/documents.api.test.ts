@@ -154,6 +154,15 @@ test("documents API: flag gate → settings → register → ratify → mappings
     assert.equal(cand.canRatify, false);
     assert.equal(cand.blockedReason, "Document not yet active");
 
+    // §15: a plain member (not registrant, doc owner, or owner/pm) cannot change doc state.
+    const plainState = await app.inject({
+      method: "POST",
+      url: `${base}/documents/${docId}/state`,
+      headers: auth(s.plain.token),
+      payload: { state: "active" },
+    });
+    assert.equal(plainState.statusCode, 403, "member role cannot change doc state (§15)");
+
     const activate = await app.inject({
       method: "POST",
       url: `${base}/documents/${docId}/state`,

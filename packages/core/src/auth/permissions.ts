@@ -33,11 +33,11 @@ export async function getProjectRoleTx(tx: Tx, projectId: string, memberId: stri
 }
 
 /**
- * Ratification of a document constraint: project owner or PM, the member who registered the doc,
- * or the resolved doc owner. Enforced server-side; the dashboard renders disabled buttons with a
- * reason tooltip off the same check.
+ * §15 doc-management gate: the member who registered the doc, the resolved doc owner, or a project
+ * owner/pm. Governs ratification AND the doc-lifecycle mutations (state change, unregister, resync) —
+ * the destructive/state-changing operations. Enforced server-side.
  */
-export async function canRatifyTx(
+export async function canManageDocTx(
   tx: Tx,
   input: { projectId: string; memberId: string; doc: { registeredBy: string | null; ownerMemberId: string | null } },
 ): Promise<boolean> {
@@ -45,3 +45,6 @@ export async function canRatifyTx(
   const role = await getProjectRoleTx(tx, input.projectId, input.memberId);
   return role === "owner" || role === "pm";
 }
+
+/** Ratification uses the same §15 predicate. Kept as a named alias for call-site clarity. */
+export const canRatifyTx = canManageDocTx;

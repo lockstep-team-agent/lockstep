@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { workerAuthed, ensureMember, ensureProjectVisible } from "../guards.js";
+import { workerAuthed, ensureMember, ensureProjectVisible, canReadProject, requireProjectRole } from "../guards.js";
 import {
   listWork,
   setWatermark,
@@ -105,6 +105,7 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { tool?: string };
     const tool = b?.tool ?? "slack";
     // Composio "entity" = the project id, so all sources for a project share one connection identity.
@@ -113,13 +114,15 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/connections", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     return { connections: await listConnections(orgId, projectId) };
   });
 
   app.post("/orgs/:orgId/projects/:projectId/allowlist", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { connectionId?: string; sourceKind?: string; sourceRef?: string; sourceName?: string };
     if (!b?.connectionId || !b?.sourceRef) return reply.code(400).send({ error: "connectionId, sourceRef required" });
     return addAllowlist(orgId, {
@@ -133,7 +136,7 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/orgs/:orgId/projects/:projectId/allowlist", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
     return { allowlist: await listAllowlist(orgId, projectId) };
   });
 
@@ -205,13 +208,17 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/orgs/:orgId/projects/:projectId/graph/derive", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     return deriveGraph(orgId, projectId);
   });
 
   app.post("/orgs/:orgId/projects/:projectId/graph/nodes", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { kind?: string; ref?: string; label?: string };
     if (!b?.kind || !b?.ref) return reply.code(400).send({ error: "kind, ref required" });
     return addNode(orgId, { projectId, kind: b.kind, ref: b.ref, label: b.label });
@@ -219,7 +226,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/orgs/:orgId/projects/:projectId/graph/edges", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
-    if (!(await ensureMember(req, reply, orgId))) return;
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { fromId?: string; toId?: string; kind?: string };
     if (!b?.fromId || !b?.toId) return reply.code(400).send({ error: "fromId, toId required" });
     return addEdge(orgId, { projectId, fromId: b.fromId, toId: b.toId, kind: b.kind });

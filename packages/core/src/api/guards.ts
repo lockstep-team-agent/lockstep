@@ -97,3 +97,26 @@ export async function canReadProject(
   if (!memberId) return false;
   return ensureProjectVisible(reply, orgId, projectId, memberId);
 }
+
+/**
+ * Project WRITE gate: require the caller to hold one of `roles` (owner|pm|member) in the project.
+ * getProjectRoleTx returns null for non-project-members, so this also walls writes on walled AND
+ * shared projects (there is no shared bypass — a write role is a write role). Call after ensureMember.
+ */
+export async function requireProjectRole(
+  reply: FastifyReply,
+  orgId: string,
+  projectId: string,
+  memberId: string,
+  roles: string[],
+): Promise<boolean> {
+  const ok = await withOrg(orgId, async (tx) => {
+    const role = await getProjectRoleTx(tx, projectId, memberId);
+    return role !== null && roles.includes(role);
+  });
+  if (!ok) {
+    reply.code(403).send({ error: "insufficient_role" });
+    return false;
+  }
+  return true;
+}

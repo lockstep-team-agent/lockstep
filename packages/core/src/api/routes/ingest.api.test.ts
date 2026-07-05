@@ -10,7 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { env } from "../../env.js";
 import { withSystem } from "../../db/rls.js";
-import { orgs, principals, members, projects } from "../../db/schema.js";
+import { orgs, principals, members, projects, projectMembers } from "../../db/schema.js";
 import { issueTokenTx } from "../../auth/tokens.js";
 
 function one<T>(rows: T[]): T {
@@ -26,8 +26,22 @@ async function setup() {
   return withSystem(async (tx) => {
     const org = one(await tx.insert(orgs).values({ name: `ApiCo-${n}` }).returning());
     const p = one(await tx.insert(principals).values({ githubUserId: uid(), githubLogin: `m-${n}` }).returning());
-    await tx.insert(members).values({ orgId: org.id, principalId: p.id, githubUserId: p.githubUserId, githubLogin: `m-${n}` });
+    const m = one(
+      await tx
+        .insert(members)
+        .values({ orgId: org.id, principalId: p.id, githubUserId: p.githubUserId, githubLogin: `m-${n}` })
+        .returning(),
+    );
     const proj = one(await tx.insert(projects).values({ orgId: org.id, name: "api" }).returning());
+    // Connector plumbing + graph mutations are owner/pm operations — the actor is a project owner.
+    await tx.insert(projectMembers).values({
+      orgId: org.id,
+      projectId: proj.id,
+      memberId: m.id,
+      invitedGithubLogin: m.githubLogin,
+      role: "owner",
+      status: "active",
+    });
     const token = await issueTokenTx(tx, p.id);
     // an outsider principal — has a token but is NOT a member of the org
     const outsider = one(await tx.insert(principals).values({ githubUserId: uid(), githubLogin: `o-${n}` }).returning());

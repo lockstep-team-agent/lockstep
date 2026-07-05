@@ -88,6 +88,26 @@ test("visibility: shared project is org-readable; walled project gates on projec
   }
 });
 
+test("write gates: connector/graph mutations require owner/pm — a plain member and an outsider are 403", async (t) => {
+  const app: FastifyInstance = buildApp();
+  t.after(() => app.close());
+  const s = await setup();
+  const base = `/orgs/${s.orgId}/projects/${s.projectId}`;
+  const writes: Array<{ url: string; payload: Record<string, unknown> }> = [
+    { url: `${base}/connections`, payload: { tool: "slack" } },
+    { url: `${base}/graph/nodes`, payload: { kind: "team", ref: "team:x" } },
+  ];
+  for (const w of writes) {
+    // Even on a shared project, a plain member (no owner/pm) is denied — this is the §15 tightening.
+    const asMember = await app.inject({ method: "POST", url: w.url, headers: auth(s.member.token), payload: w.payload });
+    assert.equal(asMember.statusCode, 403, `member → 403 on ${w.url}`);
+    const asOutsider = await app.inject({ method: "POST", url: w.url, headers: auth(s.outsider.token), payload: w.payload });
+    assert.equal(asOutsider.statusCode, 403, `outsider → 403 on ${w.url}`);
+    const asOwner = await app.inject({ method: "POST", url: w.url, headers: auth(s.owner.token), payload: w.payload });
+    assert.ok(asOwner.statusCode < 400, `owner allowed on ${w.url} (got ${asOwner.statusCode})`);
+  }
+});
+
 test("visibility: org overview hides a walled project from non-members", async (t) => {
   const app: FastifyInstance = buildApp();
   t.after(() => app.close());
