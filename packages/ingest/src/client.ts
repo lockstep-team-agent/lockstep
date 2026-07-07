@@ -87,7 +87,9 @@ export class LockstepClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers: {
-        "content-type": "application/json",
+        // Only advertise a JSON body when we actually send one — Fastify 400s on an empty body
+        // with content-type: application/json (bit the bodyless /internal/expiry|digests calls).
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
         "x-lockstep-ingest-token": this.token,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

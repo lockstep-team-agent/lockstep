@@ -2,6 +2,29 @@ import type { SourceConnector, Unit, Channel, DocumentConnector, DocMeta, DocSec
 
 export type Tool = "slack" | "jira" | "notion" | "confluence";
 
+/** The subset of the @composio/core v0.13 client surface this connector uses. */
+type V3Client = {
+  authConfigs: {
+    list: (q: { toolkit?: string }) => Promise<{ items?: Array<{ id: string; toolkit?: { slug?: string } }> }>;
+    create: (toolkit: string, opts: { type: string; name?: string }) => Promise<{ id: string }>;
+  };
+  connectedAccounts: {
+    // Composio-managed OAuth configs require `link` (initiate is rejected for them).
+    link: (userId: string, authConfigId: string) => Promise<{ redirectUrl?: string; id?: string }>;
+    get: (id: string) => Promise<{ status?: string }>;
+  };
+  tools: {
+    getRawComposioTools: (query: {
+      toolkits: string[];
+      limit?: number;
+    }) => Promise<Array<{ slug?: string; version?: string }> | { items?: Array<{ slug?: string; version?: string }> }>;
+    execute: (
+      slug: string,
+      body: { userId: string; arguments: Record<string, unknown>; version?: string },
+    ) => Promise<unknown>;
+  };
+};
+
 /**
  * Composio slugs for the v3 doc layer — plausible picks from Composio's Notion action list but NOT yet
  * verified against live Composio (plan A7 risk #1: verify these before the first real doc sweep).
@@ -45,16 +68,50 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
     return this.client as Record<string, unknown>;
   }
 
+  private versionCache: Record<string, string | undefined> = {};
+  private versionsLoaded = false;
+  /** v0.13 manual execute() requires a concrete toolkit version (refuses "latest"); load slug→version once. */
+  private async toolVersion(client: V3Client, slug: string): Promise<string | undefined> {
+    if (!this.versionsLoaded) {
+      const raw = await client.tools.getRawComposioTools({ toolkits: [this.tool], limit: 500 }).catch(() => []);
+      const arr = Array.isArray(raw) ? raw : (raw.items ?? []);
+      for (const t of arr) if (t.slug) this.versionCache[t.slug] = t.version;
+      this.versionsLoaded = true;
+    }
+    return this.versionCache[slug];
+  }
+
   private async exec(slug: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const client = (await this.getClient()) as { tools: { execute: (args: unknown) => Promise<unknown> } };
-    const res = (await client.tools.execute({
-      entity: this.entity,
-      app: this.tool,
-      tool: slug,
-      input,
-    })) as { data?: Record<string, unknown>; successful?: boolean; error?: string };
+    const client = (await this.getClient()) as unknown as V3Client;
+    // @composio/core v0.13: execute(slug, { userId, arguments, version }); Composio resolves the
+    // connected account for this user+toolkit. (The legacy { entity, app, tool, input } shape was retired.)
+    const version = await this.toolVersion(client, slug);
+    const res = (await client.tools.execute(slug, { userId: this.entity, arguments: input, version })) as {
+      data?: Record<string, unknown>;
+      successful?: boolean;
+      error?: string;
+    };
     if (res && res.successful === false) throw new Error(`composio ${slug} failed: ${res.error ?? "unknown"}`);
     return (res?.data ?? {}) as Record<string, unknown>;
+  }
+
+  /**
+   * Composio v0.13 connections require an auth config (per-toolkit). We use Composio-managed auth
+   * ("use_composio_managed_auth") so no self-registered OAuth app is needed; reuse an existing config
+   * for the toolkit if present, else create one. Cached per connector instance.
+   */
+  private authConfigId?: string;
+  private async ensureAuthConfig(): Promise<string> {
+    if (this.authConfigId) return this.authConfigId;
+    const client = (await this.getClient()) as unknown as V3Client;
+    const existing = await client.authConfigs.list({ toolkit: this.tool }).catch(() => ({ items: [] }));
+    const found = (existing.items ?? []).find((a) => (a.toolkit?.slug ?? "").toLowerCase() === this.tool);
+    if (found) return (this.authConfigId = found.id);
+    const created = await client.authConfigs.create(this.tool, {
+      type: "use_composio_managed_auth",
+      name: `lockstep-${this.tool}`,
+    });
+    return (this.authConfigId = created.id);
   }
 
   private sinceEpoch(cursor: string | null): number {
@@ -69,37 +126,16 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
   /* ── OAuth (control-plane) ── */
 
   async initiate(): Promise<{ redirectUrl: string; connectedAccountId: string }> {
-    const client = (await this.getClient()) as {
-      getEntity?: (id: string) => Promise<{ initiateConnection: (o: unknown) => Promise<unknown> }>;
-      connectedAccounts?: { initiate: (o: unknown) => Promise<unknown> };
-    };
-    if (client.getEntity) {
-      const entity = await client.getEntity(this.entity);
-      const conn = (await entity.initiateConnection({ appName: this.tool, authScheme: "OAUTH2" })) as {
-        redirectUrl?: string;
-        redirect_url?: string;
-        connectedAccountId?: string;
-        id?: string;
-      };
-      return {
-        redirectUrl: conn.redirectUrl ?? conn.redirect_url ?? "",
-        connectedAccountId: conn.connectedAccountId ?? conn.id ?? "",
-      };
-    }
-    const conn = (await client.connectedAccounts!.initiate({ entityId: this.entity, app: this.tool })) as {
-      redirectUrl?: string;
-      connectedAccountId?: string;
-      id?: string;
-    };
-    return { redirectUrl: conn.redirectUrl ?? "", connectedAccountId: conn.connectedAccountId ?? conn.id ?? "" };
+    const client = (await this.getClient()) as unknown as V3Client;
+    const authConfigId = await this.ensureAuthConfig();
+    // v0.13 managed-auth: link(userId, authConfigId) → ConnectionRequest { redirectUrl, id }.
+    const req = await client.connectedAccounts.link(this.entity, authConfigId);
+    return { redirectUrl: req.redirectUrl ?? "", connectedAccountId: req.id ?? "" };
   }
 
   async isActive(connectedAccountId: string): Promise<boolean> {
-    const client = (await this.getClient()) as {
-      connectedAccounts?: { get: (o: unknown) => Promise<{ status?: string }> };
-    };
-    if (!client.connectedAccounts?.get) return true;
-    const acc = await client.connectedAccounts.get({ connectedAccountId });
+    const client = (await this.getClient()) as unknown as V3Client;
+    const acc = await client.connectedAccounts.get(connectedAccountId).catch(() => ({ status: "" }));
     return (acc.status ?? "").toUpperCase() === "ACTIVE";
   }
 
@@ -114,7 +150,7 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
     const out: Array<{ slackUserId: string; email: string | null }> = [];
     let cursor: string | null = null;
     do {
-      const d = await this.exec("SLACK_LIST_ALL_SLACK_TEAM_USERS_WITH_PAGINATION", {
+      const d = await this.exec("SLACK_LIST_ALL_USERS", {
         limit: 200,
         ...(cursor ? { cursor } : {}),
       });
@@ -135,7 +171,13 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
   async listChannels(): Promise<Channel[]> {
     switch (this.tool) {
       case "slack": {
-        const d = await this.exec("SLACK_FIND_CHANNELS", { limit: 200, exclude_archived: true });
+        // v0.13 schema: `query` is required (empty = list all); `types` covers public+private.
+        const d = await this.exec("SLACK_FIND_CHANNELS", {
+          query: "",
+          limit: 200,
+          exclude_archived: true,
+          types: "public_channel,private_channel",
+        });
         return arr(d.channels ?? d.results).flatMap((c) => (c.id ? [{ id: String(c.id), name: str(c.name) || String(c.id) }] : []));
       }
       case "jira": {
@@ -326,14 +368,22 @@ function plain(v: unknown): string {
   return "";
 }
 function notionTitle(page: Record<string, unknown>): string {
+  const richText = (t: unknown): string | null =>
+    Array.isArray(t) && (t as Array<{ plain_text?: string }>)[0]?.plain_text
+      ? (t as Array<{ plain_text?: string }>).map((x) => x.plain_text ?? "").join("")
+      : null;
+  // Databases expose their name as a top-level `title` rich-text array.
+  const top = richText(page.title);
+  if (top) return top;
+  // Pages expose it via a title-type property.
   const props = page.properties as Record<string, unknown> | undefined;
   if (props) {
     for (const p of Object.values(props)) {
-      const t = (p as Record<string, unknown>)?.title as Array<{ plain_text?: string }> | undefined;
-      if (Array.isArray(t) && t[0]?.plain_text) return t.map((x) => x.plain_text).join("");
+      const t = richText((p as Record<string, unknown>)?.title);
+      if (t) return t;
     }
   }
-  return str(page.title) || "(untitled)";
+  return "(untitled)";
 }
 function notionStatusValue(prop: unknown): string | null {
   // Notion exposes the status column as either a `select` or a `status` property type — handle both.
