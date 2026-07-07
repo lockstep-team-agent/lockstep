@@ -1,7 +1,7 @@
 import { getOverview } from "@/lib/data";
 import { PageHead, EmptyState } from "@/components/ui";
 import { IconDependencies, IconArrow } from "@/components/icons";
-import { DependencyGraph } from "@/components/Graph";
+import { DependencyGraphFlow } from "@/components/DependencyGraphFlow";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export default async function Page({ params }: { params: { orgId: string; projec
         </EmptyState>
       ) : (
         <>
-          <DependencyGraph repos={repos} dependencies={deps} />
+          <DependencyGraphFlow repos={repos} dependencies={deps} />
           <div className="section-title">All edges</div>
           <div className="card animate-in">
             <div className="rows stagger">
