@@ -7,6 +7,8 @@ import {
   registerDependency,
   recordChange,
   listConsumers,
+  listProjectSurfaces,
+  syncProducedSurfaces,
   queryLedger,
   askQuestion,
   answerQuestion,
@@ -160,6 +162,28 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     const { surface } = req.query as { surface?: string };
     if (!surface) return reply.code(400).send({ error: "surface query param required" });
     return listConsumers(c.orgId, c.projectId, surface, c.repoId);
+  });
+
+  // surfaces — the project's produced-surface catalog; `lockstep scan` matches outbound calls against it
+  app.get("/surfaces", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    const surfaces = await listProjectSurfaces(c.orgId, c.projectId);
+    return { surfaces };
+  });
+
+  // surfaces (sync) — register the surfaces THIS repo produces, so the catalog above stays complete
+  app.post("/surfaces", async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    const b = req.body as { surfaces?: string[] };
+    if (!Array.isArray(b?.surfaces)) return reply.code(400).send({ error: "surfaces array required" });
+    return syncProducedSurfaces(c.orgId, {
+      projectId: c.projectId,
+      repoId: c.repoId,
+      memberId: c.memberId,
+      surfaces: b.surfaces,
+    });
   });
 
   // inbox()

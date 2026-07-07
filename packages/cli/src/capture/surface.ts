@@ -17,7 +17,7 @@ export type SurfaceId = string;
 const HTTP_VERBS = "get|post|put|patch|delete|options|head|all";
 
 /** Normalize a route path: ensure a leading slash, `{id}`→`:id`, strip querystring/trailing slash. */
-function normalizePath(p: string): string {
+export function normalizePath(p: string): string {
   let s = p.split("?")[0]!.trim();
   if (!s.startsWith("/")) s = "/" + s;
   s = s.replace(/\{([^}]+)\}/g, ":$1"); // OpenAPI/Express-style {id} → :id

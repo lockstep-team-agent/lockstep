@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { access } from "node:fs/promises";
 import { applyFile, readIfExists } from "./fsutil.js";
 import { mergeHooks, mergeMcp, mergeStatusLine, upsertManagedBlock } from "./merge.js";
-import { captureHooks, mcpSpec, SKILL_MD, CLAUDE_BLOCK } from "./templates.js";
+import { captureHooks, mcpSpec, SKILL_MD, SETUP_SKILL_MD, CLAUDE_BLOCK } from "./templates.js";
 import type { Scope, VendorAdapter } from "./types.js";
 
 function paths(cwd: string, scope: Scope) {
@@ -13,6 +13,7 @@ function paths(cwd: string, scope: Scope) {
       mcp: join(h, ".mcp.json"),
       hooks: join(h, ".claude", "settings.json"),
       skill: join(h, ".claude", "skills", "lockstep", "SKILL.md"),
+      setupSkill: join(h, ".claude", "skills", "lockstep-setup", "SKILL.md"),
       instructions: join(h, ".claude", "CLAUDE.md"),
     };
   }
@@ -20,6 +21,7 @@ function paths(cwd: string, scope: Scope) {
     mcp: join(cwd, ".mcp.json"),
     hooks: join(cwd, ".claude", "settings.json"),
     skill: join(cwd, ".claude", "skills", "lockstep", "SKILL.md"),
+    setupSkill: join(cwd, ".claude", "skills", "lockstep-setup", "SKILL.md"),
     instructions: join(cwd, "CLAUDE.md"),
   };
 }
@@ -49,6 +51,7 @@ export const claudeAdapter: VendorAdapter = {
         dryRun,
       ),
       await applyFile(p.skill, () => SKILL_MD, dryRun),
+      await applyFile(p.setupSkill, () => SETUP_SKILL_MD, dryRun),
       await applyFile(p.instructions, (cur) => upsertManagedBlock(cur, CLAUDE_BLOCK), dryRun),
     ];
   },

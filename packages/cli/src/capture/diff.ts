@@ -16,3 +16,18 @@ export function changedFiles(cwd: string): string[] {
     return [];
   }
 }
+
+/** Every tracked file in the repo (+ untracked, minus gitignored), read-only. The full-repo walk `lockstep scan` runs over. */
+export function trackedFiles(cwd: string): string[] {
+  try {
+    const tracked = execFileSync("git", ["-C", cwd, "ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
+    const untracked = execFileSync("git", ["-C", cwd, "ls-files", "--others", "--exclude-standard"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(Boolean);
+    return [...new Set([...tracked, ...untracked])];
+  } catch {
+    return [];
+  }
+}

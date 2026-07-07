@@ -44,3 +44,23 @@ test("init writes config, is idempotent on disk, and preserves foreign config", 
   const v = await claudeAdapter.verify(dir, "project");
   assert.ok(v.ok, "verify passes after install");
 });
+
+test("init installs the lockstep-setup onboarding skill", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lockstep-setup-init-"));
+  await mkdir(join(dir, ".claude"), { recursive: true });
+
+  const results = await claudeAdapter.install(dir, "project", false);
+  const setup = await readFile(join(dir, ".claude", "skills", "lockstep-setup", "SKILL.md"), "utf8");
+  assert.ok(setup.includes("name: lockstep-setup"), "setup skill frontmatter written");
+  assert.ok(setup.includes("lockstep scan"), "setup skill drives the scan command");
+  assert.ok(
+    results.some((r) => r.includes("lockstep-setup")),
+    "install reports the setup-skill artifact",
+  );
+
+  const dry = await claudeAdapter.install(dir, "project", true);
+  assert.ok(
+    dry.some((r) => r.startsWith("unchanged") && r.includes("lockstep-setup")),
+    "dry-run reports the setup skill unchanged after install",
+  );
+});

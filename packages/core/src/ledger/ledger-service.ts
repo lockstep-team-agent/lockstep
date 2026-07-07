@@ -37,6 +37,32 @@ function conflict(message: string): Error {
 
 const SURFACE_SCOPES = new Set(["surface", "contract", "shared"]);
 
+/**
+ * Which repo in this project *produces* a given surface — the closed-world lookup that powers
+ * graph-resolved dependencies. A dependency edge whose producer is known links the two repos in the
+ * graph; this is what lets `lockstep scan` match an outbound call to the sibling repo that serves it.
+ * Matches on the canonical surface ID (exact string). Excludes the asking repo (a repo doesn't
+ * "consume" its own surface). Returns null when no sibling produces it (i.e. an external dependency).
+ */
+async function producerRepoForSurfaceTx(
+  tx: Tx,
+  projectId: string,
+  surface: string,
+  excludeRepoId?: string,
+): Promise<string | null> {
+  const rps = await tx.select({ id: repos.id }).from(repos).where(eq(repos.projectId, projectId));
+  const repoIds = rps.map((r) => r.id).filter((id) => id !== excludeRepoId);
+  if (repoIds.length === 0) return null;
+  const c = (
+    await tx
+      .select({ repoId: contracts.repoId })
+      .from(contracts)
+      .where(and(inArray(contracts.repoId, repoIds), eq(contracts.surface, surface)))
+      .limit(1)
+  )[0];
+  return c?.repoId ?? null;
+}
+
 /** Distinct consumers of a surface in the usage graph = its blast radius. */
 async function consumerCountTx(tx: Tx, projectId: string, surface: string): Promise<number> {
   const edges = await tx
@@ -965,7 +991,21 @@ export async function registerDependency(
         )
         .limit(1)
     )[0];
-    if (existing) return { edgeId: existing.id };
+
+    // Resolve the producer from the project's produced-surface catalog (contracts) when the caller
+    // didn't supply one — this is what turns a bare "I consume X" into a graph edge that links to the
+    // sibling repo serving X. Self-healing: an edge created before the producer onboarded gets its
+    // producer backfilled on the next re-sync.
+    const producedRepoId =
+      input.producedRepoId ??
+      (await producerRepoForSurfaceTx(tx, input.projectId, input.producedSurface, input.consumerRepoId));
+
+    if (existing) {
+      if (producedRepoId && !existing.producedRepoId) {
+        await tx.update(dependencyEdges).set({ producedRepoId }).where(eq(dependencyEdges.id, existing.id));
+      }
+      return { edgeId: existing.id };
+    }
 
     const edge = one(
       await tx
@@ -974,7 +1014,7 @@ export async function registerDependency(
           orgId,
           projectId: input.projectId,
           consumerRepoId: input.consumerRepoId,
-          producedRepoId: input.producedRepoId ?? null,
+          producedRepoId,
           producedSurface: input.producedSurface,
           source: input.source ?? "register_dependency",
           createdBy: input.memberId,
@@ -1022,6 +1062,93 @@ export async function listConsumers(
       consumers.push({ repoId, gitRemote: r?.gitRemote ?? "(unknown)" });
     }
     return { surface, count: consumers.length, consumers };
+  });
+}
+
+export interface ProjectSurface {
+  surface: string;
+  repoId: string;
+  gitRemote: string;
+}
+
+/**
+ * The project's produced-surface catalog: every canonical surface any repo in the project produces,
+ * with the producing repo. This is the closed-world set `lockstep scan` matches a repo's outbound
+ * calls against to resolve `consumes` — the graph-resolved onboarding path. Sourced from `contracts`
+ * (the produced-surface registry, now kept complete by `syncProducedSurfaces`) plus any edges whose
+ * producer is already known. Session-scoped to the caller's project, so walled-project boundaries hold.
+ */
+export async function listProjectSurfaces(orgId: string, projectId: string): Promise<ProjectSurface[]> {
+  return withOrg(orgId, async (tx) => {
+    const rps = await tx
+      .select({ id: repos.id, gitRemote: repos.gitRemote })
+      .from(repos)
+      .where(eq(repos.projectId, projectId));
+    const remoteById = new Map(rps.map((r) => [r.id, r.gitRemote]));
+    const repoIds = rps.map((r) => r.id);
+    const out = new Map<string, ProjectSurface>(); // key = surface + repoId (a surface can be produced by >1 repo)
+    if (repoIds.length > 0) {
+      for (const c of await tx.select().from(contracts).where(inArray(contracts.repoId, repoIds))) {
+        out.set(`${c.surface} ${c.repoId}`, {
+          surface: c.surface,
+          repoId: c.repoId,
+          gitRemote: remoteById.get(c.repoId) ?? "(unknown)",
+        });
+      }
+    }
+    const edges = await tx
+      .select()
+      .from(dependencyEdges)
+      .where(and(eq(dependencyEdges.projectId, projectId), eq(dependencyEdges.active, true)));
+    for (const e of edges) {
+      if (e.producedRepoId && remoteById.has(e.producedRepoId)) {
+        out.set(`${e.producedSurface} ${e.producedRepoId}`, {
+          surface: e.producedSurface,
+          repoId: e.producedRepoId,
+          gitRemote: remoteById.get(e.producedRepoId)!,
+        });
+      }
+    }
+    return [...out.values()];
+  });
+}
+
+/**
+ * Register a repo's produced surfaces into the catalog (idempotent). `lockstep scan --apply` calls
+ * this so `produces:` is synced server-side — without it the catalog is incomplete (a `contracts`
+ * row was only ever written when a change carried an interface *delta*). Extracted from source, not
+ * runtime-verified: `verified:false` / `verifiedAgainst:"source-extracted"` (see IMPROVEMENTS #4).
+ */
+export async function syncProducedSurfaces(
+  orgId: string,
+  input: { projectId: string; repoId: string; memberId?: string; surfaces: string[] },
+): Promise<{ added: number; total: number }> {
+  return withOrg(orgId, async (tx) => {
+    let added = 0;
+    for (const surface of [...new Set(input.surfaces)]) {
+      const existing = (
+        await tx
+          .select({ id: contracts.id })
+          .from(contracts)
+          .where(and(eq(contracts.repoId, input.repoId), eq(contracts.surface, surface)))
+          .limit(1)
+      )[0];
+      if (existing) continue;
+      await tx.insert(contracts).values({
+        orgId,
+        repoId: input.repoId,
+        surface,
+        delta: null,
+        verified: false,
+        verifiedAgainst: "source-extracted",
+        verificationStatus: "asserted_unverified",
+        createdBy: input.memberId ?? null,
+      });
+      added++;
+    }
+    const total = (await tx.select({ id: contracts.id }).from(contracts).where(eq(contracts.repoId, input.repoId)))
+      .length;
+    return { added, total };
   });
 }
 

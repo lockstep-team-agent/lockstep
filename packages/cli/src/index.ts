@@ -22,6 +22,7 @@ usage: lockstep <command>
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
   connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
+  scan  [--json] [--apply] [--dry-run]              scan the repo → propose lockstep.yaml (produces + graph-resolved consumes)
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
   doctor                                            diagnose vendor config
@@ -63,6 +64,10 @@ async function main(): Promise<void> {
       });
     case "connect":
       return runConnect({ org: val("org"), project: val("project") });
+    case "scan": {
+      const { runScan } = await import("./scan.js");
+      return runScan({ json: has("json"), apply: has("apply"), dryRun: has("dry-run") });
+    }
     case "invite": {
       const handle = argv[1];
       if (!handle) {
