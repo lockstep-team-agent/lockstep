@@ -6,6 +6,9 @@ import {
   finalizeConnection,
   createConnection,
   listConnections,
+  initiateConnection,
+  checkConnection,
+  listConnectionSources,
   addAllowlist,
   listAllowlist,
 } from "../../ingest/ingest-service.js";
@@ -116,6 +119,31 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     if (!(await canReadProject(req, reply, orgId, projectId))) return;
     return { connections: await listConnections(orgId, projectId) };
+  });
+
+  // Dashboard-driven OAuth: start the Composio authorize flow server-side (the API key never leaves core).
+  app.post("/orgs/:orgId/projects/:projectId/connections/:id/initiate", async (req, reply) => {
+    const { orgId, projectId, id } = req.params as { orgId: string; projectId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
+    const b = req.body as { callbackUrl?: string };
+    if (!b?.callbackUrl) return reply.code(400).send({ error: "callbackUrl required" });
+    return initiateConnection(orgId, id, b.callbackUrl);
+  });
+
+  // Poll status when the user returns from the authorize page — flips to active once Composio confirms.
+  app.get("/orgs/:orgId/projects/:projectId/connections/:id/status", async (req, reply) => {
+    const { orgId, projectId, id } = req.params as { orgId: string; projectId: string; id: string };
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
+    return checkConnection(orgId, id);
+  });
+
+  // Connectable sources (Slack channels / Notion databases) for the dashboard picker.
+  app.get("/orgs/:orgId/projects/:projectId/connections/:id/sources", async (req, reply) => {
+    const { orgId, projectId, id } = req.params as { orgId: string; projectId: string; id: string };
+    if (!(await canReadProject(req, reply, orgId, projectId))) return;
+    return { sources: await listConnectionSources(orgId, id) };
   });
 
   app.post("/orgs/:orgId/projects/:projectId/allowlist", async (req, reply) => {

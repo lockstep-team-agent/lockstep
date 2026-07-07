@@ -65,6 +65,16 @@ export const getConnections = (orgId: string, projectId: string) =>
 export const getAllowlist = (orgId: string, projectId: string) =>
   apiGet<{ allowlist: AllowlistEntry[] }>(`/orgs/${orgId}/projects/${projectId}/allowlist`);
 
+/** Poll a connection's OAuth status (finalizes it server-side once Composio confirms active). */
+export const checkConnectionStatus = (orgId: string, projectId: string, id: string) =>
+  apiGet<{ status: string }>(`/orgs/${orgId}/projects/${projectId}/connections/${id}/status`);
+
+/** Connectable sources (Slack channels / Notion databases) for the dashboard picker. */
+export const getConnectionSources = (orgId: string, projectId: string, id: string) =>
+  apiGet<{ sources: Array<{ id: string; name: string }> }>(
+    `/orgs/${orgId}/projects/${projectId}/connections/${id}/sources`,
+  );
+
 export const searchDecisions = (orgId: string, projectId: string, qs: string) =>
   apiGet<{ decisions: ProposedDecision[] }>(`/orgs/${orgId}/projects/${projectId}/decisions/search${qs}`);
 
@@ -231,11 +241,7 @@ export const getFeature = (orgId: string, projectId: string, ref: string) =>
   apiGet<FeatureDetail>(`/orgs/${orgId}/projects/${projectId}/features/${encodeURIComponent(ref)}`);
 
 export type ConflictKind = "pre_approval" | "drift";
-export type ConflictStatus =
-  | "open"
-  | "resolved_eng_revised"
-  | "resolved_prd_amended"
-  | "dismissed";
+export type ConflictStatus = "open" | "resolved_eng_revised" | "resolved_prd_amended" | "dismissed";
 
 export interface ConflictView {
   id: string;
@@ -259,8 +265,7 @@ export const getConflicts = (orgId: string, projectId: string, status?: string) 
     `/orgs/${orgId}/projects/${projectId}/conflicts${status ? `?status=${status}` : ""}`,
   );
 
-export const conflictKindLabel = (k: ConflictKind): string =>
-  k === "pre_approval" ? "pre-approval" : "drift";
+export const conflictKindLabel = (k: ConflictKind): string => (k === "pre_approval" ? "pre-approval" : "drift");
 
 export const constraintKindLabel = (k: ConstraintKind): string => k.replace(/_/g, " ");
 

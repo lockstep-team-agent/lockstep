@@ -1,9 +1,10 @@
-import { getConnections, getAllowlist, getStateMappings, timeAgo } from "@/lib/data";
+import { getConnections, getAllowlist, getStateMappings, checkConnectionStatus, timeAgo } from "@/lib/data";
 import type { StateMappingContainer } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconMembers } from "@/components/icons";
 import {
   createConnectionAction,
+  initiateConnectionAction,
   addAllowlistAction,
   setStateMappingAction,
   setStatusPropertyAction,
@@ -12,7 +13,13 @@ import {
 export const dynamic = "force-dynamic";
 
 const TOOLS = ["slack", "jira", "notion", "gdocs", "confluence"] as const;
-const SOURCE_KIND: Record<string, string> = { slack: "channel", jira: "project", notion: "database", gdocs: "folder", confluence: "space" };
+const SOURCE_KIND: Record<string, string> = {
+  slack: "channel",
+  jira: "project",
+  notion: "database",
+  gdocs: "folder",
+  confluence: "space",
+};
 const SOURCE_HINT: Record<string, string> = {
   slack: "channel id e.g. C0123456789",
   jira: "project key e.g. PLATFORM",
@@ -22,8 +29,16 @@ const SOURCE_HINT: Record<string, string> = {
 };
 const CANONICAL_STATES = ["draft", "review", "active", "archived"] as const;
 
-export default async function Page({ params }: { params: { orgId: string; projectId: string } }) {
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: { orgId: string; projectId: string };
+  searchParams?: { connected?: string };
+}) {
   const { orgId, projectId } = params;
+  // Returning from the Composio authorize page (?connected=<id>) → finalize before we render the list.
+  if (searchParams?.connected) await checkConnectionStatus(orgId, projectId, searchParams.connected);
   const [conns, allow] = await Promise.all([getConnections(orgId, projectId), getAllowlist(orgId, projectId)]);
   const connections = conns?.connections ?? [];
   const allowlist = allow?.allowlist ?? [];
@@ -48,11 +63,15 @@ export default async function Page({ params }: { params: { orgId: string; projec
       <form action={createConnectionAction} className="card animate-in" style={{ padding: 16, marginBottom: 16 }}>
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="projectId" value={projectId} />
-        <div className="title" style={{ marginBottom: 8 }}>Connect a tool</div>
+        <div className="title" style={{ marginBottom: 8 }}>
+          Connect a tool
+        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select name="tool" className="input" defaultValue="slack">
             {TOOLS.filter((t) => !connectedTools.has(t)).map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {t}
+              </option>
             ))}
           </select>
           <button className="btn primary">Create connection</button>
@@ -72,7 +91,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
             <div className="card animate-in" key={c.id} style={{ marginBottom: 16, padding: 16 }}>
               <div className="row" style={{ marginBottom: 8 }}>
                 <div className="body">
-                  <div className="title" style={{ textTransform: "capitalize" }}>{c.tool}</div>
+                  <div className="title" style={{ textTransform: "capitalize" }}>
+                    {c.tool}
+                  </div>
                   <div className="meta">
                     <span className="code-ref">{c.id}</span>
                     {c.connectedAccountId && <span>account {c.connectedAccountId.slice(0, 12)}…</span>}
@@ -82,9 +103,15 @@ export default async function Page({ params }: { params: { orgId: string; projec
               </div>
 
               {c.status !== "active" && (
-                <pre className="code-ref" style={{ padding: 10, overflowX: "auto", margin: "6px 0" }}>
-                  {`lockstep-ingest connect --connection ${c.id} --entity ${c.entity} --tool ${c.tool}`}
-                </pre>
+                <form action={initiateConnectionAction} style={{ margin: "6px 0" }}>
+                  <input type="hidden" name="orgId" value={orgId} />
+                  <input type="hidden" name="projectId" value={projectId} />
+                  <input type="hidden" name="connectionId" value={c.id} />
+                  <button className="btn primary">Authorize {c.tool} →</button>
+                  <span className="meta" style={{ marginLeft: 8 }}>
+                    opens {c.tool} to grant access, then returns here
+                  </span>
+                </form>
               )}
 
               {entries.length > 0 && (
@@ -115,13 +142,19 @@ export default async function Page({ params }: { params: { orgId: string; projec
                   <button className="btn primary">Add {kind}</button>
                 </div>
                 <p style={{ color: "var(--muted)", marginTop: 6, marginBottom: 0 }}>
-                  Find ids with <span className="code-ref">lockstep-ingest channels --entity {c.entity} --tool {c.tool}</span>.
+                  Find ids with{" "}
+                  <span className="code-ref">
+                    lockstep-ingest channels --entity {c.entity} --tool {c.tool}
+                  </span>
+                  .
                 </p>
               </form>
 
               {c.tool === "notion" && c.status === "active" && (
                 <div style={{ marginTop: 18 }}>
-                  <div className="section-title" style={{ margin: "0 0 8px" }}>State mappings</div>
+                  <div className="section-title" style={{ margin: "0 0 8px" }}>
+                    State mappings
+                  </div>
                   {containers.length === 0 ? (
                     <p style={{ color: "var(--dim)", margin: 0 }}>
                       Allowlist a Notion database to configure how its status values map to document states.
@@ -186,7 +219,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
                                     >
                                       <option value="">—</option>
                                       {CANONICAL_STATES.map((s) => (
-                                        <option key={s} value={s}>{s}</option>
+                                        <option key={s} value={s}>
+                                          {s}
+                                        </option>
                                       ))}
                                     </select>
                                     <button className="btn">Map</button>
@@ -208,9 +243,16 @@ export default async function Page({ params }: { params: { orgId: string; projec
                               style={{ maxWidth: 220 }}
                               required
                             />
-                            <select name="canonicalState" className="input" defaultValue="draft" style={{ maxWidth: 140 }}>
+                            <select
+                              name="canonicalState"
+                              className="input"
+                              defaultValue="draft"
+                              style={{ maxWidth: 140 }}
+                            >
                               {CANONICAL_STATES.map((s) => (
-                                <option key={s} value={s}>{s}</option>
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
                               ))}
                             </select>
                             <button className="btn">Add mapping</button>

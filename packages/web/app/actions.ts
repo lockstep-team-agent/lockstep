@@ -1,5 +1,5 @@
 "use server";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { apiPost, apiDelete } from "./lib/api";
@@ -86,6 +86,22 @@ export async function createConnectionAction(formData: FormData): Promise<void> 
     tool: String(formData.get("tool") ?? "slack"),
   });
   revalidatePath(`/project/${orgId}/${projectId}/connections`);
+}
+
+export async function initiateConnectionAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const connectionId = String(formData.get("connectionId") ?? "");
+  const h = headers();
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const callbackUrl = `${proto}://${host}/project/${orgId}/${projectId}/connections?connected=${connectionId}`;
+  const res = await apiPost<{ redirectUrl?: string }>(
+    `/orgs/${orgId}/projects/${projectId}/connections/${connectionId}/initiate`,
+    { callbackUrl },
+  );
+  // redirect() throws NEXT_REDIRECT — must be outside any try/catch.
+  redirect(res?.redirectUrl || `/project/${orgId}/${projectId}/connections?error=initiate_failed`);
 }
 
 export async function addAllowlistAction(formData: FormData): Promise<void> {

@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { withOrg, withSystem } from "../db/rls.js";
 import { sourceConnections, ingestAllowlist, ingestWatermarks } from "../db/schema.js";
+import * as defaultComposio from "./composio.js";
+import type { Tool as ComposioTool } from "./composio.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -139,6 +141,69 @@ export async function listConnections(
       connectedAccountId: r.connectedAccountId,
     }));
   });
+}
+
+/** Load one connection's OAuth-relevant fields (scoped to the caller's org via RLS). */
+async function getConnectionTx(
+  orgId: string,
+  connectionId: string,
+): Promise<{ id: string; tool: string; entity: string; status: string; connectedAccountId: string | null } | null> {
+  return withOrg(orgId, async (tx) => {
+    const r = (await tx.select().from(sourceConnections).where(eq(sourceConnections.id, connectionId)).limit(1))[0];
+    return r
+      ? { id: r.id, tool: r.tool, entity: r.entity, status: r.status, connectedAccountId: r.connectedAccountId }
+      : null;
+  });
+}
+
+/**
+ * Start dashboard-driven OAuth for a connection: ask Composio for a hosted authorize URL (server holds
+ * the API key), persist the returned connectedAccountId, and return the URL for the browser. `composio`
+ * is injectable for tests.
+ */
+export async function initiateConnection(
+  orgId: string,
+  connectionId: string,
+  callbackUrl: string,
+  composio: Pick<typeof import("./composio.js"), "link"> = defaultComposio,
+): Promise<{ redirectUrl: string }> {
+  const conn = await getConnectionTx(orgId, connectionId);
+  if (!conn) throw Object.assign(new Error("connection not found"), { statusCode: 404 });
+  const { redirectUrl, connectedAccountId } = await composio.link(conn.tool as ComposioTool, conn.entity, callbackUrl);
+  await withSystem(async (tx) => {
+    await tx.update(sourceConnections).set({ connectedAccountId }).where(eq(sourceConnections.id, connectionId));
+  });
+  return { redirectUrl };
+}
+
+/**
+ * Poll a connection's status: if OAuth finished (Composio account ACTIVE), flip it to active. Returns the
+ * (possibly updated) status. The dashboard calls this when the user returns from the authorize page.
+ */
+export async function checkConnection(
+  orgId: string,
+  connectionId: string,
+  composio: Pick<typeof import("./composio.js"), "isActive"> = defaultComposio,
+): Promise<{ status: string }> {
+  const conn = await getConnectionTx(orgId, connectionId);
+  if (!conn) throw Object.assign(new Error("connection not found"), { statusCode: 404 });
+  if (conn.status !== "active" && conn.connectedAccountId && (await composio.isActive(conn.connectedAccountId))) {
+    await finalizeConnection(connectionId, conn.connectedAccountId);
+    return { status: "active" };
+  }
+  return { status: conn.status };
+}
+
+/** List the connectable sources (channels / databases) for a connection, for the dashboard picker. */
+export async function listConnectionSources(
+  orgId: string,
+  connectionId: string,
+  composio: Pick<typeof import("./composio.js"), "listSources"> = defaultComposio,
+): Promise<Array<{ id: string; name: string }>> {
+  const conn = await getConnectionTx(orgId, connectionId);
+  if (!conn) throw Object.assign(new Error("connection not found"), { statusCode: 404 });
+  if (conn.status !== "active") return [];
+  return composio.listSources(conn.tool as ComposioTool, conn.entity);
 }
 
 export async function addAllowlist(
