@@ -1,6 +1,14 @@
-import { getConnections, getAllowlist, getStateMappings, checkConnectionStatus, timeAgo } from "@/lib/data";
+import {
+  getConnections,
+  getAllowlist,
+  getStateMappings,
+  getConnectionSources,
+  checkConnectionStatus,
+  timeAgo,
+} from "@/lib/data";
 import type { StateMappingContainer } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
+import { SourcePicker, type Source } from "@/components/SourcePicker";
 import { IconMembers } from "@/components/icons";
 import {
   createConnectionAction,
@@ -51,6 +59,18 @@ export default async function Page({
       const m = await getStateMappings(orgId, projectId, c.id);
       mappingsByConn.set(c.id, m?.containers ?? []);
     }),
+  );
+
+  // Fetch the connectable sources for each active connection so the allowlist form can offer a
+  // searchable picker instead of raw-id entry.
+  const sourcesByConn = new Map<string, Source[]>();
+  await Promise.all(
+    connections
+      .filter((c) => c.status === "active")
+      .map(async (c) => {
+        const s = await getConnectionSources(orgId, projectId, c.id);
+        sourcesByConn.set(c.id, s?.sources ?? []);
+      }),
   );
 
   return (
@@ -136,18 +156,10 @@ export default async function Page({
                 <input type="hidden" name="projectId" value={projectId} />
                 <input type="hidden" name="connectionId" value={c.id} />
                 <input type="hidden" name="sourceKind" value={kind} />
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <input name="sourceRef" placeholder={SOURCE_HINT[c.tool]} className="input" required />
-                  <input name="sourceName" placeholder="label (optional)" className="input" />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                  <SourcePicker sources={sourcesByConn.get(c.id) ?? []} hint={SOURCE_HINT[c.tool]} />
                   <button className="btn primary">Add {kind}</button>
                 </div>
-                <p style={{ color: "var(--muted)", marginTop: 6, marginBottom: 0 }}>
-                  Find ids with{" "}
-                  <span className="code-ref">
-                    lockstep-ingest channels --entity {c.entity} --tool {c.tool}
-                  </span>
-                  .
-                </p>
               </form>
 
               {c.tool === "notion" && c.status === "active" && (
