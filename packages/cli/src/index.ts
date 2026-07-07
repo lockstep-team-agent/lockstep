@@ -22,6 +22,7 @@ usage: lockstep <command>
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
   connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
+  onboard [--project <name>]                        one step: init + connect (for a teammate joining a repo)
   scan  [--json] [--apply] [--dry-run]              scan the repo → propose lockstep.yaml (produces + graph-resolved consumes)
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
@@ -64,6 +65,14 @@ async function main(): Promise<void> {
       });
     case "connect":
       return runConnect({ org: val("org"), project: val("project") });
+    case "onboard": {
+      // One-step teammate onboarding: wire the repo (init) then link it (connect).
+      await runInit({ vendor: val("vendor"), scope: (val("scope") as Scope) ?? "project", dryRun: has("dry-run") });
+      if (has("dry-run")) return;
+      await runConnect({ org: val("org"), project: val("project") });
+      console.log("\nOnboarded. Run `lockstep scan` to propose this repo's dependencies.");
+      return;
+    }
     case "scan": {
       const { runScan } = await import("./scan.js");
       return runScan({ json: has("json"), apply: has("apply"), dryRun: has("dry-run") });

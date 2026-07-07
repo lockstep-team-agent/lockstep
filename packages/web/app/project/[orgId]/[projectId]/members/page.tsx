@@ -240,8 +240,11 @@ export default async function Page({ params }: { params: { orgId: string; projec
         </p>
         <pre className="mono" style={preStyle}>{`npm i -g lockstep-cli
 lockstep login --api ${api}
-lockstep init
-lockstep connect --project "${projectName}"`}</pre>
+lockstep onboard --project "${projectName}"`}</pre>
+        <p style={{ color: "var(--dim)", fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+          <code>onboard</code> wires the repo for their agent (hooks + MCP + skills) and links it to this project in one
+          step.
+        </p>
       </div>
     </>
   );
