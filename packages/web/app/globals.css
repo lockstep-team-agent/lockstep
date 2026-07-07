@@ -265,6 +265,13 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* the nav is the scrollable region so a long item list can't clip below the fold;
+     brand/switcher stay above, .sidebar-foot stays pinned below. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 0 6px;
 }
 .nav-item {
   display: flex;
