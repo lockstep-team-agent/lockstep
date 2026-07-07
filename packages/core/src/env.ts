@@ -15,6 +15,7 @@ const schema = z.object({
 
   // GitHub App — required in production, optional in dev so the server boots.
   GITHUB_APP_ID: z.string().optional(),
+  GITHUB_APP_SLUG: z.string().optional(), // app slug for the dashboard "Install GitHub App" link
   GITHUB_APP_CLIENT_ID: z.string().optional(),
   GITHUB_APP_CLIENT_SECRET: z.string().optional(), // for the dashboard web OAuth code exchange
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),

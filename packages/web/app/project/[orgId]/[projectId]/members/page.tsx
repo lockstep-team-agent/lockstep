@@ -1,8 +1,14 @@
 import { apiGet } from "@/lib/api";
-import { getOverview } from "@/lib/data";
+import { getOverview, getGithubInstall } from "@/lib/data";
 import { PageHead, StatusPill } from "@/components/ui";
 import { IconRepo } from "@/components/icons";
-import { inviteAction, connectRepoAction, updateMemberRoleAction, setVisibilityAction, setMemberSlackAction } from "@/actions";
+import {
+  inviteAction,
+  connectRepoAction,
+  updateMemberRoleAction,
+  setVisibilityAction,
+  setMemberSlackAction,
+} from "@/actions";
 import type { OrgOverview } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +38,46 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const repos = o?.repos ?? [];
   const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const api = process.env.LOCKSTEP_API_URL ?? "https://your-core";
+  const ghInstall = await getGithubInstall(orgId);
+  const appSlug = process.env.GITHUB_APP_SLUG;
+  const installUrl = appSlug
+    ? `https://github.com/apps/${appSlug}/installations/new?state=${orgId}:${projectId}`
+    : null;
 
   return (
     <>
       <PageHead title="Members & Repos" subtitle="People in this project, connected repos, and how to onboard more." />
 
-      <div className="section-title">Visibility</div>
+      <div className="section-title">GitHub App</div>
+      <div className="card pad animate-in">
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>
+          Lockstep reads repos and CODEOWNERS through a GitHub App you install on your org — scoped and revocable, never
+          a personal token.
+        </p>
+        {ghInstall?.installed ? (
+          <div className="inline">
+            <StatusPill status="active" />
+            <span style={{ color: "var(--muted)" }}>
+              Installed{ghInstall.accountLogin ? ` on ${ghInstall.accountLogin}` : ""}.
+            </span>
+            {installUrl && (
+              <a className="btn ghost" href={installUrl} target="_blank" rel="noreferrer">
+                Manage / add repos ↗
+              </a>
+            )}
+          </div>
+        ) : installUrl ? (
+          <a className="btn primary" href={installUrl} target="_blank" rel="noreferrer">
+            Install GitHub App ↗
+          </a>
+        ) : (
+          <span style={{ color: "var(--dim)" }}>Set GITHUB_APP_SLUG to enable one-click install.</span>
+        )}
+      </div>
+
+      <div className="section-title" style={{ marginTop: 18 }}>
+        Visibility
+      </div>
       <div className="card pad animate-in">
         <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>
           <strong>Shared</strong> — any member of the org can read this project. <strong>Walled</strong> — only the
@@ -47,7 +87,13 @@ export default async function Page({ params }: { params: { orgId: string; projec
         <form className="inline" action={setVisibilityAction}>
           <input type="hidden" name="orgId" value={orgId} />
           <input type="hidden" name="projectId" value={projectId} />
-          <select name="visibility" className="input" defaultValue={visibility} disabled={!isOwner} style={{ maxWidth: 160 }}>
+          <select
+            name="visibility"
+            className="input"
+            defaultValue={visibility}
+            disabled={!isOwner}
+            style={{ maxWidth: 160 }}
+          >
             <option value="shared">Shared with org</option>
             <option value="walled">Walled — members only</option>
           </select>
@@ -55,7 +101,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
             <button className="btn">Update visibility</button>
           ) : (
             <span className="tip" data-tip="Only project owners can change visibility">
-              <button className="btn" disabled>Update visibility</button>
+              <button className="btn" disabled>
+                Update visibility
+              </button>
             </span>
           )}
         </form>
@@ -75,9 +123,13 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <div className="meta">
                       <StatusPill status={m.status} />
                       {m.slackUserId ? (
-                        <span className="pill" style={{ marginLeft: 6 }}>Slack linked</span>
+                        <span className="pill" style={{ marginLeft: 6 }}>
+                          Slack linked
+                        </span>
                       ) : (
-                        <span className="pill" style={{ marginLeft: 6, color: "var(--dim)" }}>No Slack</span>
+                        <span className="pill" style={{ marginLeft: 6, color: "var(--dim)" }}>
+                          No Slack
+                        </span>
                       )}
                     </div>
                   </div>
@@ -108,14 +160,18 @@ export default async function Page({ params }: { params: { orgId: string; projec
                       style={{ maxWidth: 120 }}
                     >
                       {ROLES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
                       ))}
                     </select>
                     {isOwner ? (
                       <button className="btn">Update role</button>
                     ) : (
                       <span className="tip" data-tip="Only project owners can change roles">
-                        <button className="btn" disabled>Update role</button>
+                        <button className="btn" disabled>
+                          Update role
+                        </button>
                       </span>
                     )}
                   </form>
@@ -139,7 +195,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
         <input className="input" name="githubLogin" placeholder="github-handle" style={{ maxWidth: 240 }} />
         <select name="role" className="input" defaultValue="member" style={{ maxWidth: 120 }}>
           {ROLES.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>
+              {r}
+            </option>
           ))}
         </select>
         <button className="btn primary" type="submit">

@@ -8,6 +8,7 @@ import {
   connectOrJoin,
 } from "../../auth/auth-service.js";
 import { ensureMember, requireProjectRole } from "../guards.js";
+import { recordInstallation, getInstallation } from "../../graph/ownership-service.js";
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {
@@ -64,5 +65,28 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     const b = req.body as { gitRemote?: string; isMonorepo?: boolean } | undefined;
     if (!b?.gitRemote) return reply.code(400).send({ error: "gitRemote required" });
     return connectRepo(p, orgId, projectId, b.gitRemote, b.isMonorepo ?? false);
+  });
+
+  // Record the GitHub App installation for this org (dashboard install flow). The installation id is
+  // verified against GitHub via the App JWT, so a member can't attach an arbitrary id.
+  app.post("/orgs/:orgId/github/install", async (req, reply) => {
+    const { orgId } = req.params as { orgId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    const b = req.body as { installationId?: number | string } | undefined;
+    const installationId = Number(b?.installationId);
+    if (!installationId) return reply.code(400).send({ error: "installationId required" });
+    try {
+      return await recordInstallation(orgId, installationId);
+    } catch {
+      return reply.code(400).send({ error: "installation not found on GitHub" });
+    }
+  });
+
+  app.get("/orgs/:orgId/github/install", async (req, reply) => {
+    const { orgId } = req.params as { orgId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    return getInstallation(orgId);
   });
 }

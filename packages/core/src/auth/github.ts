@@ -118,6 +118,15 @@ export async function repoInstallationId(owner: string, repo: string): Promise<n
   return ((await res.json()) as { id: number }).id;
 }
 
+/** Verify a GitHub App installation id and return the account (org/user) login it's installed on. */
+export async function installationAccount(installationId: number): Promise<string> {
+  const res = await fetch(`${API}/app/installations/${installationId}`, {
+    headers: { authorization: `Bearer ${appJwt()}`, accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) throw new Error(`installation lookup ${res.status}`);
+  return ((await res.json()) as { account?: { login?: string } }).account?.login ?? "";
+}
+
 export async function installationToken(installationId: number): Promise<string> {
   const res = await fetch(`${API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",

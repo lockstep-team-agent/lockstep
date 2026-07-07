@@ -4,6 +4,39 @@ import { ownershipSnapshots, ownershipRules, ownershipRuleOwners, repos, githubI
 import { parseCodeowners } from "./codeowners.js";
 import * as gh from "../auth/github.js";
 
+/**
+ * Record a GitHub App installation for an org (from the dashboard install flow). `account` is looked up
+ * from the installation id via the App JWT (so a forged id can't attach). Idempotent per (org, installId).
+ */
+export async function recordInstallation(
+  orgId: string,
+  installationId: number,
+  account: (id: number) => Promise<string> = gh.installationAccount,
+): Promise<{ installationId: number; accountLogin: string }> {
+  const accountLogin = await account(installationId);
+  await withOrg(orgId, async (tx) => {
+    const existing = (
+      await tx
+        .select()
+        .from(githubInstallations)
+        .where(and(eq(githubInstallations.orgId, orgId), eq(githubInstallations.installationId, installationId)))
+        .limit(1)
+    )[0];
+    if (existing)
+      await tx.update(githubInstallations).set({ accountLogin }).where(eq(githubInstallations.id, existing.id));
+    else await tx.insert(githubInstallations).values({ orgId, installationId, accountLogin });
+  });
+  return { installationId, accountLogin };
+}
+
+/** Whether the org has a GitHub App installation recorded (drives the dashboard install indicator). */
+export async function getInstallation(orgId: string): Promise<{ installed: boolean; accountLogin: string | null }> {
+  return withOrg(orgId, async (tx) => {
+    const r = (await tx.select().from(githubInstallations).where(eq(githubInstallations.orgId, orgId)).limit(1))[0];
+    return { installed: Boolean(r), accountLogin: r?.accountLogin ?? null };
+  });
+}
+
 function one<T>(rows: T[]): T {
   const r = rows[0];
   if (!r) throw new Error("expected a row");

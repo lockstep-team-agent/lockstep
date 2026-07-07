@@ -69,6 +69,10 @@ export const getAllowlist = (orgId: string, projectId: string) =>
 export const checkConnectionStatus = (orgId: string, projectId: string, id: string) =>
   apiGet<{ status: string }>(`/orgs/${orgId}/projects/${projectId}/connections/${id}/status`);
 
+/** Whether this org has the Lockstep GitHub App installed (drives the Members-page indicator). */
+export const getGithubInstall = (orgId: string) =>
+  apiGet<{ installed: boolean; accountLogin: string | null }>(`/orgs/${orgId}/github/install`);
+
 /** Connectable sources (Slack channels / Notion databases) for the dashboard picker. */
 export const getConnectionSources = (orgId: string, projectId: string, id: string) =>
   apiGet<{ sources: Array<{ id: string; name: string }> }>(
