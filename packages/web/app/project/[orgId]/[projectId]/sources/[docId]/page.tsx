@@ -2,21 +2,13 @@ import Link from "next/link";
 import { getDocument, timeAgo, constraintKindLabel } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconDoc } from "@/components/icons";
-import {
-  resyncDocumentAction,
-  setDocumentStateAction,
-  unregisterDocumentAction,
-} from "@/actions";
+import { resyncDocumentAction, setDocumentStateAction, unregisterDocumentAction } from "@/actions";
 
 export const dynamic = "force-dynamic";
 
 const NATIVE_STATES = ["review", "active", "archived"] as const;
 
-export default async function Page({
-  params,
-}: {
-  params: { orgId: string; projectId: string; docId: string };
-}) {
+export default async function Page({ params }: { params: { orgId: string; projectId: string; docId: string } }) {
   const { orgId, projectId, docId } = params;
   const doc = await getDocument(orgId, projectId, docId);
   const base = `/project/${orgId}/${projectId}`;
@@ -39,6 +31,9 @@ export default async function Page({
 
   return (
     <>
+      <Link href={`${base}/sources`} className="code-ref" style={{ display: "inline-block", marginBottom: 10 }}>
+        ← Back to Sources
+      </Link>
       <PageHead
         title={doc.title ?? "Untitled document"}
         subtitle="Everything Lockstep knows about this document — its constraints, extraction runs, and write-backs."
@@ -81,7 +76,9 @@ export default async function Page({
                 <input type="hidden" name="docId" value={doc.id} />
                 <select name="state" className="input" defaultValue={doc.state} style={{ maxWidth: 120 }}>
                   {NATIVE_STATES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </select>
                 <button className="btn">Set</button>

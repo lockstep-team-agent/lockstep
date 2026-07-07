@@ -159,7 +159,13 @@ export async function createProject(principal: Principal, orgId: string, name: s
   const me = await ensureMember(orgId, principal.id);
   return withOrg(orgId, async (tx) => {
     const p = one(await tx.insert(projects).values({ orgId, name, createdBy: me.id }).returning());
-    await ensureProjectMemberTx(tx, { orgId, projectId: p.id, memberId: me.id, githubLogin: principal.githubLogin, role: "owner" });
+    await ensureProjectMemberTx(tx, {
+      orgId,
+      projectId: p.id,
+      memberId: me.id,
+      githubLogin: principal.githubLogin,
+      role: "owner",
+    });
     return { projectId: p.id };
   });
 }
@@ -271,6 +277,25 @@ export async function connectOrJoin(
   // already a member of a connected org → open it
   for (const repo of candidates) {
     if (await isMemberOf(repo.orgId, principal.id)) {
+      // Backfill the project roster on this path too — org members who created/auto-joined before the
+      // roster existed (or who simply reconnect) otherwise never get a project_members row and vanish
+      // from the Members page + org graph. Idempotent (onConflictDoNothing).
+      await withSystem(async (tx) => {
+        const m = (
+          await tx
+            .select()
+            .from(members)
+            .where(and(eq(members.orgId, repo.orgId), eq(members.principalId, principal.id)))
+            .limit(1)
+        )[0];
+        if (m)
+          await ensureProjectMemberTx(tx, {
+            orgId: repo.orgId,
+            projectId: repo.projectId,
+            memberId: m.id,
+            githubLogin: principal.githubLogin,
+          });
+      });
       return {
         orgId: repo.orgId,
         projectId: repo.projectId,
@@ -337,14 +362,16 @@ export async function connectOrJoin(
   // 1) JOIN: if a project with this name already exists in one of the user's orgs (e.g. the project
   //    they were invited to), connect this repo into it. This is the cross-service teammate path.
   for (const oid of memberOrgs) {
-    const existing = await withOrg(oid, async (tx) =>
-      (
-        await tx
-          .select()
-          .from(projects)
-          .where(and(eq(projects.orgId, oid), eq(projects.name, pname)))
-          .limit(1)
-      )[0],
+    const existing = await withOrg(
+      oid,
+      async (tx) =>
+        (
+          await tx
+            .select()
+            .from(projects)
+            .where(and(eq(projects.orgId, oid), eq(projects.name, pname)))
+            .limit(1)
+        )[0],
     );
     if (existing) {
       await connectRepo(principal, oid, existing.id, gitRemote);
@@ -357,7 +384,13 @@ export async function connectOrJoin(
             .where(and(eq(members.orgId, oid), eq(members.principalId, principal.id)))
             .limit(1)
         )[0];
-        if (me) await ensureProjectMemberTx(tx, { orgId: oid, projectId: existing.id, memberId: me.id, githubLogin: principal.githubLogin });
+        if (me)
+          await ensureProjectMemberTx(tx, {
+            orgId: oid,
+            projectId: existing.id,
+            memberId: me.id,
+            githubLogin: principal.githubLogin,
+          });
       });
       return {
         orgId: oid,
@@ -387,7 +420,13 @@ export async function connectOrJoin(
     )[0];
     const p = one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning());
     if (me) {
-      await ensureProjectMemberTx(tx, { orgId: orgId!, projectId: p.id, memberId: me.id, githubLogin: principal.githubLogin, role: "owner" });
+      await ensureProjectMemberTx(tx, {
+        orgId: orgId!,
+        projectId: p.id,
+        memberId: me.id,
+        githubLogin: principal.githubLogin,
+        role: "owner",
+      });
     }
     return p.id;
   });
@@ -407,7 +446,10 @@ export async function setMemberSlackId(
   actorMemberId: string,
 ): Promise<void> {
   await withOrg(orgId, async (tx) => {
-    await tx.update(members).set({ slackUserId }).where(and(eq(members.orgId, orgId), eq(members.id, memberId)));
+    await tx
+      .update(members)
+      .set({ slackUserId })
+      .where(and(eq(members.orgId, orgId), eq(members.id, memberId)));
     await writeAudit(tx, {
       orgId,
       actorMemberId,

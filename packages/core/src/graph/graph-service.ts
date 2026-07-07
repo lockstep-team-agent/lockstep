@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { withOrg, type Tx } from "../db/rls.js";
-import { graphNodes, graphEdges, members, decisions, decisionVersions } from "../db/schema.js";
+import { graphNodes, graphEdges, members, projectMembers, decisions, decisionVersions } from "../db/schema.js";
 
 /**
  * The org graph gives non-code decisions a blast radius. Nodes are teams/projects/docs/people/topics;
@@ -101,7 +101,10 @@ export async function upsertGovernsEdgeTx(
     return existing.id;
   }
   const row = (
-    await tx.insert(graphEdges).values({ orgId, projectId, fromId: capId, toId: surfaceId, kind: "governs", status, source }).returning()
+    await tx
+      .insert(graphEdges)
+      .values({ orgId, projectId, fromId: capId, toId: surfaceId, kind: "governs", status, source })
+      .returning()
   )[0]!;
   return row.id;
 }
@@ -145,15 +148,25 @@ export async function confirmGovernsEdgesForSurfacesTx(
 }
 
 /** Rebuild the derived portion of the graph from members + distilled decisions. Idempotent. */
-export async function deriveGraph(
-  orgId: string,
-  projectId: string,
-): Promise<{ nodes: number; edges: number }> {
+export async function deriveGraph(orgId: string, projectId: string): Promise<{ nodes: number; edges: number }> {
   return withOrg(orgId, async (tx) => {
     const projectNode = await upsertNodeTx(tx, orgId, projectId, "project", `project:${projectId}`, "project");
 
-    for (const m of await tx.select().from(members).where(eq(members.orgId, orgId))) {
-      const pid = await upsertNodeTx(tx, orgId, projectId, "person", `person:${m.githubLogin}`, m.githubLogin);
+    // People = active members of THIS project (not the whole org — org members who aren't on the
+    // project must not appear in its graph). Resolve the login from the linked member row when the
+    // invite has been accepted, else the invited handle.
+    const pms = await tx
+      .select()
+      .from(projectMembers)
+      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.status, "active")));
+    for (const pm of pms) {
+      let login = pm.invitedGithubLogin;
+      if (pm.memberId) {
+        const mem = (await tx.select().from(members).where(eq(members.id, pm.memberId)).limit(1))[0];
+        if (mem) login = mem.githubLogin;
+      }
+      if (!login) continue;
+      const pid = await upsertNodeTx(tx, orgId, projectId, "person", `person:${login}`, login);
       await upsertEdgeTx(tx, orgId, projectId, pid, projectNode, "member");
     }
 
@@ -161,7 +174,14 @@ export async function deriveGraph(
     for (const d of ds) {
       if (d.status === "rejected") continue;
       if (d.scopeKind === "topic") {
-        const topicId = await upsertNodeTx(tx, orgId, projectId, "topic", d.scopeRef, d.scopeRef.replace(/^topic:/, ""));
+        const topicId = await upsertNodeTx(
+          tx,
+          orgId,
+          projectId,
+          "topic",
+          d.scopeRef,
+          d.scopeRef.replace(/^topic:/, ""),
+        );
         await upsertEdgeTx(tx, orgId, projectId, topicId, projectNode, "governs");
         // People who participated (decidedBy in the version provenance) → edges to the topic.
         const v = (
@@ -207,8 +227,19 @@ export async function listGraph(
 }
 
 /** Confirm a proposed governs edge (tech-lead action on the Features page). Idempotent. */
-export async function setEdgeStatusTx(tx: Tx, projectId: string, edgeId: string, status: "proposed" | "confirmed"): Promise<{ fromId: string } | null> {
-  const e = (await tx.select().from(graphEdges).where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.id, edgeId))).limit(1))[0];
+export async function setEdgeStatusTx(
+  tx: Tx,
+  projectId: string,
+  edgeId: string,
+  status: "proposed" | "confirmed",
+): Promise<{ fromId: string } | null> {
+  const e = (
+    await tx
+      .select()
+      .from(graphEdges)
+      .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.id, edgeId)))
+      .limit(1)
+  )[0];
   if (!e) return null;
   await tx.update(graphEdges).set({ status }).where(eq(graphEdges.id, edgeId));
   return { fromId: e.fromId };
@@ -216,7 +247,13 @@ export async function setEdgeStatusTx(tx: Tx, projectId: string, edgeId: string,
 
 /** Delete a proposed governs edge (tech-lead reject — it can be re-proposed later by the auto-link). */
 export async function deleteEdgeTx(tx: Tx, projectId: string, edgeId: string): Promise<boolean> {
-  const e = (await tx.select().from(graphEdges).where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.id, edgeId))).limit(1))[0];
+  const e = (
+    await tx
+      .select()
+      .from(graphEdges)
+      .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.id, edgeId)))
+      .limit(1)
+  )[0];
   if (!e) return false;
   await tx.delete(graphEdges).where(eq(graphEdges.id, edgeId));
   return true;
@@ -224,7 +261,13 @@ export async function deleteEdgeTx(tx: Tx, projectId: string, edgeId: string): P
 
 /** The `ref` of a capability node by its id, for impact-recompute after an edge change. */
 export async function capabilityRefForNodeTx(tx: Tx, projectId: string, nodeId: string): Promise<string | null> {
-  const n = (await tx.select().from(graphNodes).where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.id, nodeId), eq(graphNodes.kind, "capability"))).limit(1))[0];
+  const n = (
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.id, nodeId), eq(graphNodes.kind, "capability")))
+      .limit(1)
+  )[0];
   return n?.ref ?? null;
 }
 
@@ -233,7 +276,15 @@ export async function addNode(
   input: { projectId: string; kind: string; ref: string; label?: string },
 ): Promise<{ id: string }> {
   return withOrg(orgId, async (tx) => {
-    const id = await upsertNodeTx(tx, orgId, input.projectId, input.kind, input.ref, input.label ?? input.ref, "manual");
+    const id = await upsertNodeTx(
+      tx,
+      orgId,
+      input.projectId,
+      input.kind,
+      input.ref,
+      input.label ?? input.ref,
+      "manual",
+    );
     return { id };
   });
 }

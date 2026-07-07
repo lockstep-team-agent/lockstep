@@ -61,6 +61,14 @@ export async function setVisibilityAction(formData: FormData): Promise<void> {
   revalidatePath(`/project/${orgId}/${projectId}/members`);
 }
 
+export async function setProductLayerAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const enabled = String(formData.get("enabled") ?? "") === "true";
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/settings`, { productLayer: { enabled } });
+  revalidatePath(`/project/${orgId}/${projectId}/connections`);
+}
+
 /* ── v2 ingestion: review queue + connections ── */
 
 export async function confirmDecisionAction(formData: FormData): Promise<void> {

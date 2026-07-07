@@ -69,6 +69,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
         scopeKind: d.scopeKind,
         scopeRef: d.scopeRef,
         status: d.status,
+        origin: d.origin,
         version: d.currentVersion,
         ruleText: v?.ruleText ?? "",
       });
@@ -152,6 +153,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
       members: memberList,
       viewer,
       visibility: proj ? projectVisibility(proj.settings) : "shared",
+      productLayer: Boolean((proj?.settings as { productLayer?: { enabled?: boolean } } | null)?.productLayer?.enabled),
     };
   });
 }

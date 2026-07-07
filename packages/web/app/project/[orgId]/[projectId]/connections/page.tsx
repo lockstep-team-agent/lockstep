@@ -1,4 +1,5 @@
 import {
+  getOverview,
   getConnections,
   getAllowlist,
   getStateMappings,
@@ -16,6 +17,7 @@ import {
   addAllowlistAction,
   setStateMappingAction,
   setStatusPropertyAction,
+  setProductLayerAction,
 } from "@/actions";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +49,13 @@ export default async function Page({
   const { orgId, projectId } = params;
   // Returning from the Composio authorize page (?connected=<id>) → finalize before we render the list.
   if (searchParams?.connected) await checkConnectionStatus(orgId, projectId, searchParams.connected);
-  const [conns, allow] = await Promise.all([getConnections(orgId, projectId), getAllowlist(orgId, projectId)]);
+  const [conns, allow, overview] = await Promise.all([
+    getConnections(orgId, projectId),
+    getAllowlist(orgId, projectId),
+    getOverview(orgId, projectId),
+  ]);
+  const productLayer = overview?.productLayer ?? false;
+  const isOwner = overview?.viewer?.role === "owner";
   const connections = conns?.connections ?? [];
   const allowlist = allow?.allowlist ?? [];
   const connectedTools = new Set(connections.map((c) => c.tool));
@@ -79,6 +87,32 @@ export default async function Page({
         title="Connections"
         subtitle="Connect a tool via Composio, then allowlist the exact sources to sweep. Only allowlisted sources are read."
       />
+
+      <div className="card pad animate-in" style={{ marginBottom: 16 }}>
+        <div className="row">
+          <div className="body">
+            <div className="title">Product layer</div>
+            <div className="meta">
+              Ingest PRDs from Notion → ratified product constraints, with drift detection against engineering
+              decisions. {productLayer ? "Enabled." : "Disabled."}
+            </div>
+          </div>
+          {isOwner ? (
+            <form action={setProductLayerAction}>
+              <input type="hidden" name="orgId" value={orgId} />
+              <input type="hidden" name="projectId" value={projectId} />
+              <input type="hidden" name="enabled" value={productLayer ? "false" : "true"} />
+              <button className={productLayer ? "btn ghost" : "btn primary"}>
+                {productLayer ? "Disable" : "Enable"}
+              </button>
+            </form>
+          ) : (
+            <span className="tip" data-tip="Only owners can change this">
+              <StatusPill status={productLayer ? "active" : "disabled"} />
+            </span>
+          )}
+        </div>
+      </div>
 
       <form action={createConnectionAction} className="card animate-in" style={{ padding: 16, marginBottom: 16 }}>
         <input type="hidden" name="orgId" value={orgId} />

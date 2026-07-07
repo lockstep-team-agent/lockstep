@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withSystem } from "../db/rls.js";
-import { orgs, principals, members, projects } from "../db/schema.js";
+import { orgs, principals, members, projects, projectMembers } from "../db/schema.js";
 import { fileProposedDecision } from "../ledger/ledger-service.js";
 import { deriveGraph, listGraph, addNode, addEdge } from "./graph-service.js";
 import { randomUUID } from "node:crypto";
@@ -24,6 +24,10 @@ async function setup() {
       await tx.insert(members).values({ orgId: org.id, principalId: p.id, githubUserId: p.githubUserId, githubLogin: `dev-${n}` }).returning(),
     );
     const proj = one(await tx.insert(projects).values({ orgId: org.id, name: "g", createdBy: m.id }).returning());
+    // derive now scopes persons to active project_members (not org members).
+    await tx
+      .insert(projectMembers)
+      .values({ orgId: org.id, projectId: proj.id, memberId: m.id, invitedGithubLogin: `dev-${n}`, role: "owner", status: "active" });
     return { orgId: org.id, projectId: proj.id, login: `dev-${n}` };
   });
 }

@@ -14,6 +14,7 @@ export interface ProjectOverview {
     scopeKind: string;
     scopeRef: string;
     status: string;
+    origin?: string;
     version: number;
     ruleText: string;
   }>;
@@ -47,4 +48,5 @@ export interface ProjectOverview {
     slackUserId?: string | null;
   }>;
   visibility?: "shared" | "walled";
+  productLayer?: boolean;
 }
