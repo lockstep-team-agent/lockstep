@@ -12,6 +12,7 @@ import {
   tasks,
   members,
   repos,
+  projects,
   ingestArtifacts,
   decisionProvenances,
   graphNodes,
@@ -19,7 +20,12 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fanoutChangeTx, fanoutToProjectTx } from "../routing/routing-engine.js";
-import { upsertNodeTx, upsertEdgeTx, upsertGovernsEdgeTx, confirmGovernsEdgesForSurfacesTx } from "../graph/graph-service.js";
+import {
+  upsertNodeTx,
+  upsertEdgeTx,
+  upsertGovernsEdgeTx,
+  confirmGovernsEdgesForSurfacesTx,
+} from "../graph/graph-service.js";
 import { canRatifyTx } from "../auth/permissions.js";
 import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
 import { notifyConflictTx } from "../routing/routing-engine.js";
@@ -104,14 +110,23 @@ export async function capabilitySurfacesTx(tx: Tx, projectId: string, capability
     await tx
       .select()
       .from(graphNodes)
-      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "capability"), eq(graphNodes.ref, capabilityRef)))
+      .where(
+        and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "capability"), eq(graphNodes.ref, capabilityRef)),
+      )
       .limit(1)
   )[0];
   if (!node) return [];
   const edges = await tx
     .select()
     .from(graphEdges)
-    .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.fromId, node.id), eq(graphEdges.kind, "governs"), eq(graphEdges.status, "confirmed")));
+    .where(
+      and(
+        eq(graphEdges.projectId, projectId),
+        eq(graphEdges.fromId, node.id),
+        eq(graphEdges.kind, "governs"),
+        eq(graphEdges.status, "confirmed"),
+      ),
+    );
   if (edges.length === 0) return [];
   const surfaces = await tx
     .select()
@@ -145,7 +160,14 @@ export async function surfaceCapabilitiesTx(tx: Tx, projectId: string, surface: 
   const edges = await tx
     .select()
     .from(graphEdges)
-    .where(and(eq(graphEdges.projectId, projectId), eq(graphEdges.toId, node.id), eq(graphEdges.kind, "governs"), eq(graphEdges.status, "confirmed")));
+    .where(
+      and(
+        eq(graphEdges.projectId, projectId),
+        eq(graphEdges.toId, node.id),
+        eq(graphEdges.kind, "governs"),
+        eq(graphEdges.status, "confirmed"),
+      ),
+    );
   if (edges.length === 0) return [];
   const caps = await tx
     .select()
@@ -161,7 +183,13 @@ export async function recomputeCapabilityImpactTx(tx: Tx, projectId: string, cap
   await tx
     .update(decisions)
     .set({ impact })
-    .where(and(eq(decisions.projectId, projectId), eq(decisions.scopeKind, "capability"), eq(decisions.scopeRef, capabilityRef)));
+    .where(
+      and(
+        eq(decisions.projectId, projectId),
+        eq(decisions.scopeKind, "capability"),
+        eq(decisions.scopeRef, capabilityRef),
+      ),
+    );
 }
 
 /** Crude token estimate (chars/4) — no tokenizer dep in the repo; good enough for the briefing budget. */
@@ -186,7 +214,10 @@ async function topicImpactTx(tx: Tx, projectId: string, topicRef: string): Promi
     else if (e.toId === node.id) neighbourIds.add(e.fromId);
   }
   if (neighbourIds.size === 0) return 0;
-  const people = await tx.select().from(graphNodes).where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "person")));
+  const people = await tx
+    .select()
+    .from(graphNodes)
+    .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "person")));
   return people.filter((p) => neighbourIds.has(p.id)).length;
 }
 
@@ -283,10 +314,7 @@ export async function proposeDecision(
       status,
       proposedBy: input.memberId,
     });
-    await tx
-      .update(decisions)
-      .set({ currentVersion: version, status, impact })
-      .where(eq(decisions.id, decisionId));
+    await tx.update(decisions).set({ currentVersion: version, status, impact }).where(eq(decisions.id, decisionId));
     await writeAudit(tx, {
       orgId,
       projectId: input.projectId,
@@ -366,7 +394,7 @@ export async function ackDecision(
         scopeRef: d.scopeRef,
         ruleText: cur?.ruleText ?? "",
         authorMemberId: (cur?.proposedBy as string | null) ?? memberId,
-        capabilityRef: ((cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
+        capabilityRef: (cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef ?? null,
       });
     }
     return { status };
@@ -375,7 +403,24 @@ export async function ackDecision(
 
 /* ───────────────────────────── v2: ingested (proposed) decisions ───────────────────────────── */
 
-const STOPWORDS = new Set(["the", "a", "an", "is", "are", "to", "of", "and", "or", "for", "with", "we", "our", "be", "on", "in"]);
+const STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "is",
+  "are",
+  "to",
+  "of",
+  "and",
+  "or",
+  "for",
+  "with",
+  "we",
+  "our",
+  "be",
+  "on",
+  "in",
+]);
 
 /** Cheap lexical similarity (Jaccard over content words) — the v1 dedup/fusion signal (no embeddings yet). */
 export function similar(a: string, b: string): number {
@@ -440,15 +485,41 @@ async function addProvenanceTx(
 export async function listProvenancesForProject(
   orgId: string,
   projectId: string,
-): Promise<Record<string, Array<{ source: string; externalId: string | null; url: string | null; evidence: unknown; confidence: number | null }>>> {
+): Promise<
+  Record<
+    string,
+    Array<{
+      source: string;
+      externalId: string | null;
+      url: string | null;
+      evidence: unknown;
+      confidence: number | null;
+    }>
+  >
+> {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select({ id: decisions.id }).from(decisions).where(eq(decisions.projectId, projectId));
     const ids = new Set(ds.map((d) => d.id));
     const rows = await tx.select().from(decisionProvenances).where(eq(decisionProvenances.orgId, orgId));
-    const out: Record<string, Array<{ source: string; externalId: string | null; url: string | null; evidence: unknown; confidence: number | null }>> = {};
+    const out: Record<
+      string,
+      Array<{
+        source: string;
+        externalId: string | null;
+        url: string | null;
+        evidence: unknown;
+        confidence: number | null;
+      }>
+    > = {};
     for (const r of rows) {
       if (!ids.has(r.decisionId)) continue;
-      (out[r.decisionId] ??= []).push({ source: r.source, externalId: r.externalId, url: r.url, evidence: r.evidence, confidence: r.confidence });
+      (out[r.decisionId] ??= []).push({
+        source: r.source,
+        externalId: r.externalId,
+        url: r.url,
+        evidence: r.evidence,
+        confidence: r.confidence,
+      });
     }
     return out;
   });
@@ -561,6 +632,19 @@ export async function fileProposedDecision(
       return { decisionId: fuseInto, deduped: false, fused: true };
     }
 
+    // Auto-bind (#8, opt-in / default OFF): a project can opt into binding low-impact, high-confidence
+    // ingested rules without a human click — impact must be 0 (own-area, no blast radius), confidence at
+    // or above the configured floor, and NEVER for document constraints (those bind only via ratify).
+    // `settings.autoBind = { enabled, floor }`; floor accepts 0–1 or 0–100 (confidence is 0–100).
+    const proj = (
+      await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, input.projectId)).limit(1)
+    )[0];
+    const ab = (proj?.settings as { autoBind?: { enabled?: boolean; floor?: number } } | null)?.autoBind;
+    const floor = ab?.floor == null ? 90 : ab.floor <= 1 ? ab.floor * 100 : ab.floor;
+    const impact = await impactForScopeTx(tx, input.projectId, input.scopeKind, input.scopeRef);
+    const autoBound = origin !== "document" && Boolean(ab?.enabled) && impact === 0 && (input.confidence ?? 0) >= floor;
+    const status = autoBound ? "binding" : "proposed";
+
     const d = one(
       await tx
         .insert(decisions)
@@ -571,7 +655,8 @@ export async function fileProposedDecision(
           scopeRef: input.scopeRef,
           decisionType: input.decisionType ?? "rule",
           currentVersion: 1,
-          status: "proposed",
+          status,
+          impact,
           origin,
           constraintKind: input.constraintKind ?? null,
           expiresAt: input.expiresAt ?? null,
@@ -585,7 +670,7 @@ export async function fileProposedDecision(
       baseVersion: 0,
       ruleText: input.ruleText,
       provenance: supersedes ? { ...(input.provenance as object), supersedes } : (input.provenance ?? null),
-      status: "proposed",
+      status,
     });
     await addProvenanceTx(tx, orgId, d.id, provRow);
     await tx.insert(ingestArtifacts).values({
@@ -593,19 +678,21 @@ export async function fileProposedDecision(
       connectionId: input.connectionId,
       externalId: input.externalId,
       contentHash: input.contentHash,
-      status: "proposed",
+      status: autoBound ? "auto_bound" : "proposed",
       confidence: input.confidence ?? null,
       decisionId: d.id,
     });
     await writeAudit(tx, {
       orgId,
       projectId: input.projectId,
-      action: "decision.proposed",
+      action: autoBound ? "decision.auto_bound" : "decision.proposed",
       entityKind: "decision",
       entityId: d.id,
       entityVersion: 1,
-      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin, status: "proposed", supersedes },
+      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin, status, supersedes },
     });
+    // NOTE: auto-bound rules are impact-0/own-area; drift-vs-PRD is checked on the deliberate
+    // confirm/ack path (confirmDecision), not here (no single human author for the conflict notify).
     return { decisionId: d.id, deduped: false, fused: false, supersedes };
   });
 }
@@ -640,7 +727,13 @@ export async function reproposeDocConstraint(
       await tx
         .select()
         .from(ingestArtifacts)
-        .where(and(eq(ingestArtifacts.connectionId, input.connectionId), eq(ingestArtifacts.externalId, input.externalId), eq(ingestArtifacts.contentHash, input.contentHash)))
+        .where(
+          and(
+            eq(ingestArtifacts.connectionId, input.connectionId),
+            eq(ingestArtifacts.externalId, input.externalId),
+            eq(ingestArtifacts.contentHash, input.contentHash),
+          ),
+        )
         .limit(1)
     )[0];
     if (seen) return { decisionId: input.existingDecisionId, reversioned: false, deduped: true };
@@ -648,12 +741,26 @@ export async function reproposeDocConstraint(
     const d = (await tx.select().from(decisions).where(eq(decisions.id, input.existingDecisionId)).limit(1))[0];
     if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
     const cur = (
-      await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion))).limit(1)
+      await tx
+        .select()
+        .from(decisionVersions)
+        .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
+        .limit(1)
     )[0];
 
     const unchanged = (cur?.ruleText ?? "").trim() === input.ruleText.trim();
     const recordArtifact = (status: string) =>
-      tx.insert(ingestArtifacts).values({ orgId, connectionId: input.connectionId, externalId: input.externalId, contentHash: input.contentHash, status, confidence: input.confidence ?? null, decisionId: d.id });
+      tx
+        .insert(ingestArtifacts)
+        .values({
+          orgId,
+          connectionId: input.connectionId,
+          externalId: input.externalId,
+          contentHash: input.contentHash,
+          status,
+          confidence: input.confidence ?? null,
+          decisionId: d.id,
+        });
 
     if (unchanged) {
       // Section text drifted but the rule is identical — mark seen, don't churn a version.
@@ -673,7 +780,12 @@ export async function reproposeDocConstraint(
     });
     await tx
       .update(decisions)
-      .set({ status: "proposed", currentVersion: version, constraintKind: input.constraintKind ?? d.constraintKind, expiresAt: input.expiresAt ?? d.expiresAt })
+      .set({
+        status: "proposed",
+        currentVersion: version,
+        constraintKind: input.constraintKind ?? d.constraintKind,
+        expiresAt: input.expiresAt ?? d.expiresAt,
+      })
       .where(eq(decisions.id, d.id));
     await recordArtifact("proposed");
     await writeAudit(tx, {
@@ -683,7 +795,13 @@ export async function reproposeDocConstraint(
       entityKind: "decision",
       entityId: d.id,
       entityVersion: version,
-      payload: { scopeKind: d.scopeKind, scopeRef: d.scopeRef, origin: "document", status: "proposed", reversioned: true },
+      payload: {
+        scopeKind: d.scopeKind,
+        scopeRef: d.scopeRef,
+        origin: "document",
+        status: "proposed",
+        reversioned: true,
+      },
     });
     return { decisionId: d.id, reversioned: true, deduped: false };
   });
@@ -767,7 +885,7 @@ export async function confirmDecision(
         scopeRef,
         ruleText,
         authorMemberId: memberId,
-        capabilityRef: ((cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
+        capabilityRef: (cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef ?? null,
       });
     }
     return { status, impact };
@@ -829,7 +947,10 @@ export async function ratifyDecision(
     }
     const impact = await impactForScopeTx(tx, d.projectId, d.scopeKind, d.scopeRef);
     await tx.insert(decisionApprovals).values({ orgId, decisionId, version, reviewerId: memberId, verdict: "ratify" });
-    await tx.update(decisions).set({ status: "binding", impact, currentVersion: version }).where(eq(decisions.id, decisionId));
+    await tx
+      .update(decisions)
+      .set({ status: "binding", impact, currentVersion: version })
+      .where(eq(decisions.id, decisionId));
 
     // First ratification of a capability-scoped constraint mints the capability node and links the
     // source doc to it, giving the org graph its product layer.
@@ -848,7 +969,9 @@ export async function ratifyDecision(
       // Seed PROPOSED governs edges from the extraction's canonicalized surface candidates (F5), so the
       // Features page shows suggestions before any code is written. They only affect briefing scope
       // once a tech lead or a checked PR confirms them.
-      const candidates = ((cur?.provenance as { surfaceCandidates?: string[] })?.surfaceCandidates ?? []).filter(Boolean);
+      const candidates = ((cur?.provenance as { surfaceCandidates?: string[] })?.surfaceCandidates ?? []).filter(
+        Boolean,
+      );
       for (const surface of candidates) {
         await upsertGovernsEdgeTx(tx, orgId, d.projectId, d.scopeRef, surface, "proposed", "extraction");
       }
@@ -860,9 +983,14 @@ export async function ratifyDecision(
     const openDrift = await tx
       .select()
       .from(conflicts)
-      .where(and(eq(conflicts.constraintDecisionId, decisionId), eq(conflicts.kind, "drift"), eq(conflicts.status, "open")));
+      .where(
+        and(eq(conflicts.constraintDecisionId, decisionId), eq(conflicts.kind, "drift"), eq(conflicts.status, "open")),
+      );
     for (const k of openDrift) {
-      await tx.update(conflicts).set({ status: "resolved_prd_amended", resolvedAt: new Date(), resolvedBy: memberId }).where(eq(conflicts.id, k.id));
+      await tx
+        .update(conflicts)
+        .set({ status: "resolved_prd_amended", resolvedAt: new Date(), resolvedBy: memberId })
+        .where(eq(conflicts.id, k.id));
       await writeAudit(tx, {
         orgId,
         projectId: d.projectId,
@@ -882,18 +1010,19 @@ export async function ratifyDecision(
       entityKind: "decision",
       entityId: decisionId,
       entityVersion: version,
-      payload: { scopeKind: d.scopeKind, scopeRef: d.scopeRef, documentId: doc.id, edited: version !== d.currentVersion },
+      payload: {
+        scopeKind: d.scopeKind,
+        scopeRef: d.scopeRef,
+        documentId: doc.id,
+        edited: version !== d.currentVersion,
+      },
     });
     return { status: "binding", version, impact };
   });
 }
 
 /** Reject a proposed (ingested or document) decision — a human declined it. It never binds. */
-export async function rejectDecision(
-  orgId: string,
-  decisionId: string,
-  memberId: string,
-): Promise<{ status: string }> {
+export async function rejectDecision(orgId: string, decisionId: string, memberId: string): Promise<{ status: string }> {
   return withOrg(orgId, async (tx) => {
     const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
     if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
@@ -1227,7 +1356,15 @@ export async function recordChange(
     // capability→surface governs edge. It stays `proposed` until a checked PR (reconcile) or a tech
     // lead confirms it, so it never silently widens briefing scope.
     if (input.surface && input.capabilityRef) {
-      await upsertGovernsEdgeTx(tx, orgId, input.projectId, input.capabilityRef, input.surface, "proposed", "auto-link");
+      await upsertGovernsEdgeTx(
+        tx,
+        orgId,
+        input.projectId,
+        input.capabilityRef,
+        input.surface,
+        "proposed",
+        "auto-link",
+      );
     }
 
     // Route to consumers of the changed surface (dependency-graph fan-out).
@@ -1401,10 +1538,7 @@ export interface ScopedConstraint {
 }
 
 /** Resolve a document-constraint decision to its briefing/pull shape (doc + anchor + open-conflict). */
-async function constraintDetailTx(
-  tx: Tx,
-  d: typeof decisions.$inferSelect,
-): Promise<ScopedConstraint | null> {
+async function constraintDetailTx(tx: Tx, d: typeof decisions.$inferSelect): Promise<ScopedConstraint | null> {
   const v = (
     await tx
       .select()
@@ -1460,7 +1594,11 @@ async function repoSurfacesTx(tx: Tx, projectId: string, repoId: string): Promis
  * to a surface the repo touches, plus those scoped to a capability that governs such a surface (via
  * confirmed governs edges). Ranked by impact desc. The briefing + get_product_context backend.
  */
-export async function constraintsInScope(orgId: string, projectId: string, repoId: string): Promise<ScopedConstraint[]> {
+export async function constraintsInScope(
+  orgId: string,
+  projectId: string,
+  repoId: string,
+): Promise<ScopedConstraint[]> {
   return withOrg(orgId, (tx) => constraintsInScopeTx(tx, projectId, repoId));
 }
 
@@ -1504,7 +1642,13 @@ async function constraintCapabilityRefTx(
     await tx
       .select()
       .from(graphNodes)
-      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.kind, "doc"), eq(graphNodes.ref, `${doc.tool}:${doc.externalId}`)))
+      .where(
+        and(
+          eq(graphNodes.projectId, projectId),
+          eq(graphNodes.kind, "doc"),
+          eq(graphNodes.ref, `${doc.tool}:${doc.externalId}`),
+        ),
+      )
       .limit(1)
   )[0];
   if (!docNode) return null;
@@ -1517,7 +1661,11 @@ async function constraintCapabilityRefTx(
   )[0];
   if (!owns) return null;
   const capNode = (
-    await tx.select().from(graphNodes).where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.id, owns.toId), eq(graphNodes.kind, "capability"))).limit(1)
+    await tx
+      .select()
+      .from(graphNodes)
+      .where(and(eq(graphNodes.projectId, projectId), eq(graphNodes.id, owns.toId), eq(graphNodes.kind, "capability")))
+      .limit(1)
   )[0];
   return capNode?.ref ?? null;
 }
@@ -1596,18 +1744,30 @@ export async function openDriftForEngDecisionTx(
   const constraints = await tx
     .select()
     .from(decisions)
-    .where(and(eq(decisions.projectId, eng.projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")));
-  const engLogin = (await tx.select({ l: members.githubLogin }).from(members).where(eq(members.id, eng.authorMemberId)).limit(1))[0]?.l ?? null;
+    .where(
+      and(eq(decisions.projectId, eng.projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")),
+    );
+  const engLogin =
+    (await tx.select({ l: members.githubLogin }).from(members).where(eq(members.id, eng.authorMemberId)).limit(1))[0]
+      ?.l ?? null;
   const opened: Array<{ conflictId: string; constraintDecisionId: string }> = [];
   for (const c of constraints) {
-    const governs = (c.scopeKind === "surface" && c.scopeRef === surface) || (c.scopeKind === "capability" && capRefs.has(c.scopeRef));
+    const governs =
+      (c.scopeKind === "surface" && c.scopeRef === surface) ||
+      (c.scopeKind === "capability" && capRefs.has(c.scopeRef));
     if (!governs) continue;
     // Resolve the constraint's doc + capability for suppression + the DM recipient.
     const cv = (
-      await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, c.id), eq(decisionVersions.version, c.currentVersion))).limit(1)
+      await tx
+        .select()
+        .from(decisionVersions)
+        .where(and(eq(decisionVersions.decisionId, c.id), eq(decisionVersions.version, c.currentVersion)))
+        .limit(1)
     )[0];
     const docId = (cv?.provenance as { documentId?: string } | null)?.documentId;
-    const doc = docId ? (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0] : undefined;
+    const doc = docId
+      ? (await tx.select().from(sourceDocuments).where(eq(sourceDocuments.id, docId)).limit(1))[0]
+      : undefined;
     if (!doc || doc.state !== "active") continue; // only active-doc constraints drift
     // Implementation suppression: the eng decision is tagged with the constraint's own feature.
     if (eng.capabilityRef) {
@@ -1648,7 +1808,11 @@ export async function openDriftForEngDecisionTx(
       engAuthorLogin: engLogin,
     });
     // Inbox item to the eng author: their decision is now in tension with a ratified constraint.
-    await notifyConflictTx(tx, orgId, { projectId: eng.projectId, memberId: eng.authorMemberId, conflictId: inserted.id });
+    await notifyConflictTx(tx, orgId, {
+      projectId: eng.projectId,
+      memberId: eng.authorMemberId,
+      conflictId: inserted.id,
+    });
     opened.push({ conflictId: inserted.id, constraintDecisionId: c.id });
   }
   return opened;
@@ -1658,16 +1822,34 @@ export async function openDriftForEngDecisionTx(
  * Backstop: when a governs edge is confirmed for `capabilityRef`, a binding eng decision on one of the
  * capability's (now-)governed surfaces may not have tripped drift at bind time. Re-scan those surfaces.
  */
-export async function openDriftForConfirmedCapabilityTx(tx: Tx, orgId: string, projectId: string, capabilityRef: string): Promise<void> {
+export async function openDriftForConfirmedCapabilityTx(
+  tx: Tx,
+  orgId: string,
+  projectId: string,
+  capabilityRef: string,
+): Promise<void> {
   const surfaces = await capabilitySurfacesTx(tx, projectId, capabilityRef);
   for (const surface of surfaces) {
     const engs = await tx
       .select()
       .from(decisions)
-      .where(and(eq(decisions.projectId, projectId), eq(decisions.scopeKind, "surface"), eq(decisions.scopeRef, surface), eq(decisions.status, "binding")));
+      .where(
+        and(
+          eq(decisions.projectId, projectId),
+          eq(decisions.scopeKind, "surface"),
+          eq(decisions.scopeRef, surface),
+          eq(decisions.status, "binding"),
+        ),
+      );
     for (const e of engs) {
       if (e.origin === "document") continue;
-      const ev = (await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, e.id), eq(decisionVersions.version, e.currentVersion))).limit(1))[0];
+      const ev = (
+        await tx
+          .select()
+          .from(decisionVersions)
+          .where(and(eq(decisionVersions.decisionId, e.id), eq(decisionVersions.version, e.currentVersion)))
+          .limit(1)
+      )[0];
       await openDriftForEngDecisionTx(tx, orgId, {
         decisionId: e.id,
         projectId,
@@ -1675,7 +1857,7 @@ export async function openDriftForConfirmedCapabilityTx(tx: Tx, orgId: string, p
         scopeRef: e.scopeRef,
         ruleText: ev?.ruleText ?? "",
         authorMemberId: (ev?.proposedBy as string | null) ?? "",
-        capabilityRef: ((ev?.provenance as { capabilityRef?: string } | null)?.capabilityRef) ?? null,
+        capabilityRef: (ev?.provenance as { capabilityRef?: string } | null)?.capabilityRef ?? null,
       });
     }
   }
@@ -1738,7 +1920,9 @@ export async function getProductContext(
     const decRows = await tx
       .select()
       .from(decisions)
-      .where(and(eq(decisions.projectId, projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")));
+      .where(
+        and(eq(decisions.projectId, projectId), eq(decisions.origin, "document"), eq(decisions.status, "binding")),
+      );
 
     let matched: typeof decRows;
     if (isCapability) {
@@ -1749,7 +1933,9 @@ export async function getProductContext(
       capRefs = await surfaceCapabilitiesTx(tx, projectId, scope);
       governedSurfaces = [scope];
       matched = decRows.filter(
-        (d) => (d.scopeKind === "surface" && d.scopeRef === scope) || (d.scopeKind === "capability" && capRefs.includes(d.scopeRef)),
+        (d) =>
+          (d.scopeKind === "surface" && d.scopeRef === scope) ||
+          (d.scopeKind === "capability" && capRefs.includes(d.scopeRef)),
       );
     } else {
       // Free text: substring over rule text / scope ref (like queryLedger).
@@ -1833,18 +2019,43 @@ export async function reconcile(
     }
     // v3 enforcement (FR-PR-1): open conflicts on the changed surfaces — the PR gate warns/blocks on
     // these. Computed after the confirm loop so drift opened by this very reconcile is included.
-    const openConflicts: Array<{ conflictId: string; surface: string; kind: string; constraintRuleText: string; engRuleText: string; docTitle: string | null; docUrl: string | null }> = [];
+    const openConflicts: Array<{
+      conflictId: string;
+      surface: string;
+      kind: string;
+      constraintRuleText: string;
+      engRuleText: string;
+      docTitle: string | null;
+      docUrl: string | null;
+    }> = [];
     if (contractSurfaces.length > 0) {
       const rows = await tx
         .select()
         .from(conflicts)
-        .where(and(eq(conflicts.projectId, projectId), eq(conflicts.status, "open"), inArray(conflicts.surface, contractSurfaces)));
+        .where(
+          and(
+            eq(conflicts.projectId, projectId),
+            eq(conflicts.status, "open"),
+            inArray(conflicts.surface, contractSurfaces),
+          ),
+        );
       for (const k of rows) {
-        const detail = await constraintDetailTx(tx, (await tx.select().from(decisions).where(eq(decisions.id, k.constraintDecisionId)).limit(1))[0]!);
+        const detail = await constraintDetailTx(
+          tx,
+          (await tx.select().from(decisions).where(eq(decisions.id, k.constraintDecisionId)).limit(1))[0]!,
+        );
         let engRuleText = "";
         if (k.engDecisionId) {
           const ed = (await tx.select().from(decisions).where(eq(decisions.id, k.engDecisionId)).limit(1))[0];
-          const ev = ed ? (await tx.select().from(decisionVersions).where(and(eq(decisionVersions.decisionId, ed.id), eq(decisionVersions.version, ed.currentVersion))).limit(1))[0] : undefined;
+          const ev = ed
+            ? (
+                await tx
+                  .select()
+                  .from(decisionVersions)
+                  .where(and(eq(decisionVersions.decisionId, ed.id), eq(decisionVersions.version, ed.currentVersion)))
+                  .limit(1)
+              )[0]
+            : undefined;
           engRuleText = ev?.ruleText ?? "";
         }
         openConflicts.push({

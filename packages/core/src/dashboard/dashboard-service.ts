@@ -154,6 +154,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
       viewer,
       visibility: proj ? projectVisibility(proj.settings) : "shared",
       productLayer: Boolean((proj?.settings as { productLayer?: { enabled?: boolean } } | null)?.productLayer?.enabled),
+      autoBind: Boolean((proj?.settings as { autoBind?: { enabled?: boolean } } | null)?.autoBind?.enabled),
     };
   });
 }

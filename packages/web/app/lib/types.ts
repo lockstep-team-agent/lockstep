@@ -49,4 +49,5 @@ export interface ProjectOverview {
   }>;
   visibility?: "shared" | "walled";
   productLayer?: boolean;
+  autoBind?: boolean;
 }

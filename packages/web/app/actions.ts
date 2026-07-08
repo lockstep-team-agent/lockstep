@@ -69,6 +69,15 @@ export async function setProductLayerAction(formData: FormData): Promise<void> {
   revalidatePath(`/project/${orgId}/${projectId}/connections`);
 }
 
+export async function setAutoBindAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const enabled = String(formData.get("enabled") ?? "") === "true";
+  // impact-0 + confidence>=90% own-area ingested rules auto-bind when on.
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/settings`, { autoBind: { enabled, floor: 90 } });
+  revalidatePath(`/project/${orgId}/${projectId}/connections`);
+}
+
 /* ── v2 ingestion: review queue + connections ── */
 
 export async function confirmDecisionAction(formData: FormData): Promise<void> {

@@ -18,6 +18,7 @@ import {
   setStateMappingAction,
   setStatusPropertyAction,
   setProductLayerAction,
+  setAutoBindAction,
 } from "@/actions";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,7 @@ export default async function Page({
     getOverview(orgId, projectId),
   ]);
   const productLayer = overview?.productLayer ?? false;
+  const autoBind = overview?.autoBind ?? false;
   const isOwner = overview?.viewer?.role === "owner";
   const connections = conns?.connections ?? [];
   const allowlist = allow?.allowlist ?? [];
@@ -109,6 +111,30 @@ export default async function Page({
           ) : (
             <span className="tip" data-tip="Only owners can change this">
               <StatusPill status={productLayer ? "active" : "disabled"} />
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="card pad animate-in" style={{ marginBottom: 16 }}>
+        <div className="row">
+          <div className="body">
+            <div className="title">Auto-bind low-risk decisions</div>
+            <div className="meta">
+              Skip the review queue for ingested rules that are own-area (no consumers) and high-confidence (≥90%).
+              Everything cross-cutting still waits for a human. {autoBind ? "On." : "Off."}
+            </div>
+          </div>
+          {isOwner ? (
+            <form action={setAutoBindAction}>
+              <input type="hidden" name="orgId" value={orgId} />
+              <input type="hidden" name="projectId" value={projectId} />
+              <input type="hidden" name="enabled" value={autoBind ? "false" : "true"} />
+              <button className={autoBind ? "btn ghost" : "btn primary"}>{autoBind ? "Disable" : "Enable"}</button>
+            </form>
+          ) : (
+            <span className="tip" data-tip="Only owners can change this">
+              <StatusPill status={autoBind ? "active" : "disabled"} />
             </span>
           )}
         </div>
