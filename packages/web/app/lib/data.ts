@@ -19,6 +19,8 @@ export interface Provenance {
   scopeHint?: string;
   rationale?: string;
   supersedes?: string;
+  alternatives?: string[];
+  reviewHint?: string;
 }
 export interface ProvenanceRow {
   source: string;
@@ -39,6 +41,13 @@ export interface ProposedDecision {
   provenance: Provenance | null;
   provenances?: ProvenanceRow[];
   createdAt: string;
+  // Phase J: first-class deliberation fields + server-computed staleness (TOMASP timebox)
+  rationale?: string | null;
+  alternatives?: string[] | null;
+  reviewAt?: string | null;
+  proposedAt?: string;
+  ageDays?: number;
+  stale?: boolean;
 }
 export interface SourceConnection {
   id: string;

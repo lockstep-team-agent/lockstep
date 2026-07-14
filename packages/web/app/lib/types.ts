@@ -17,6 +17,13 @@ export interface ProjectOverview {
     origin?: string;
     version: number;
     ruleText: string;
+    // Phase J deliberation + lifecycle fields
+    rationale?: string | null;
+    alternatives?: string[] | null;
+    reviewAt?: string | null;
+    dueForReview?: boolean;
+    supersededById?: string | null;
+    supersedes?: string[];
   }>;
   questions: Array<{ id: string; body: string; status: string; scopeRef: string | null; urgent: boolean }>;
   tasks: Array<{ id: string; title: string; runState: string; status: string }>;

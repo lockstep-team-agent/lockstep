@@ -84,8 +84,31 @@ export async function confirmDecisionAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");
   const id = String(formData.get("id") ?? "");
-  await apiPost(`/orgs/${orgId}/decisions/${id}/confirm`, {});
+  // Optional pre-confirm edits (Phase J): only send what the reviewer actually changed.
+  const edits: Record<string, unknown> = {};
+  const ruleText = formData.get("ruleText");
+  const original = formData.get("originalRuleText");
+  if (typeof ruleText === "string" && ruleText.trim() && ruleText.trim() !== String(original ?? "").trim())
+    edits.ruleText = ruleText.trim();
+  const rationale = formData.get("rationale");
+  if (typeof rationale === "string" && rationale.trim()) edits.rationale = rationale.trim();
+  const reviewAt = formData.get("reviewAt");
+  if (typeof reviewAt === "string" && reviewAt) edits.reviewAt = new Date(reviewAt).toISOString();
+  await apiPost(`/orgs/${orgId}/decisions/${id}/confirm`, edits);
   revalidatePath(`/project/${orgId}/${projectId}/review-queue`);
+  revalidatePath(`/project/${orgId}/${projectId}/decisions`);
+}
+
+/** Phase J review tripwire: set/snooze (a date) or clear (empty → reviewed) a binding decision's reviewAt. */
+export async function reviewDecisionAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const raw = formData.get("reviewAt");
+  const reviewAt = typeof raw === "string" && raw ? new Date(raw).toISOString() : null;
+  await apiPost(`/orgs/${orgId}/decisions/${id}/review`, { reviewAt });
+  revalidatePath(`/project/${orgId}/${projectId}/review-queue`);
+  revalidatePath(`/project/${orgId}/${projectId}/decisions`);
 }
 
 export async function rejectDecisionAction(formData: FormData): Promise<void> {
