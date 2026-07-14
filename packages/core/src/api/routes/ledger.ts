@@ -85,9 +85,17 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       decisionType?: string;
       provenance?: unknown;
       capabilityRef?: string;
+      rationale?: string;
+      alternatives?: string[];
+      reviewAt?: string;
     };
     if (!b?.scopeKind || !b?.scopeRef || !b?.ruleText || b.baseVersion === undefined) {
       return reply.code(400).send({ error: "scopeKind, scopeRef, ruleText, baseVersion required" });
+    }
+    let reviewAt: Date | undefined;
+    if (b.reviewAt !== undefined) {
+      reviewAt = new Date(b.reviewAt);
+      if (Number.isNaN(reviewAt.getTime())) return reply.code(400).send({ error: "reviewAt must be an ISO date" });
     }
     return proposeDecision(c.orgId, {
       projectId: c.projectId,
@@ -99,6 +107,9 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       decisionType: b.decisionType,
       provenance: b.provenance,
       capabilityRef: b.capabilityRef,
+      rationale: b.rationale,
+      alternatives: b.alternatives,
+      reviewAt,
     });
   });
 

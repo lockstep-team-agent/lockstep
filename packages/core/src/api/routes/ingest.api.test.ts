@@ -10,8 +10,10 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { env } from "../../env.js";
 import { withSystem } from "../../db/rls.js";
+import { randomUUID } from "node:crypto";
 import { orgs, principals, members, projects, projectMembers } from "../../db/schema.js";
 import { issueTokenTx } from "../../auth/tokens.js";
+import { proposeDecision, fileProposedDecision } from "../../ledger/ledger-service.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -46,7 +48,7 @@ async function setup() {
     // an outsider principal — has a token but is NOT a member of the org
     const outsider = one(await tx.insert(principals).values({ githubUserId: uid(), githubLogin: `o-${n}` }).returning());
     const outsiderToken = await issueTokenTx(tx, outsider.id);
-    return { orgId: org.id, projectId: proj.id, token, outsiderToken };
+    return { orgId: org.id, projectId: proj.id, memberId: m.id, token, outsiderToken };
   });
 }
 
@@ -154,4 +156,79 @@ test("ingest API: full admin → worker → review → graph → search flow", a
     const emptyItems = await app.inject({ method: "POST", url: "/ingest/proposed-decisions", headers: wtok, payload: { items: [] } });
     assert.equal(emptyItems.json().filed, 0);
   }
+});
+
+test("Phase J API: review tripwire route + staleness-decorated review queue + confirm edits", async () => {
+  app = buildApp();
+  const s = await setup();
+  const base = `/orgs/${s.orgId}/projects/${s.projectId}`;
+
+  // A binding decision to hang the tripwire on (impact 0 → binds on assertion).
+  const bound = await proposeDecision(s.orgId, {
+    projectId: s.projectId,
+    memberId: s.memberId,
+    scopeKind: "surface",
+    scopeRef: "http:GET /pj/api-review",
+    ruleText: "Compress responses above ten kilobytes.",
+    baseVersion: 0,
+  });
+
+  // Set → snooze → clear, plus the validation and guard branches.
+  const past = new Date(Date.now() - 86400000).toISOString();
+  const set = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${bound.decisionId}/review`, headers: auth(s.token), payload: { reviewAt: past } });
+  assert.equal(set.statusCode, 200);
+  assert.ok(set.json().reviewAt);
+  const clear = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${bound.decisionId}/review`, headers: auth(s.token), payload: { reviewAt: null } });
+  assert.equal(clear.statusCode, 200);
+  assert.equal(clear.json().reviewAt, null);
+  const missing = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${bound.decisionId}/review`, headers: auth(s.token), payload: {} });
+  assert.equal(missing.statusCode, 400, "reviewAt key is required (null clears)");
+  const badDate = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${bound.decisionId}/review`, headers: auth(s.token), payload: { reviewAt: "not-a-date" } });
+  assert.equal(badDate.statusCode, 400);
+  const outsider = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${bound.decisionId}/review`, headers: auth(s.outsiderToken), payload: { reviewAt: past } });
+  assert.equal(outsider.statusCode, 403);
+
+  // A proposed (ingested) decision → the review queue decorates it with ageDays/stale.
+  const filed = await fileProposedDecision(s.orgId, {
+    projectId: s.projectId,
+    scopeKind: "surface",
+    scopeRef: "http:GET /pj/api-stale",
+    ruleText: "Archive raw request logs after ninety days.",
+    provenance: { source: "slack", evidence: [{ externalId: "x", quote: "q" }] },
+    connectionId: randomUUID(),
+    externalId: randomUUID(),
+    contentHash: randomUUID(),
+    confidence: 75,
+    rationale: "Storage costs doubled last quarter.",
+    alternatives: ["Keep forever", "Thirty-day retention"],
+  });
+  const q = await app.inject({ method: "GET", url: `${base}/proposed`, headers: auth(s.token) });
+  assert.equal(q.statusCode, 200);
+  const row = (q.json().decisions as Array<{ id: string; ageDays: number; stale: boolean; rationale: string; alternatives: string[] }>).find((d) => d.id === filed.decisionId);
+  assert.ok(row, "the filed proposal is in the queue");
+  assert.equal(row!.stale, false, "a fresh proposal is not stale under the 7-day default");
+  assert.equal(row!.ageDays, 0);
+  assert.equal(row!.rationale, "Storage costs doubled last quarter.");
+  assert.deepEqual(row!.alternatives, ["Keep forever", "Thirty-day retention"]);
+
+  // A proposal can't take a tripwire (only binding decisions can).
+  const notBinding = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${filed.decisionId}/review`, headers: auth(s.token), payload: { reviewAt: past } });
+  assert.equal(notBinding.statusCode, 409);
+
+  // Confirm with Phase J edits: rationale + reviewAt flow through the route.
+  const future = new Date(Date.now() + 30 * 86400000).toISOString();
+  const confirmBad = await app.inject({ method: "POST", url: `/orgs/${s.orgId}/decisions/${filed.decisionId}/confirm`, headers: auth(s.token), payload: { reviewAt: "garbage" } });
+  assert.equal(confirmBad.statusCode, 400);
+  const confirmed = await app.inject({
+    method: "POST",
+    url: `/orgs/${s.orgId}/decisions/${filed.decisionId}/confirm`,
+    headers: auth(s.token),
+    payload: { rationale: "Compliance only needs ninety days.", reviewAt: future },
+  });
+  assert.equal(confirmed.statusCode, 200);
+  const search = await app.inject({ method: "GET", url: `${base}/decisions/search?q=ninety`, headers: auth(s.token) });
+  const found = (search.json().decisions as Array<{ id: string; rationale: string | null; reviewAt: string | null }>).find((d) => d.id === filed.decisionId);
+  assert.ok(found);
+  assert.equal(found!.rationale, "Compliance only needs ninety days.");
+  assert.ok(found!.reviewAt);
 });

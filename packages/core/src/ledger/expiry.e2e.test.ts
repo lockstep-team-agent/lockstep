@@ -9,7 +9,8 @@ import { and, eq } from "drizzle-orm";
 import { withSystem, withOrg } from "../db/rls.js";
 import { orgs, principals, members, projects, projectMembers, repos, decisions, conflicts, writebacks } from "../db/schema.js";
 import { registerDocument, setDocumentState, fileDocCandidates, type DocCandidateItem } from "../documents/document-service.js";
-import { ratifyDecision, proposeDecision } from "./ledger-service.js";
+import { randomUUID } from "node:crypto";
+import { ratifyDecision, proposeDecision, fileProposedDecision, setDecisionReview } from "./ledger-service.js";
 import { expireConstraints } from "./expiry-job.js";
 import { enqueueWeeklyDigests, isoWeek } from "../documents/weekly-digest.js";
 
@@ -23,7 +24,7 @@ const uid = (): number => ++seq;
 const PAGE = () => `00000000-0000-4000-8000-${uid().toString(16).padStart(12, "0")}`;
 const SURFACE = "http:POST /payments/init";
 
-async function setup() {
+async function setup(settings: object = { productLayer: { enabled: true } }) {
   const n = uid();
   return withSystem(async (tx) => {
     const org = one(await tx.insert(orgs).values({ name: `ExpCo-${n}` }).returning());
@@ -31,7 +32,7 @@ async function setup() {
     const pm = one(await tx.insert(members).values({ orgId: org.id, principalId: p.id, githubUserId: p.githubUserId, githubLogin: `pm-${n}`, slackUserId: `U${n}PM` }).returning());
     const pe = one(await tx.insert(principals).values({ githubUserId: uid(), githubLogin: `eng-${n}` }).returning());
     const eng = one(await tx.insert(members).values({ orgId: org.id, principalId: pe.id, githubUserId: pe.githubUserId, githubLogin: `eng-${n}` }).returning());
-    const proj = one(await tx.insert(projects).values({ orgId: org.id, name: "acme", createdBy: pm.id, settings: { productLayer: { enabled: true } } }).returning());
+    const proj = one(await tx.insert(projects).values({ orgId: org.id, name: "acme", createdBy: pm.id, settings }).returning());
     await tx.insert(projectMembers).values({ orgId: org.id, projectId: proj.id, memberId: pm.id, invitedGithubLogin: pm.githubLogin, role: "pm", status: "active" });
     await tx.insert(repos).values({ orgId: org.id, projectId: proj.id, gitRemote: `github.com/acme/svc-${n}` });
     return { orgId: org.id, projectId: proj.id, pm: pm.id, eng: eng.id, pmSlack: `U${n}PM` };
@@ -136,4 +137,46 @@ test("weekly digest: a quiet project enqueues nothing", async () => {
   const wbs = await withOrg(s.orgId, (tx) => tx.select().from(writebacks).where(and(eq(writebacks.projectId, s.projectId), eq(writebacks.kind, "weekly_digest"))));
   assert.equal(wbs.length, 0, "nothing to report → no digest");
   void r;
+});
+
+test("weekly digest: review-due decisions and stale proposals are reported (Phase J)", async () => {
+  const s = await setup();
+  // A binding decision with a past review tripwire…
+  const r = await proposeDecision(s.orgId, { projectId: s.projectId, memberId: s.eng, scopeKind: "surface", scopeRef: "http:GET /pj/due", ruleText: "Cache the summary endpoint.", baseVersion: 0 });
+  await setDecisionReview(s.orgId, r.decisionId, s.eng, new Date(Date.now() - 86400000));
+  // …and a proposal that, seen from a week out, has been waiting past the 7-day default window.
+  await fileProposedDecision(s.orgId, {
+    projectId: s.projectId,
+    scopeKind: "surface",
+    scopeRef: "http:GET /pj/stale",
+    ruleText: "Nightly reindex of the search cluster.",
+    provenance: { source: "slack", evidence: [{ externalId: "x", quote: "q" }] },
+    connectionId: randomUUID(),
+    externalId: randomUUID(),
+    contentHash: randomUUID(),
+    confidence: 70,
+  });
+
+  const vantage = new Date(Date.now() + 8 * 86400000);
+  const res = await enqueueWeeklyDigests(vantage);
+  assert.ok(res.enqueued >= 1);
+  const wbs = await withOrg(s.orgId, (tx) => tx.select().from(writebacks).where(and(eq(writebacks.projectId, s.projectId), eq(writebacks.kind, "weekly_digest"))));
+  const payload = one(wbs).payload as { reviewDue: Array<{ scopeRef: string }>; staleProposals: Array<{ scopeRef: string; ageDays: number }> };
+  assert.ok(payload.reviewDue.some((d) => d.scopeRef === "http:GET /pj/due"));
+  const stale = payload.staleProposals.find((d) => d.scopeRef === "http:GET /pj/stale");
+  assert.ok(stale, "the waiting proposal is escalated");
+  assert.ok(stale!.ageDays >= 8);
+});
+
+test("weekly digest: Phase J sections fire even with the product layer off", async () => {
+  const s = await setup({}); // no product layer
+  const r = await proposeDecision(s.orgId, { projectId: s.projectId, memberId: s.eng, scopeKind: "surface", scopeRef: "http:GET /pj/off-due", ruleText: "Rotate the API keys monthly.", baseVersion: 0 });
+  await setDecisionReview(s.orgId, r.decisionId, s.eng, new Date(Date.now() - 86400000));
+  const res = await enqueueWeeklyDigests();
+  assert.ok(res.enqueued >= 1, "review tripwires escalate regardless of the product layer");
+  const wbs = await withOrg(s.orgId, (tx) => tx.select().from(writebacks).where(and(eq(writebacks.projectId, s.projectId), eq(writebacks.kind, "weekly_digest"))));
+  const payload = one(wbs).payload as { reviewDue: Array<{ scopeRef: string }>; expired: unknown[]; openConflicts: number };
+  assert.ok(payload.reviewDue.some((d) => d.scopeRef === "http:GET /pj/off-due"));
+  assert.equal(payload.expired.length, 0);
+  assert.equal(payload.openConflicts, 0);
 });

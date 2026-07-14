@@ -234,6 +234,11 @@ export interface ProposeInput {
   // version provenance so drift detection can SUPPRESS conflicts between a constraint and its own
   // intended implementation (F7). Optional — un-tagged work trips drift, the safe default.
   capabilityRef?: string;
+  // Phase J deliberation fields (ADR context): the why, and what was considered and rejected.
+  rationale?: string;
+  alternatives?: string[];
+  // Phase J review tripwire — when this decision should be revisited (never affects binding).
+  reviewAt?: Date | null;
 }
 
 /**
@@ -311,10 +316,20 @@ export async function proposeDecision(
       baseVersion: input.baseVersion,
       ruleText: input.ruleText,
       provenance,
+      rationale: input.rationale ?? null,
+      alternatives: input.alternatives ?? null,
       status,
       proposedBy: input.memberId,
     });
-    await tx.update(decisions).set({ currentVersion: version, status, impact }).where(eq(decisions.id, decisionId));
+    await tx
+      .update(decisions)
+      .set({
+        currentVersion: version,
+        status,
+        impact,
+        ...(input.reviewAt !== undefined ? { reviewAt: input.reviewAt } : {}),
+      })
+      .where(eq(decisions.id, decisionId));
     await writeAudit(tx, {
       orgId,
       projectId: input.projectId,
@@ -395,6 +410,13 @@ export async function ackDecision(
         ruleText: cur?.ruleText ?? "",
         authorMemberId: (cur?.proposedBy as string | null) ?? memberId,
         capabilityRef: (cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef ?? null,
+      });
+      // Bound on ack — retire the decision this one was filed to supersede, if any.
+      await applySupersessionTx(tx, orgId, {
+        newDecisionId: decisionId,
+        projectId: d.projectId,
+        oldDecisionId: supersedesHint(cur?.provenance),
+        actorMemberId: memberId,
       });
     }
     return { status };
@@ -525,6 +547,49 @@ export async function listProvenancesForProject(
   });
 }
 
+/**
+ * Phase J: flip-on-bind supersession. When a decision binds and carries a `supersedes` provenance
+ * hint (written by fileProposedDecision's scope scan), retire the hinted prior decision: status →
+ * superseded plus the supersededById link. The status predicate is the CAS — a re-run, a race, or
+ * an already-retired target flips nothing. Never crosses projects; forward-only (no unwind: the
+ * flip only ever happens at bind, so rejecting a proposal leaves its target untouched).
+ */
+async function applySupersessionTx(
+  tx: Tx,
+  orgId: string,
+  args: {
+    newDecisionId: string;
+    projectId: string;
+    oldDecisionId: string | null | undefined;
+    actorMemberId?: string | null;
+  },
+): Promise<void> {
+  const oldId = args.oldDecisionId;
+  if (!oldId || oldId === args.newDecisionId) return;
+  const flipped = await tx
+    .update(decisions)
+    .set({ status: "superseded", supersededById: args.newDecisionId })
+    .where(and(eq(decisions.id, oldId), eq(decisions.projectId, args.projectId), eq(decisions.status, "binding")))
+    .returning({ currentVersion: decisions.currentVersion });
+  const hit = flipped[0];
+  if (!hit) return;
+  await writeAudit(tx, {
+    orgId,
+    projectId: args.projectId,
+    actorMemberId: args.actorMemberId ?? undefined,
+    action: "decision.superseded",
+    entityKind: "decision",
+    entityId: oldId,
+    entityVersion: hit.currentVersion,
+    payload: { supersededById: args.newDecisionId },
+  });
+}
+
+/** Provenance hint accessor for the flip: the prior-decision id fileProposedDecision stashed. */
+function supersedesHint(provenance: unknown): string | null {
+  return (provenance as { supersedes?: string } | null)?.supersedes ?? null;
+}
+
 export interface FileProposedInput {
   projectId: string;
   scopeKind: string; // surface | repo | topic | project | shared | contract | capability (v3)
@@ -542,6 +607,10 @@ export interface FileProposedInput {
   constraintKind?: string; // behavioral | launch_gate | scope_exclusion
   expiresAt?: Date | null;
   anchor?: unknown; // stored on the provenance row — exact origin location in the source doc
+  // Phase J deliberation fields (first-class; the funnel also keeps them in the provenance blob).
+  rationale?: string;
+  alternatives?: string[];
+  reviewAt?: Date | null; // review tripwire parsed from "revisit …" phrasing
 }
 
 /**
@@ -660,6 +729,7 @@ export async function fileProposedDecision(
           origin,
           constraintKind: input.constraintKind ?? null,
           expiresAt: input.expiresAt ?? null,
+          reviewAt: input.reviewAt ?? null,
         })
         .returning(),
     );
@@ -670,6 +740,8 @@ export async function fileProposedDecision(
       baseVersion: 0,
       ruleText: input.ruleText,
       provenance: supersedes ? { ...(input.provenance as object), supersedes } : (input.provenance ?? null),
+      rationale: input.rationale ?? null,
+      alternatives: input.alternatives ?? null,
       status,
     });
     await addProvenanceTx(tx, orgId, d.id, provRow);
@@ -693,6 +765,14 @@ export async function fileProposedDecision(
     });
     // NOTE: auto-bound rules are impact-0/own-area; drift-vs-PRD is checked on the deliberate
     // confirm/ack path (confirmDecision), not here (no single human author for the conflict notify).
+    // Auto-bound is still a bind — retire the decision this one supersedes (no human actor).
+    if (autoBound) {
+      await applySupersessionTx(tx, orgId, {
+        newDecisionId: d.id,
+        projectId: input.projectId,
+        oldDecisionId: supersedes,
+      });
+    }
     return { decisionId: d.id, deduped: false, fused: false, supersedes };
   });
 }
@@ -709,6 +789,7 @@ export interface ReproposeInput {
   externalId: string;
   contentHash: string;
   confidence?: number;
+  rationale?: string; // Phase J: fresh rationale from re-extraction (falls back to the prior version's)
 }
 
 /**
@@ -776,6 +857,8 @@ export async function reproposeDocConstraint(
       baseVersion: d.currentVersion,
       ruleText: input.ruleText,
       provenance: input.provenance ?? cur?.provenance ?? null,
+      rationale: input.rationale ?? cur?.rationale ?? null,
+      alternatives: cur?.alternatives ?? null,
       status: "proposed",
     });
     await tx
@@ -816,7 +899,14 @@ export async function confirmDecision(
   orgId: string,
   decisionId: string,
   memberId: string,
-  edits?: { ruleText?: string; scopeKind?: string; scopeRef?: string },
+  edits?: {
+    ruleText?: string;
+    scopeKind?: string;
+    scopeRef?: string;
+    rationale?: string;
+    alternatives?: string[];
+    reviewAt?: Date | null;
+  },
 ): Promise<{ status: string; impact: number }> {
   return withOrg(orgId, async (tx) => {
     const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
@@ -834,7 +924,10 @@ export async function confirmDecision(
     const scopeKind = edits?.scopeKind ?? d.scopeKind;
     const scopeRef = edits?.scopeRef ?? d.scopeRef;
     const ruleText = edits?.ruleText ?? cur?.ruleText ?? "";
-    const edited = Boolean(edits?.ruleText || edits?.scopeKind || edits?.scopeRef);
+    // Deliberation fields live on the version row (append-only) — editing them appends too.
+    const edited = Boolean(
+      edits?.ruleText || edits?.scopeKind || edits?.scopeRef || edits?.rationale || edits?.alternatives,
+    );
 
     const impact = await impactForScopeTx(tx, d.projectId, scopeKind, scopeRef);
     const needsAck = impact > 0;
@@ -849,13 +942,22 @@ export async function confirmDecision(
         baseVersion: d.currentVersion,
         ruleText,
         provenance: cur?.provenance ?? null,
+        rationale: edits?.rationale ?? cur?.rationale ?? null,
+        alternatives: edits?.alternatives ?? cur?.alternatives ?? null,
         status,
         proposedBy: memberId,
       });
     }
     await tx
       .update(decisions)
-      .set({ scopeKind, scopeRef, status, impact, currentVersion: version })
+      .set({
+        scopeKind,
+        scopeRef,
+        status,
+        impact,
+        currentVersion: version,
+        ...(edits?.reviewAt !== undefined ? { reviewAt: edits.reviewAt } : {}),
+      })
       .where(eq(decisions.id, decisionId));
     await writeAudit(tx, {
       orgId,
@@ -886,6 +988,16 @@ export async function confirmDecision(
         ruleText,
         authorMemberId: memberId,
         capabilityRef: (cur?.provenance as { capabilityRef?: string } | null)?.capabilityRef ?? null,
+      });
+    }
+    // Bound on confirm — retire the decision this one was filed to supersede. (A confirm that
+    // lands `open` flips later, at ack.)
+    if (status === "binding") {
+      await applySupersessionTx(tx, orgId, {
+        newDecisionId: decisionId,
+        projectId: d.projectId,
+        oldDecisionId: supersedesHint(cur?.provenance),
+        actorMemberId: memberId,
       });
     }
     return { status, impact };
@@ -941,6 +1053,8 @@ export async function ratifyDecision(
         baseVersion: d.currentVersion,
         ruleText: editedText,
         provenance: cur?.provenance ?? null,
+        rationale: cur?.rationale ?? null,
+        alternatives: cur?.alternatives ?? null,
         status: "binding",
         proposedBy: memberId,
       });
@@ -951,6 +1065,14 @@ export async function ratifyDecision(
       .update(decisions)
       .set({ status: "binding", impact, currentVersion: version })
       .where(eq(decisions.id, decisionId));
+    // Every bind path flips supersession. Guaranteed no-op today — the hint is never written for
+    // document constraints — but keeps the invariant honest if that ever changes.
+    await applySupersessionTx(tx, orgId, {
+      newDecisionId: decisionId,
+      projectId: d.projectId,
+      oldDecisionId: supersedesHint(cur?.provenance),
+      actorMemberId: memberId,
+    });
 
     // First ratification of a capability-scoped constraint mints the capability node and links the
     // source doc to it, giving the org graph its product layer.
@@ -1041,6 +1163,36 @@ export async function rejectDecision(orgId: string, decisionId: string, memberId
   });
 }
 
+/**
+ * Phase J review tripwire mutation: set, snooze, or clear a binding decision's reviewAt. "Due for
+ * review" itself is computed at query time (reviewAt < now) — this is the only state change, and it
+ * is human-attributed (the audit trail a status-flipping job could never give).
+ */
+export async function setDecisionReview(
+  orgId: string,
+  decisionId: string,
+  memberId: string,
+  reviewAt: Date | null,
+): Promise<{ reviewAt: Date | null }> {
+  return withOrg(orgId, async (tx) => {
+    const d = (await tx.select().from(decisions).where(eq(decisions.id, decisionId)).limit(1))[0];
+    if (!d) throw Object.assign(new Error("decision not found"), { statusCode: 404 });
+    if (d.status !== "binding") throw conflict(`decision is ${d.status}, not binding`);
+    await tx.update(decisions).set({ reviewAt }).where(eq(decisions.id, decisionId));
+    await writeAudit(tx, {
+      orgId,
+      projectId: d.projectId,
+      actorMemberId: memberId,
+      action: "decision.review_updated",
+      entityKind: "decision",
+      entityId: decisionId,
+      entityVersion: d.currentVersion,
+      payload: { reviewAt: reviewAt?.toISOString() ?? null },
+    });
+    return { reviewAt };
+  });
+}
+
 export async function listDecisions(
   orgId: string,
   projectId: string,
@@ -1059,10 +1211,24 @@ export async function listDecisions(
     decisionType: string;
     impact: number;
     createdAt: Date;
+    rationale: string | null;
+    alternatives: string[] | null;
+    reviewAt: Date | null;
+    dueForReview: boolean;
+    supersededById: string | null;
+    supersedes: string[];
+    proposedAt: Date;
   }>
 > {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select().from(decisions).where(eq(decisions.projectId, projectId));
+    // Lineage reverse map: "X supersedes Y" is Y.supersededById === X — built from the same rows.
+    const supersedesBy = new Map<string, string[]>();
+    for (const d of ds) {
+      if (!d.supersededById) continue;
+      supersedesBy.set(d.supersededById, [...(supersedesBy.get(d.supersededById) ?? []), d.id]);
+    }
+    const now = new Date();
     const out = [];
     for (const d of ds) {
       if (scopeRef && d.scopeRef !== scopeRef) continue;
@@ -1087,6 +1253,16 @@ export async function listDecisions(
         decisionType: d.decisionType,
         impact: d.impact,
         createdAt: d.createdAt,
+        rationale: v?.rationale ?? null,
+        alternatives: (v?.alternatives as string[] | null) ?? null,
+        reviewAt: d.reviewAt,
+        // Query-time tripwire: due decisions stay binding — they just surface for a human look.
+        dueForReview: d.status === "binding" && d.reviewAt != null && d.reviewAt < now,
+        supersededById: d.supersededById,
+        supersedes: supersedesBy.get(d.id) ?? [],
+        // Staleness anchor: the CURRENT version's timestamp — a re-proposed doc constraint re-enters
+        // the queue with a fresh clock, not the decision's original createdAt.
+        proposedAt: v?.createdAt ?? d.createdAt,
       });
     }
     return out;

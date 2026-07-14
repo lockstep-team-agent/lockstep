@@ -683,6 +683,7 @@ export async function fileDocCandidates(
         externalId: it.externalId,
         contentHash: it.contentHash,
         confidence: it.confidence,
+        rationale: it.rationale,
       });
       if (r.reversioned) reversioned++;
       else deduped++;
@@ -705,6 +706,7 @@ export async function fileDocCandidates(
       externalId: it.externalId,
       contentHash: it.contentHash,
       confidence: it.confidence,
+      rationale: it.rationale,
     });
     if (r.deduped) deduped++;
     else if (r.fused) fused++;

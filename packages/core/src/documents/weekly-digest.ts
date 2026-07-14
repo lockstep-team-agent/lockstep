@@ -3,6 +3,7 @@ import { withSystem } from "../db/rls.js";
 import {
   projects,
   decisions,
+  decisionVersions,
   decisionProvenances,
   conflicts,
   sourceDocuments,
@@ -24,10 +25,12 @@ export function isoWeek(d: Date): string {
 }
 
 /**
- * Enqueue a weekly operator digest per product-layer project: constraints that expired this week, docs
- * whose anchors need reverify, and the open-conflict count — delivered to each owner/pm with a Slack id.
- * Cross-org, worker-driven; the week-bucketed `dedupeKey` + onConflictDoNothing makes it fire at most
- * once per project per ISO week even though the worker calls it every tick.
+ * Enqueue a weekly operator digest per project — delivered to each owner/pm with a Slack id.
+ * Phase J sections (decisions due for review, proposals waiting past the staleness window) apply to
+ * EVERY project; the product-layer sections (constraints expired this week, docs whose anchors need
+ * reverify, open-conflict count) only to product-layer projects. Cross-org, worker-driven; the
+ * week-bucketed `dedupeKey` + onConflictDoNothing makes it fire at most once per project per ISO
+ * week even though the worker calls it every tick.
  */
 export async function enqueueWeeklyDigests(now = new Date()): Promise<{ enqueued: number }> {
   const week = isoWeek(now);
@@ -36,39 +39,79 @@ export async function enqueueWeeklyDigests(now = new Date()): Promise<{ enqueued
     const projs = await tx.select().from(projects);
     let enqueued = 0;
     for (const p of projs) {
-      if (!productLayerEnabled(p.settings)) continue;
+      const productLayer = productLayerEnabled(p.settings);
 
-      // Constraints that expired this week (expiresAt is ~when the daily job flipped them).
-      const expired = await tx
-        .select()
+      // Phase J: binding decisions past their review tripwire (query-time — nothing flips status).
+      const reviewDueRows = await tx
+        .select({ scopeRef: decisions.scopeRef, reviewAt: decisions.reviewAt })
         .from(decisions)
-        .where(
-          and(
-            eq(decisions.projectId, p.id),
-            eq(decisions.origin, "document"),
-            eq(decisions.status, "expired"),
-            gt(decisions.expiresAt, weekAgo),
-            lt(decisions.expiresAt, now),
-          ),
-        );
+        .where(and(eq(decisions.projectId, p.id), eq(decisions.status, "binding"), lt(decisions.reviewAt, now)));
+      const reviewDue = reviewDueRows.map((d) => ({ scopeRef: d.scopeRef }));
 
-      // Docs (by external id) with at least one non-valid anchor.
-      const shakyAnchors = await tx
-        .select({ docId: sourceDocuments.id, title: sourceDocuments.title, anchorStatus: decisionProvenances.anchorStatus, source: decisionProvenances.source })
-        .from(decisionProvenances)
-        .innerJoin(decisions, eq(decisionProvenances.decisionId, decisions.id))
+      // Phase J: proposals stuck in the review queue past the project's staleness window. Age is
+      // anchored on the CURRENT version's createdAt — a re-proposed constraint gets a fresh clock.
+      const staleDays = (p.settings as { staleProposalDays?: number } | null)?.staleProposalDays ?? 7;
+      const staleCutoff = new Date(now.getTime() - staleDays * 86400000);
+      const staleRows = await tx
+        .select({ scopeRef: decisions.scopeRef, proposedAt: decisionVersions.createdAt })
+        .from(decisions)
         .innerJoin(
-          sourceDocuments,
-          and(eq(sourceDocuments.projectId, p.id), eq(sourceDocuments.tool, decisionProvenances.source)),
+          decisionVersions,
+          and(eq(decisionVersions.decisionId, decisions.id), eq(decisionVersions.version, decisions.currentVersion)),
         )
-        .where(and(eq(decisions.projectId, p.id), eq(decisions.origin, "document"), ne(decisionProvenances.anchorStatus, "valid")));
-      const reverifyDocs = [...new Map(shakyAnchors.map((r) => [r.docId, r.title])).entries()].map(([, title]) => ({ title }));
+        .where(
+          and(eq(decisions.projectId, p.id), eq(decisions.status, "proposed"), lt(decisionVersions.createdAt, staleCutoff)),
+        );
+      const staleProposals = staleRows.map((r) => ({
+        scopeRef: r.scopeRef,
+        ageDays: Math.floor((now.getTime() - r.proposedAt.getTime()) / 86400000),
+      }));
 
-      const openConflicts = (
-        await tx.select({ id: conflicts.id }).from(conflicts).where(and(eq(conflicts.projectId, p.id), eq(conflicts.status, "open")))
-      ).length;
+      // Product-layer sections.
+      let expired: Array<{ scopeRef: string }> = [];
+      let reverifyDocs: Array<{ title: string | null }> = [];
+      let openConflicts = 0;
+      if (productLayer) {
+        // Constraints that expired this week (expiresAt is ~when the daily job flipped them).
+        const expiredRows = await tx
+          .select()
+          .from(decisions)
+          .where(
+            and(
+              eq(decisions.projectId, p.id),
+              eq(decisions.origin, "document"),
+              eq(decisions.status, "expired"),
+              gt(decisions.expiresAt, weekAgo),
+              lt(decisions.expiresAt, now),
+            ),
+          );
+        expired = expiredRows.map((d) => ({ scopeRef: d.scopeRef }));
 
-      if (expired.length === 0 && reverifyDocs.length === 0 && openConflicts === 0) continue;
+        // Docs (by external id) with at least one non-valid anchor.
+        const shakyAnchors = await tx
+          .select({ docId: sourceDocuments.id, title: sourceDocuments.title, anchorStatus: decisionProvenances.anchorStatus, source: decisionProvenances.source })
+          .from(decisionProvenances)
+          .innerJoin(decisions, eq(decisionProvenances.decisionId, decisions.id))
+          .innerJoin(
+            sourceDocuments,
+            and(eq(sourceDocuments.projectId, p.id), eq(sourceDocuments.tool, decisionProvenances.source)),
+          )
+          .where(and(eq(decisions.projectId, p.id), eq(decisions.origin, "document"), ne(decisionProvenances.anchorStatus, "valid")));
+        reverifyDocs = [...new Map(shakyAnchors.map((r) => [r.docId, r.title])).entries()].map(([, title]) => ({ title }));
+
+        openConflicts = (
+          await tx.select({ id: conflicts.id }).from(conflicts).where(and(eq(conflicts.projectId, p.id), eq(conflicts.status, "open")))
+        ).length;
+      }
+
+      if (
+        expired.length === 0 &&
+        reverifyDocs.length === 0 &&
+        openConflicts === 0 &&
+        reviewDue.length === 0 &&
+        staleProposals.length === 0
+      )
+        continue;
 
       // Recipients: active owners/PMs of the project with a linked Slack id.
       const pms = await tx
@@ -81,9 +124,11 @@ export async function enqueueWeeklyDigests(now = new Date()): Promise<{ enqueued
 
       const payload = {
         projectName: p.name,
-        expired: expired.map((d) => ({ scopeRef: d.scopeRef })),
+        expired,
         reverifyDocs,
         openConflicts,
+        reviewDue,
+        staleProposals,
       };
       for (const m of recips) {
         const res = await tx

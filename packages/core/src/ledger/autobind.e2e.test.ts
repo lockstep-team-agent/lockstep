@@ -116,3 +116,39 @@ test("document constraints never auto-bind", async () => {
   await file(s.orgId, s.projectId, "http:GET /ab/doc", 99, "document");
   assert.equal(await statusOf(s.orgId, s.projectId, "http:GET /ab/doc"), "proposed");
 });
+
+test("auto-bind is a bind: a hinted prior decision flips to superseded (Phase J)", async () => {
+  const s = await setup({ autoBind: { enabled: true, floor: 80 } });
+  const scopeRef = "http:GET /ab/supersede";
+  const first = await fileProposedDecision(s.orgId, {
+    projectId: s.projectId,
+    scopeKind: "surface",
+    scopeRef,
+    ruleText: "Serve cached weather snapshots hourly.",
+    provenance: { source: "slack", evidence: [{ externalId: "x", quote: "q" }] },
+    connectionId: randomUUID(),
+    externalId: randomUUID(),
+    contentHash: randomUUID(),
+    confidence: 95,
+  });
+  assert.equal(await statusOf(s.orgId, s.projectId, scopeRef), "binding");
+
+  // Same scope, lexically unrelated rule → supersedes hint; auto-bind fires the flip immediately.
+  const second = await fileProposedDecision(s.orgId, {
+    projectId: s.projectId,
+    scopeKind: "surface",
+    scopeRef,
+    ruleText: "Proxy live radar imagery straight from the upstream provider.",
+    provenance: { source: "slack", evidence: [{ externalId: "y", quote: "q2" }] },
+    connectionId: randomUUID(),
+    externalId: randomUUID(),
+    contentHash: randomUUID(),
+    confidence: 95,
+  });
+  assert.equal(second.supersedes, first.decisionId);
+  const old = await withSystem(async (tx) =>
+    one(await tx.select().from(decisions).where(eq(decisions.id, first.decisionId))),
+  );
+  assert.equal(old.status, "superseded");
+  assert.equal(old.supersededById, second.decisionId);
+});

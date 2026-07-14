@@ -200,6 +200,12 @@ export const decisions = pgTable("decisions", {
   // semantics. Null for everything else.
   constraintKind: text("constraint_kind"), // behavioral | launch_gate | scope_exclusion
   expiresAt: timestamp("expires_at", { withTimezone: true }), // launch gates: binding → expired past this
+  // Review tripwire ("prepare to be wrong"): a binding decision past reviewAt surfaces as due for
+  // review — query-time only, never changes binding semantics. Mutable (snooze/clear via review route).
+  reviewAt: timestamp("review_at", { withTimezone: true }),
+  // Set together with status=superseded when a newer decision on the same scope binds. Logical link
+  // (no FK constraint, matching the rest of the schema); "supersedes" is the reverse lookup.
+  supersededById: uuid("superseded_by_id"),
   createdAt: createdAt(),
 });
 
@@ -213,6 +219,8 @@ export const decisionVersions = pgTable(
     baseVersion: integer("base_version").notNull(), // CAS target
     ruleText: text("rule_text").notNull(),
     provenance: jsonb("provenance"), // {source, vendor, gitSha, summary}
+    rationale: text("rationale"), // the why, versioned with the rule text (ADR context)
+    alternatives: jsonb("alternatives").$type<string[]>(), // options considered and rejected
     status: text("status").notNull().default("open"),
     proposedBy: uuid("proposed_by"),
     createdAt: createdAt(),

@@ -36,6 +36,13 @@
       "when": 1794000000000,
       "tag": "0004_product_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794500000000,
+      "tag": "0005_adr_quality",
+      "breakpoints": true
     }
   ]
 }

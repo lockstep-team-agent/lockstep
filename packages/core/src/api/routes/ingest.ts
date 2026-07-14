@@ -16,9 +16,13 @@ import {
   fileProposedDecision,
   confirmDecision,
   rejectDecision,
+  setDecisionReview,
   listDecisions,
   listProvenancesForProject,
 } from "../../ledger/ledger-service.js";
+import { eq } from "drizzle-orm";
+import { withOrg } from "../../db/rls.js";
+import { projects } from "../../db/schema.js";
 import { deriveGraph, listGraph, addNode, addEdge } from "../../graph/graph-service.js";
 import { reconcileSlackMembersByEmail } from "../../auth/auth-service.js";
 
@@ -47,11 +51,15 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
         externalId: string;
         contentHash: string;
         confidence?: number;
+        rationale?: string;
+        alternatives?: string[];
+        reviewAt?: string | null;
       }>;
     };
     const items = b?.items ?? [];
     const results = [];
     for (const it of items) {
+      const reviewAt = it.reviewAt ? new Date(it.reviewAt) : null;
       const r = await fileProposedDecision(it.orgId, {
         projectId: it.projectId,
         scopeKind: it.scopeKind,
@@ -63,6 +71,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
         externalId: it.externalId,
         contentHash: it.contentHash,
         confidence: it.confidence,
+        rationale: it.rationale,
+        alternatives: it.alternatives,
+        reviewAt: reviewAt && !Number.isNaN(reviewAt.getTime()) ? reviewAt : null,
       });
       results.push(r);
     }
@@ -179,15 +190,56 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
       (d) => d.origin !== "document",
     );
     const provs = await listProvenancesForProject(orgId, projectId);
-    return { decisions: decisions.map((d) => ({ ...d, provenances: provs[d.id] ?? [] })) };
+    // Phase J staleness (TOMASP timebox): flag proposals older than the project's window. Computed
+    // server-side so the web queue and the Slack digest agree on one source of truth.
+    const proj = await withOrg(orgId, async (tx) =>
+      (await tx.select({ settings: projects.settings }).from(projects).where(eq(projects.id, projectId)).limit(1))[0],
+    );
+    const staleDays = (proj?.settings as { staleProposalDays?: number } | null)?.staleProposalDays ?? 7;
+    const now = Date.now();
+    return {
+      decisions: decisions.map((d) => {
+        const ageDays = Math.floor((now - new Date(d.proposedAt).getTime()) / 86400000);
+        return { ...d, provenances: provs[d.id] ?? [], ageDays, stale: ageDays >= staleDays };
+      }),
+    };
   });
 
   app.post("/orgs/:orgId/decisions/:id/confirm", async (req, reply) => {
     const { orgId, id } = req.params as { orgId: string; id: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
-    const b = req.body as { ruleText?: string; scopeKind?: string; scopeRef?: string } | undefined;
-    return confirmDecision(orgId, id, memberId, b);
+    const b = req.body as
+      | {
+          ruleText?: string;
+          scopeKind?: string;
+          scopeRef?: string;
+          rationale?: string;
+          alternatives?: string[];
+          reviewAt?: string | null;
+        }
+      | undefined;
+    let reviewAt: Date | null | undefined;
+    if (b?.reviewAt !== undefined) {
+      reviewAt = b.reviewAt === null || b.reviewAt === "" ? null : new Date(b.reviewAt);
+      if (reviewAt && Number.isNaN(reviewAt.getTime()))
+        return reply.code(400).send({ error: "reviewAt must be an ISO date or null" });
+    }
+    return confirmDecision(orgId, id, memberId, b ? { ...b, reviewAt } : undefined);
+  });
+
+  // Phase J review tripwire: set (or snooze) / clear a binding decision's reviewAt. "Due" itself is
+  // computed at query time — this is the only mutation, and it's human-attributed in the audit log.
+  app.post("/orgs/:orgId/decisions/:id/review", async (req, reply) => {
+    const { orgId, id } = req.params as { orgId: string; id: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    const b = req.body as { reviewAt?: string | null } | undefined;
+    if (b?.reviewAt === undefined) return reply.code(400).send({ error: "reviewAt required (ISO date or null)" });
+    const reviewAt = b.reviewAt === null || b.reviewAt === "" ? null : new Date(b.reviewAt);
+    if (reviewAt && Number.isNaN(reviewAt.getTime()))
+      return reply.code(400).send({ error: "reviewAt must be an ISO date or null" });
+    return setDecisionReview(orgId, id, memberId, reviewAt);
   });
 
   // Human decision search: "what did we decide about X?" over the ledger, with filters.
