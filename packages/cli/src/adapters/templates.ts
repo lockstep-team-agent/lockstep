@@ -49,6 +49,13 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
 - **Whenever you (or the user) make a real decision like that, you MUST log it** with
   \`propose_decision\` — set \`decisionType\` to \`rule\` or \`architecture\`. If you're unsure whether
   something is a decision, ask: "will this constrain how others build later?" If yes, log it.
+- A decision is more than its verdict — record the deliberation too (this is what makes the ledger
+  readable a year later):
+  - \`rationale\`: WHY, in one or two sentences (the constraint or trade-off that drove it).
+  - \`alternatives\`: the options considered and rejected, when any were discussed.
+  - \`reviewAt\` (ISO date): only when the decision is explicitly temporary ("revisit after the
+    migration", "review in 30 days"). If the revisit point is an event with no date, ask the user
+    for a date or omit it — never invent one.
 
 ## After making a change
 - Summarize the change and call \`notify\` (include a contract delta for interface changes).
@@ -130,4 +137,4 @@ Re-running \`lockstep scan\` diffs current code surfaces against \`lockstep.yaml
 
 export const CLAUDE_BLOCK = `## Lockstep (team coordination)
 IMPORTANT: On session start, BEFORE doing anything else, call \`inbox\` and \`decisions\`. If there are any open questions, tasks, or changes, you MUST tell the user immediately — do not skip this. Example: "You have 1 new question from a teammate: [question text]". Then proceed with the user's request.
-Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. IMPORTANT: a routine code change is captured automatically — do NOT log it as a decision. But whenever you or the user make a durable **rule or architectural choice** that will constrain future work, you MUST record it with \`propose_decision\` (\`decisionType: rule | architecture\`). Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. If this repo has no \`lockstep.yaml\` (or you changed its routes/outbound calls), run the \`/lockstep-setup\` skill to (re)generate it — never hand-edit \`lockstep.yaml\`. See the \`lockstep\` skill for detail.`;
+Before coding a shared/contract surface, \`query\` the ledger and obey binding decisions. After a change, summarize it, \`register_dependency\` for surfaces you call, and \`notify\`. IMPORTANT: a routine code change is captured automatically — do NOT log it as a decision. But whenever you or the user make a durable **rule or architectural choice** that will constrain future work, you MUST record it with \`propose_decision\` (\`decisionType: rule | architecture\`) — include \`rationale\` (why) and \`alternatives\` (what was rejected) when known, and \`reviewAt\` (ISO date) when the decision is explicitly temporary. Ask code/repo questions with \`ask\` (urgent if blocking). When you see a "[Lockstep]" notification, inform the user about pending messages. If this repo has no \`lockstep.yaml\` (or you changed its routes/outbound calls), run the \`/lockstep-setup\` skill to (re)generate it — never hand-edit \`lockstep.yaml\`. See the \`lockstep\` skill for detail.`;

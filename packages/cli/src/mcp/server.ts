@@ -65,6 +65,9 @@ export async function runMcpServer(): Promise<void> {
       baseVersion: z.number(),
       decisionType: z.enum(["rule", "architecture"]).optional(),
       capabilityRef: z.string().optional(),
+      rationale: z.string().optional(), // the why, one or two sentences (ADR context)
+      alternatives: z.array(z.string()).optional(), // options considered and rejected
+      reviewAt: z.string().optional(), // ISO date — when this decision should be revisited
     },
     async (a) => ok(await call("POST", "/decisions", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined })),
   );
