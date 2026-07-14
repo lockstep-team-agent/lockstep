@@ -15,6 +15,7 @@ export interface Extraction {
   decided_by: string[];
   scope_hint: string;
   surface_candidates: string[];
+  review_hint: string; // verbatim "revisit …" phrasing, "" if none (Phase J tripwire)
   confidence: number; // 0..1
   evidence: Evidence[];
 }
@@ -36,6 +37,8 @@ Return STRICT JSON matching the schema. Rules:
 - decided_by: the handles that assented.
 - scope_hint: the area it governs (e.g. "authentication", "billing"). Free text.
 - surface_candidates: any code interfaces referenced (HTTP routes, gRPC methods, GraphQL fields, packages), else [].
+- review_hint: if the team said the decision should be revisited ("revisit after launch", "review in 30 days",
+  "temporary until the migration lands"), the VERBATIM phrase; "" if none.
 - evidence: 1-3 VERBATIM quotes copied exactly from the thread that establish the decision. Never paraphrase.
 - confidence: 0..1, your calibrated probability that this is a real, agreed, durable decision.
 - If is_decision=false, still return the object with empty strings/arrays and confidence for "is a decision".`;
@@ -54,6 +57,7 @@ export const EXTRACTION_SCHEMA = {
     "decided_by",
     "scope_hint",
     "surface_candidates",
+    "review_hint",
     "confidence",
     "evidence",
   ],
@@ -67,6 +71,7 @@ export const EXTRACTION_SCHEMA = {
     decided_by: { type: "array", items: { type: "string" } },
     scope_hint: { type: "string" },
     surface_candidates: { type: "array", items: { type: "string" } },
+    review_hint: { type: "string" },
     confidence: { type: "number" },
     evidence: {
       type: "array",

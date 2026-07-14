@@ -29,6 +29,10 @@ export interface ProposedItem {
   externalId: string;
   contentHash: string;
   confidence?: number; // 0..100
+  // Phase J deliberation fields — first-class on the ledger (also kept in the provenance blob).
+  rationale?: string;
+  alternatives?: string[];
+  reviewAt?: string | null; // ISO; parsed from review_hint when calendar-anchored
 }
 
 /* ── v3 document layer (core's /internal/documents + /internal/writebacks) ── */

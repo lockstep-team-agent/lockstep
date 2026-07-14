@@ -15,6 +15,7 @@ function extraction(over: Partial<Extraction>): Extraction {
     decided_by: ["@alice"],
     scope_hint: "authentication",
     surface_candidates: [],
+    review_hint: "",
     confidence: 0.9,
     evidence: [{ externalId: "e", quote: "lock it: JWT" }],
     ...over,
@@ -69,6 +70,38 @@ test("runFunnel: propose path builds an item, advances the cursor, records stats
   assert.equal(item.scopeRef, "topic:authentication");
   assert.equal(item.provenance && (item.provenance as { source: string }).source, "slack");
   assert.equal(item.confidence, 90);
+});
+
+test("runFunnel: deliberation fields land first-class; calendar review hints resolve, event-relative stay verbatim (Phase J)", async () => {
+  const connector = new FakeConnector([unit("C1/1", "1.0", "we decided: cache"), unit("C1/2", "2.0", "we decided: flag")]);
+  const map: Record<string, Extraction> = {
+    "C1/1": extraction({
+      rationale: "Upstream rate limits.",
+      alternatives_considered: ["No cache", "Redis"],
+      review_hint: "in 30 days",
+    }),
+    "C1/2": extraction({ rule_text: "Feature-flag the parser.", review_hint: "revisit after launch", rationale: "" }),
+  };
+  const res = await runFunnel({
+    connector,
+    orgId: "o",
+    projectId: "p",
+    connectionId: "conn",
+    sources: [{ sourceRef: "C1", cursor: null }],
+    recallFn: async () => true,
+    extractFn: async (id) => map[id]!,
+  });
+  assert.equal(res.items.length, 2);
+  const dated = res.items.find((i) => i.rationale === "Upstream rate limits.")!;
+  assert.deepEqual(dated.alternatives, ["No cache", "Redis"]);
+  assert.ok(dated.reviewAt, "a calendar-anchored hint resolves to a date");
+  assert.ok(new Date(dated.reviewAt!).getTime() > Date.now() + 28 * 86400000);
+  assert.equal((dated.provenance as { reviewHint?: string }).reviewHint, "in 30 days");
+
+  const eventRelative = res.items.find((i) => i.ruleText === "Feature-flag the parser.")!;
+  assert.equal(eventRelative.reviewAt, null, "event-relative hints have no calendar anchor");
+  assert.equal((eventRelative.provenance as { reviewHint?: string }).reviewHint, "revisit after launch");
+  assert.equal(eventRelative.rationale, undefined, "an empty extractor rationale is omitted, not stored as ''");
 });
 
 test("runFunnel: question and discard outcomes are counted, not filed", async () => {

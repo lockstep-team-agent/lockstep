@@ -249,3 +249,26 @@ test("weeklyFallbackText: names the project and the three counts", () => {
     "Lockstep weekly — acme: 1 expired, 1 reverify, 2 open conflicts",
   );
 });
+
+test("composeWeeklyBlocks: Phase J sections render; a legacy payload without them doesn't crash", () => {
+  const blocks = composeWeeklyBlocks(
+    weeklyPayload({
+      reviewDue: [{ scopeRef: "http:GET /summary" }],
+      staleProposals: [{ scopeRef: "topic:retention", ageDays: 12 }],
+    }),
+  ) as Block[];
+  const body = (blocks[1]!.text as { text: string }).text;
+  assert.ok(body.includes("⏰ *1* decision(s) due for review: `http:GET /summary`"));
+  assert.ok(body.includes("🕗 *1* proposal(s) waiting in the review queue: `topic:retention` (12d)"));
+
+  // Writeback rows queued before the deploy carry no Phase J keys — must render fine.
+  const legacy = composeWeeklyBlocks(weeklyPayload()) as Block[];
+  const legacyBody = (legacy[1]!.text as { text: string }).text;
+  assert.ok(!legacyBody.includes("due for review"));
+  assert.ok(!legacyBody.includes("waiting in the review queue"));
+
+  assert.equal(
+    weeklyFallbackText(weeklyPayload({ reviewDue: [{ scopeRef: "s" }], staleProposals: [{ scopeRef: "t", ageDays: 9 }] })),
+    "Lockstep weekly — acme: 1 expired, 1 reverify, 2 open conflicts, 1 due for review, 1 stale proposals",
+  );
+});

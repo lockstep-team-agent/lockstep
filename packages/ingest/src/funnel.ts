@@ -5,6 +5,7 @@ import { recall as defaultRecall } from "./distill/recall.js";
 import { extract as defaultExtract, extractBatch } from "./distill/extract.js";
 import { gate } from "./distill/gate.js";
 import { resolveScope } from "./distill/scope.js";
+import { parseExpiresHint } from "./distill/expiry.js";
 import { MODELS } from "./distill/llm.js";
 import type { Extraction } from "./distill/rubric.js";
 
@@ -117,6 +118,9 @@ export async function runFunnel(opts: {
       continue;
     }
     const scope = resolveScope(x.surface_candidates, x.scope_hint);
+    // Review tripwire (Phase J): calendar-anchored "revisit …" phrasing resolves to a date; an
+    // event-relative hint ("after launch") keeps the verbatim text in provenance with no date.
+    const reviewAt = parseExpiresHint(x.review_hint ?? "", new Date());
     items.push({
       orgId: opts.orgId,
       projectId: opts.projectId,
@@ -137,11 +141,15 @@ export async function runFunnel(opts: {
         scopeHint: x.scope_hint,
         rationale: x.rationale,
         alternatives: x.alternatives_considered,
+        reviewHint: x.review_hint || undefined,
       },
       connectionId: opts.connectionId,
       externalId: u.externalId,
       contentHash: sha256(u.text),
       confidence: Math.round(x.confidence * 100),
+      rationale: x.rationale || undefined,
+      alternatives: x.alternatives_considered?.length ? x.alternatives_considered : undefined,
+      reviewAt: reviewAt ? reviewAt.toISOString() : null,
     });
     stats.proposed++;
     log(`    ✓ proposed [${scope.scopeRef}] ${x.rule_text.slice(0, 80)}`);

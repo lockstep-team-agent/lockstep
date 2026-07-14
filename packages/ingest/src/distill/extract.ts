@@ -12,6 +12,7 @@ const EMPTY: Extraction = {
   decided_by: [],
   scope_hint: "",
   surface_candidates: [],
+  review_hint: "",
   confidence: 0,
   evidence: [],
 };

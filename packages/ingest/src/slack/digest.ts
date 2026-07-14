@@ -125,16 +125,25 @@ export interface WeeklyDigestPayload {
   expired: Array<{ scopeRef: string }>;
   reverifyDocs: Array<{ title: string | null }>;
   openConflicts: number;
+  // Phase J sections — optional: writeback rows queued before the deploy don't carry them.
+  reviewDue?: Array<{ scopeRef: string }>;
+  staleProposals?: Array<{ scopeRef: string; ageDays: number }>;
 }
 
 /** The weekly operator digest — a plain status snapshot, no action buttons. */
 export function composeWeeklyBlocks(payload: WeeklyDigestPayload): unknown[] {
+  const reviewDue = payload.reviewDue ?? [];
+  const staleProposals = payload.staleProposals ?? [];
   const lines: string[] = [];
   if (payload.expired.length > 0)
     lines.push(`• *${payload.expired.length}* constraint(s) expired: ${payload.expired.map((e) => `\`${e.scopeRef}\``).join(", ")}`);
   if (payload.reverifyDocs.length > 0)
     lines.push(`• *${payload.reverifyDocs.length}* doc(s) with anchors needing reverify: ${payload.reverifyDocs.map((d) => d.title ?? "untitled").join(", ")}`);
   if (payload.openConflicts > 0) lines.push(`• *${payload.openConflicts}* open conflict(s) awaiting resolution`);
+  if (reviewDue.length > 0)
+    lines.push(`• ⏰ *${reviewDue.length}* decision(s) due for review: ${reviewDue.map((d) => `\`${d.scopeRef}\``).join(", ")}`);
+  if (staleProposals.length > 0)
+    lines.push(`• 🕗 *${staleProposals.length}* proposal(s) waiting in the review queue: ${staleProposals.map((d) => `\`${d.scopeRef}\` (${d.ageDays}d)`).join(", ")}`);
   const webUrl = process.env.LOCKSTEP_WEB_URL;
   const dash = webUrl ? `<${webUrl}|Open Lockstep>` : "Open the Lockstep dashboard";
   return [
@@ -145,5 +154,9 @@ export function composeWeeklyBlocks(payload: WeeklyDigestPayload): unknown[] {
 }
 
 export function weeklyFallbackText(payload: WeeklyDigestPayload): string {
-  return `Lockstep weekly — ${payload.projectName}: ${payload.expired.length} expired, ${payload.reverifyDocs.length} reverify, ${payload.openConflicts} open conflicts`;
+  const extras = [
+    ...(payload.reviewDue?.length ? [`${payload.reviewDue.length} due for review`] : []),
+    ...(payload.staleProposals?.length ? [`${payload.staleProposals.length} stale proposals`] : []),
+  ];
+  return `Lockstep weekly — ${payload.projectName}: ${payload.expired.length} expired, ${payload.reverifyDocs.length} reverify, ${payload.openConflicts} open conflicts${extras.length ? ", " + extras.join(", ") : ""}`;
 }

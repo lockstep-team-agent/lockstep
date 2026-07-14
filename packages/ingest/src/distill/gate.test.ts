@@ -15,6 +15,7 @@ function ex(over: Partial<Extraction>): Extraction {
     decided_by: [],
     scope_hint: "auth",
     surface_candidates: [],
+    review_hint: "",
     confidence: 0.9,
     evidence: [{ externalId: "x", quote: "JWT it is" }],
     ...over,
