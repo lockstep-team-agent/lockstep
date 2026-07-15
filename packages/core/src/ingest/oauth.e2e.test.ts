@@ -62,14 +62,12 @@ const fake: Pick<typeof Composio, "link" | "isActive" | "listSources"> = {
 test("initiate → persists connectedAccountId + returns redirectUrl", async () => {
   const s = await setup();
   const { connectionId } = await createConnection(s.orgId, {
-    projectId: s.projectId,
     tool: "slack",
-    entity: s.projectId,
     createdBy: s.memberId,
   });
   const r = await initiateConnection(s.orgId, connectionId, "https://web/cb", fake);
   assert.match(r.redirectUrl, /connect\.composio\.dev/);
-  const conns = await listConnections(s.orgId, s.projectId);
+  const conns = await listConnections(s.orgId);
   assert.equal(conns[0]!.connectedAccountId, "ca_test");
   assert.equal(conns[0]!.status, "pending");
 });
@@ -77,23 +75,19 @@ test("initiate → persists connectedAccountId + returns redirectUrl", async () 
 test("checkConnection finalizes to active once Composio reports active", async () => {
   const s = await setup();
   const { connectionId } = await createConnection(s.orgId, {
-    projectId: s.projectId,
     tool: "slack",
-    entity: s.projectId,
     createdBy: s.memberId,
   });
   await initiateConnection(s.orgId, connectionId, "https://web/cb", fake);
   const chk = await checkConnection(s.orgId, connectionId, fake);
   assert.equal(chk.status, "active");
-  assert.equal((await listConnections(s.orgId, s.projectId))[0]!.status, "active");
+  assert.equal((await listConnections(s.orgId))[0]!.status, "active");
 });
 
 test("listConnectionSources returns picker list only when active", async () => {
   const s = await setup();
   const { connectionId } = await createConnection(s.orgId, {
-    projectId: s.projectId,
     tool: "slack",
-    entity: s.projectId,
     createdBy: s.memberId,
   });
   assert.deepEqual(await listConnectionSources(s.orgId, connectionId, fake), [], "empty until active");

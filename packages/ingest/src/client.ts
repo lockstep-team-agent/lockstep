@@ -6,9 +6,12 @@ export interface WorkSource {
   sourceRef: string;
   sourceName: string | null;
   cursor: string | null;
+  /** #10: routing lives on the allowlist row — each source names the project its decisions file into. */
+  projectId: string;
 }
 export interface WorkItem {
   orgId: string;
+  /** @deprecated #10: connections are org-level; route per WorkSource.projectId. */
   projectId: string;
   connectionId: string;
   tool: string;
@@ -39,15 +42,16 @@ export interface ProposedItem {
 
 export interface DocWorkItem {
   orgId: string;
+  /** @deprecated #10: connections are org-level; containers/docs carry their own projectId. */
   projectId: string;
   connectionId: string;
   tool: string;
   entity: string;
   connectedAccountId: string | null;
-  containers: Array<{ containerRef: string; containerName: string | null; statusProperty: string | null }>;
+  containers: Array<{ containerRef: string; containerName: string | null; statusProperty: string | null; projectId?: string }>;
   /** Standalone/native docs (registered by URL, not swept from a database) that need extraction.
    *  `tool` selects the doc connector per doc (e.g. "gdocs" vs "notion"); absent ⇒ the connection's tool. */
-  docs: Array<{ docId: string; externalId: string; state: string; knownSectionHashes: string[]; tool?: string }>;
+  docs: Array<{ docId: string; externalId: string; state: string; knownSectionHashes: string[]; tool?: string; projectId?: string }>;
 }
 
 /** Raw listing-level doc facts from the sweep — core owns state resolution, never the worker (D4). */

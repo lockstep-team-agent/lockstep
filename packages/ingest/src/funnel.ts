@@ -47,9 +47,10 @@ export function redactSecrets(text: string): string {
 export async function runFunnel(opts: {
   connector: SourceConnector;
   orgId: string;
+  /** Fallback routing target when a source doesn't carry its own projectId (#10: they normally do). */
   projectId: string;
   connectionId: string;
-  sources: Array<{ sourceRef: string; cursor: string | null }>;
+  sources: Array<{ sourceRef: string; cursor: string | null; projectId?: string }>;
   tool?: string;
   useHaiku?: boolean;
   batch?: boolean;
@@ -68,6 +69,9 @@ export async function runFunnel(opts: {
   const cursors: Record<string, string> = {};
 
   // Phase 1 — collect units + advance cursors + cheap recall filter.
+  // #10: each source routes to ITS allowlist row's project — remember it per sourceRef.
+  const projectFor = new Map<string, string>();
+  for (const src of opts.sources) projectFor.set(src.sourceRef, src.projectId ?? opts.projectId);
   type Survivor = { unit: Unit; text: string };
   const survivors: Survivor[] = [];
   for (const src of opts.sources) {
@@ -123,7 +127,7 @@ export async function runFunnel(opts: {
     const reviewAt = parseExpiresHint(x.review_hint ?? "", new Date());
     items.push({
       orgId: opts.orgId,
-      projectId: opts.projectId,
+      projectId: projectFor.get(u.sourceRef) ?? opts.projectId,
       scopeKind: scope.scopeKind,
       scopeRef: scope.scopeRef,
       ruleText: x.rule_text,

@@ -122,14 +122,15 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
     const b = req.body as { tool?: string };
     const tool = b?.tool ?? "slack";
-    // Composio "entity" = the project id, so all sources for a project share one connection identity.
-    return createConnection(orgId, { projectId, tool, entity: projectId, createdBy: memberId });
+    // #10: connections are org-level (entity = org id, set in the service). The project path segment
+    // provides the permission context only — any project owner/pm may connect the org's workspace.
+    return createConnection(orgId, { tool, createdBy: memberId });
   });
 
   app.get("/orgs/:orgId/projects/:projectId/connections", async (req, reply) => {
     const { orgId, projectId } = req.params as { orgId: string; projectId: string };
     if (!(await canReadProject(req, reply, orgId, projectId))) return;
-    return { connections: await listConnections(orgId, projectId) };
+    return { connections: await listConnections(orgId) }; // #10: org-wide, whichever project page asks
   });
 
   // Dashboard-driven OAuth: start the Composio authorize flow server-side (the API key never leaves core).

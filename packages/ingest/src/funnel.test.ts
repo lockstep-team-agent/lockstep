@@ -151,3 +151,26 @@ test("runFunnel: batch mode uses the injected batch extractor", async () => {
   assert.equal(res.items[0]!.scopeKind, "surface");
   assert.equal(res.items[0]!.scopeRef, "http:POST /ship");
 });
+
+test("runFunnel: each source's items route to ITS allowlist project (#10 org connections)", async () => {
+  const connector = new FakeConnector([
+    { ...unit("Ca/1", "1.0", "we decided: a"), sourceRef: "Ca" },
+    { ...unit("Cb/1", "1.0", "we decided: b"), sourceRef: "Cb" },
+  ]);
+  const res = await runFunnel({
+    connector,
+    orgId: "o",
+    projectId: "p-fallback",
+    connectionId: "conn",
+    sources: [
+      { sourceRef: "Ca", cursor: null, projectId: "p-alpha" },
+      { sourceRef: "Cb", cursor: null }, // no projectId → falls back to opts.projectId (old core)
+    ],
+    recallFn: async () => true,
+    extractFn: async (id) =>
+      extraction({ rule_text: id.startsWith("Ca") ? "Rule from channel a." : "Rule from channel b." }),
+  });
+  assert.equal(res.items.length, 2);
+  assert.equal(res.items.find((i) => i.ruleText === "Rule from channel a.")!.projectId, "p-alpha");
+  assert.equal(res.items.find((i) => i.ruleText === "Rule from channel b.")!.projectId, "p-fallback");
+});

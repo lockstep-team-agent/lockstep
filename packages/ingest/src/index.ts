@@ -115,7 +115,7 @@ async function sweepOnce(): Promise<void> {
       orgId: w.orgId,
       projectId: w.projectId,
       connectionId: w.connectionId,
-      sources: w.sources.map((s) => ({ sourceRef: s.sourceRef, cursor: s.cursor })),
+      sources: w.sources.map((s) => ({ sourceRef: s.sourceRef, cursor: s.cursor, projectId: s.projectId })),
       tool: w.tool,
       useHaiku,
       batch,

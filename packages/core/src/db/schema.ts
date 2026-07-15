@@ -464,15 +464,19 @@ export const sourceConnections = pgTable(
   {
     id: id(),
     orgId: orgId(),
-    projectId: uuid("project_id").notNull(),
+    // #10: connections are ORG-level (connect a workspace once); routing to projects happens per
+    // ingest_allowlist row. Legacy rows were NULLed by migration 0006; the column is vestigial.
+    projectId: uuid("project_id"),
     tool: text("tool").notNull(), // slack | jira | notion | confluence
-    entity: text("entity").notNull(), // Composio entity id (we use the project id)
+    // Opaque Composio userId the OAuth account is keyed by. New connections use the org id; legacy
+    // rows keep their old project-id entity so existing OAuth accounts keep resolving (no re-auth).
+    entity: text("entity").notNull(),
     connectedAccountId: text("connected_account_id"), // Composio connection id once OAuth completes
     status: text("status").notNull().default("pending"), // pending | active | revoked
     createdBy: uuid("created_by"),
     createdAt: createdAt(),
   },
-  (t) => ({ byProject: index("ix_source_conn_project").on(t.projectId, t.tool) }),
+  (t) => ({ byOrg: index("ix_source_conn_org").on(t.orgId, t.tool) }),
 );
 
 /**

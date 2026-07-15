@@ -87,7 +87,7 @@ export default async function Page({
     <>
       <PageHead
         title="Connections"
-        subtitle="Connect a tool via Composio, then allowlist the exact sources to sweep. Only allowlisted sources are read."
+        subtitle="Tools are connected once for the whole org; the sources you allowlist below route into this project. Only allowlisted sources are read."
       />
 
       <div className="card pad animate-in" style={{ marginBottom: 16 }}>

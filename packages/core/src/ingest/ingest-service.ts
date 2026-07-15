@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { withOrg, withSystem } from "../db/rls.js";
 import { sourceConnections, ingestAllowlist, ingestWatermarks, projects } from "../db/schema.js";
 import { projectArchived } from "../auth/permissions.js";
@@ -15,9 +15,15 @@ export interface WorkSource {
   sourceRef: string;
   sourceName: string | null;
   cursor: string | null;
+  /** #10: routing lives on the allowlist row — each source names the project its decisions file into. */
+  projectId: string;
 }
 export interface WorkItem {
   orgId: string;
+  /**
+   * @deprecated #10: connections are org-level; route per WorkSource.projectId. Kept populated
+   * (first source's project) for one release so a not-yet-redeployed worker keeps functioning.
+   */
   projectId: string;
   connectionId: string;
   tool: string;
@@ -36,24 +42,33 @@ export async function listWork(): Promise<WorkItem[]> {
     const conns = await tx.select().from(sourceConnections).where(eq(sourceConnections.status, "active"));
     const items: WorkItem[] = [];
     for (const c of conns) {
-      // Archived projects are inert — no sweeps (mirrors getDocumentWork's project gate).
-      const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
-      if (proj && projectArchived(proj.settings)) continue;
+      // #10: routing is per allowlist row — its projectId decides where each source's decisions
+      // file. Archived projects are inert, so their sources drop out here (per-source gate).
       const allow = await tx
         .select()
         .from(ingestAllowlist)
         .where(and(eq(ingestAllowlist.connectionId, c.id), eq(ingestAllowlist.enabled, true)));
       if (allow.length === 0) continue;
+      const projIds = [...new Set(allow.map((a) => a.projectId))];
+      const projRows = await tx.select().from(projects).where(inArray(projects.id, projIds));
+      const archived = new Set(projRows.filter((p) => projectArchived(p.settings)).map((p) => p.id));
+      const live = allow.filter((a) => !archived.has(a.projectId));
+      if (live.length === 0) continue;
       const marks = await tx.select().from(ingestWatermarks).where(eq(ingestWatermarks.connectionId, c.id));
       const cursorFor = (ref: string) => marks.find((m) => m.sourceRef === ref)?.cursor ?? null;
       items.push({
         orgId: c.orgId,
-        projectId: c.projectId,
+        projectId: live[0]!.projectId, // deprecated compat field — see WorkItem
         connectionId: c.id,
         tool: c.tool,
         entity: c.entity,
         connectedAccountId: c.connectedAccountId,
-        sources: allow.map((a) => ({ sourceRef: a.sourceRef, sourceName: a.sourceName, cursor: cursorFor(a.sourceRef) })),
+        sources: live.map((a) => ({
+          sourceRef: a.sourceRef,
+          sourceName: a.sourceName,
+          cursor: cursorFor(a.sourceRef),
+          projectId: a.projectId,
+        })),
       });
     }
     return items;
@@ -86,32 +101,30 @@ export async function setWatermark(
   });
 }
 
+/**
+ * #10: connections are org-level — one per (org, tool), whatever project page it's created from.
+ * App-level dedupe (deliberately no DB unique: two same-tool rows can be two different workspaces,
+ * e.g. legacy per-project OAuths that both keep working). Revoked rows don't block a fresh connect.
+ */
 export async function createConnection(
   orgId: string,
-  input: { projectId: string; tool: string; entity: string; createdBy: string },
+  input: { tool: string; createdBy: string },
 ): Promise<{ connectionId: string; entity: string }> {
   return withOrg(orgId, async (tx) => {
     const existing = (
       await tx
         .select()
         .from(sourceConnections)
-        .where(
-          and(
-            eq(sourceConnections.projectId, input.projectId),
-            eq(sourceConnections.tool, input.tool),
-          ),
-        )
-        .limit(1)
-    )[0];
+        .where(and(eq(sourceConnections.orgId, orgId), eq(sourceConnections.tool, input.tool)))
+    ).find((c) => c.status !== "revoked");
     if (existing) return { connectionId: existing.id, entity: existing.entity };
     const c = one(
       await tx
         .insert(sourceConnections)
         .values({
           orgId,
-          projectId: input.projectId,
           tool: input.tool,
-          entity: input.entity,
+          entity: orgId, // Composio userId for NEW connections = the org (one OAuth per org+tool)
           status: "pending",
           createdBy: input.createdBy,
         })
@@ -131,12 +144,12 @@ export async function finalizeConnection(connectionId: string, connectedAccountI
   });
 }
 
+/** #10: connections are org-wide — every project page lists (and can authorize) the org's connections. */
 export async function listConnections(
   orgId: string,
-  projectId: string,
 ): Promise<Array<{ id: string; tool: string; entity: string; status: string; connectedAccountId: string | null }>> {
   return withOrg(orgId, async (tx) => {
-    const rows = await tx.select().from(sourceConnections).where(eq(sourceConnections.projectId, projectId));
+    const rows = await tx.select().from(sourceConnections).where(eq(sourceConnections.orgId, orgId));
     return rows.map((r) => ({
       id: r.id,
       tool: r.tool,
@@ -225,6 +238,15 @@ export async function addAllowlist(
         .limit(1)
     )[0];
     if (existing) {
+      // #10: one source routes to exactly ONE project (uq_allowlist_conn_source is load-bearing —
+      // watermarks + artifact dedupe are per (connection, source), so dual-routing would starve the
+      // second project). Re-adding under a DIFFERENT project is a steal, not a re-enable → 409.
+      if (existing.projectId !== input.projectId) {
+        throw Object.assign(
+          new Error("source is already routed to another project — remove it there first"),
+          { statusCode: 409 },
+        );
+      }
       await tx.update(ingestAllowlist).set({ enabled: true, sourceName: input.sourceName ?? existing.sourceName }).where(eq(ingestAllowlist.id, existing.id));
       return { id: existing.id };
     }

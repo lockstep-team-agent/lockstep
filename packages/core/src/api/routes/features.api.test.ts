@@ -120,5 +120,6 @@ test("features API: briefing degrades to empty (not 403) when the product layer 
   await withOrg(s.orgId, (tx) => tx.update(projects).set({ settings: { productLayer: { enabled: false } } }).where(eq(projects.id, s.projectId)));
   const res = await app.inject({ method: "GET", url: "/briefing", headers: { ...auth(s.pmToken), "x-lockstep-session": s.pmSession } });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { constraints: [], overflow: 0 });
+  // Principles flow regardless of the product-layer gate (Phase P) — only constraints are silenced.
+  assert.deepEqual(res.json(), { constraints: [], overflow: 0, principles: [], principlesOverflow: 0 });
 });

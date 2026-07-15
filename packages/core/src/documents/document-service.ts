@@ -121,14 +121,14 @@ export async function registerDocument(
   if (!detected) throw Object.assign(new Error("could not parse a Notion page or Google Docs id from url"), { statusCode: 400 });
   const { tool, externalId } = detected;
   return withOrg(orgId, async (tx) => {
-    // Attach the project's connection for that tool when one exists so content can be fetched.
-    const conn = (
-      await tx
-        .select()
-        .from(sourceConnections)
-        .where(and(eq(sourceConnections.projectId, input.projectId), eq(sourceConnections.tool, tool)))
-        .limit(1)
-    )[0];
+    // Attach the ORG's connection for that tool when one exists so content can be fetched (#10:
+    // connections are org-level; prefer an active one). Side benefit: native docs in projects that
+    // never connected the tool themselves now resolve the org connection.
+    const conns = await tx
+      .select()
+      .from(sourceConnections)
+      .where(and(eq(sourceConnections.orgId, orgId), eq(sourceConnections.tool, tool)));
+    const conn = conns.find((c) => c.status === "active") ?? conns[0];
     const existing = (
       await tx
         .select()
@@ -276,15 +276,22 @@ async function staleConstraintsTx(
 
 export interface DocWorkItem {
   orgId: string;
+  /** @deprecated #10: route per container/doc projectId. First live project, for old workers. */
   projectId: string;
   connectionId: string;
   tool: string;
   entity: string;
   connectedAccountId: string | null;
-  containers: Array<{ containerRef: string; containerName: string | null; statusProperty: string | null }>;
+  containers: Array<{
+    containerRef: string;
+    containerName: string | null;
+    statusProperty: string | null;
+    /** #10: the allowlist row's project — where this database's constraints file. */
+    projectId: string;
+  }>;
   // Native/standalone docs (registered by URL, not living in a swept database) that need extraction.
   // `tool` lets the worker pick the connector per doc (notion vs gdocs).
-  docs: Array<{ docId: string; externalId: string; tool: string; state: string; knownSectionHashes: string[] }>;
+  docs: Array<{ docId: string; externalId: string; tool: string; state: string; knownSectionHashes: string[]; projectId: string }>;
 }
 
 /**
@@ -300,10 +307,6 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
       .where(and(eq(sourceConnections.status, "active"), inArray(sourceConnections.tool, ["notion", "gdocs", "confluence"])));
     const items: DocWorkItem[] = [];
     for (const c of conns) {
-      const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
-      if (!proj || !productLayerEnabled(proj.settings) || projectArchived(proj.settings)) continue;
-      if (c.tool === "gdocs" && !gdocsEnabled(proj.settings)) continue; // gdocs behind its own sub-flag
-      if (c.tool === "confluence" && !confluenceEnabled(proj.settings)) continue; // confluence behind its own sub-flag
       const allow = await tx
         .select()
         .from(ingestAllowlist)
@@ -325,9 +328,25 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
         .select()
         .from(sourceDocuments)
         .where(and(eq(sourceDocuments.connectionId, c.id), eq(sourceDocuments.stateAuthority, "native")));
+
+      // #10: the connection is org-level — flag-gate (product layer, tool sub-flags, archived) PER
+      // PROJECT, resolved from each allowlist row / doc row, not from the connection.
+      const projIds = [...new Set([...allow.map((a) => a.projectId), ...standalone.map((d) => d.projectId)])];
+      if (projIds.length === 0) continue;
+      const projRows = await tx.select().from(projects).where(inArray(projects.id, projIds));
+      const projectOk = (pid: string): boolean => {
+        const p = projRows.find((r) => r.id === pid);
+        if (!p || !productLayerEnabled(p.settings) || projectArchived(p.settings)) return false;
+        if (c.tool === "gdocs" && !gdocsEnabled(p.settings)) return false;
+        if (c.tool === "confluence" && !confluenceEnabled(p.settings)) return false;
+        return true;
+      };
+      const liveAllow = allow.filter((a) => projectOk(a.projectId));
+
       const docs: DocWorkItem["docs"] = [];
       const now = Date.now();
       for (const d of standalone) {
+        if (!projectOk(d.projectId)) continue;
         if (d.state !== "review" && d.state !== "active") continue;
         // GDocs and Confluence are revision-watched: re-fetch on each window (per-section hashes skip
         // unchanged), bounded by the debounce. Notion native docs are resync-driven (Phase A).
@@ -343,22 +362,24 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
           tool: d.tool,
           state: d.state,
           knownSectionHashes: await sectionHashesTx(tx, d),
+          projectId: d.projectId,
         });
         // Claim it for this window so the debounce holds even if extraction yields nothing.
         if (revisionWatched) await tx.update(sourceDocuments).set({ lastSweptAt: new Date() }).where(eq(sourceDocuments.id, d.id));
       }
-      if (allow.length === 0 && docs.length === 0) continue;
+      if (liveAllow.length === 0 && docs.length === 0) continue;
       items.push({
         orgId: c.orgId,
-        projectId: c.projectId,
+        projectId: liveAllow[0]?.projectId ?? docs[0]!.projectId, // deprecated compat — see DocWorkItem
         connectionId: c.id,
         tool: c.tool,
         entity: c.entity,
         connectedAccountId: c.connectedAccountId,
-        containers: allow.map((a) => ({
+        containers: liveAllow.map((a) => ({
           containerRef: a.sourceRef,
           containerName: a.sourceName,
           statusProperty: mapFor(a.sourceRef)?.statusProperty ?? null,
+          projectId: a.projectId,
         })),
         docs,
       });
@@ -417,6 +438,14 @@ export async function upsertDocumentsFromSweep(connectionId: string, docs: Swept
       .select()
       .from(documentStateMappings)
       .where(eq(documentStateMappings.connectionId, connectionId));
+    // #10: the connection is org-level — a NEW mirrored doc's project comes from the allowlist row
+    // that routed its container. Fail-closed: no allowlist row → skip the doc (log), never guess.
+    const allowRows = await tx
+      .select()
+      .from(ingestAllowlist)
+      .where(eq(ingestAllowlist.connectionId, connectionId));
+    const projectFor = (containerRef: string | null): string | null =>
+      (containerRef && allowRows.find((a) => a.sourceRef === containerRef)?.projectId) || null;
     const out: SweepDirective[] = [];
     for (const d of docs) {
       const mapping = mappings.find((m) => m.containerRef === d.containerRef);
@@ -460,13 +489,18 @@ export async function upsertDocumentsFromSweep(connectionId: string, docs: Swept
       let stateChanged = false;
       let becameActive = false;
       if (!existing) {
+        const routedProject = projectFor(d.containerRef);
+        if (!routedProject) {
+          console.warn(`[sweep] doc ${d.externalId} in unrouted container ${d.containerRef ?? "?"} — skipped`);
+          continue;
+        }
         const state: CanonicalState = canonical ?? "draft";
         doc = one(
           await tx
             .insert(sourceDocuments)
             .values({
               orgId,
-              projectId: conn.projectId,
+              projectId: routedProject,
               connectionId,
               tool: conn.tool,
               containerRef: d.containerRef,
@@ -487,7 +521,7 @@ export async function upsertDocumentsFromSweep(connectionId: string, docs: Swept
         becameActive = state === "active";
         await writeAudit(tx, {
           orgId,
-          projectId: conn.projectId,
+          projectId: doc.projectId,
           action: "document.registered",
           entityKind: "document",
           entityId: doc.id,
@@ -517,7 +551,7 @@ export async function upsertDocumentsFromSweep(connectionId: string, docs: Swept
         if (stateChanged) {
           await writeAudit(tx, {
             orgId,
-            projectId: conn.projectId,
+            projectId: doc.projectId,
             action: "document.state_changed",
             entityKind: "document",
             entityId: doc.id,

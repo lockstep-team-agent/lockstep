@@ -43,6 +43,13 @@
       "when": 1794500000000,
       "tag": "0005_adr_quality",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0006_org_connections",
+      "breakpoints": true
     }
   ]
 }
