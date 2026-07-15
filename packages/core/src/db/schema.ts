@@ -499,6 +499,27 @@ export const ingestAllowlist = pgTable(
   (t) => ({ uqSource: uniqueIndex("uq_allowlist_conn_source").on(t.connectionId, t.sourceRef) }),
 );
 
+/**
+ * #6: lazily-populated cache of the CURRENT version's ruleText embedding per decision. Mutable (not
+ * append-only); staleness = version < decisions.currentVersion, healed by the sole reader
+ * (prepareScopeSimilarity). jsonb float array + TS cosine — deliberately not pgvector: the only
+ * comparison is among <10 scope-mates, where an ANN index buys nothing.
+ */
+export const decisionEmbeddings = pgTable(
+  "decision_embeddings",
+  {
+    id: id(),
+    orgId: orgId(),
+    decisionId: uuid("decision_id").notNull(),
+    version: integer("version").notNull(),
+    model: text("model").notNull(),
+    embedding: jsonb("embedding").$type<number[]>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ uqDecision: uniqueIndex("uq_decision_embedding").on(t.decisionId) }),
+);
+
 /** Incremental-sweep cursor per allowlisted source (e.g. latest Slack ts seen). */
 export const ingestWatermarks = pgTable(
   "ingest_watermarks",

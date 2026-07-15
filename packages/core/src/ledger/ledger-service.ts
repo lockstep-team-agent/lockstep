@@ -27,6 +27,7 @@ import {
   confirmGovernsEdgesForSurfacesTx,
 } from "../graph/graph-service.js";
 import { canRatifyTx, projectVisibility, projectArchived } from "../auth/permissions.js";
+import { prepareScopeSimilarity, embedTexts, EMBED_FUSE_MIN, EMBED_SUPERSEDE_MAX, type Embedder } from "./embeddings.js";
 import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
 import { notifyConflictTx } from "../routing/routing-engine.js";
 import { inArray } from "drizzle-orm";
@@ -659,9 +660,22 @@ export interface FileProposedInput {
 export async function fileProposedDecision(
   orgId: string,
   input: FileProposedInput,
+  embedder: Embedder = embedTexts,
 ): Promise<{ decisionId: string; deduped: boolean; fused: boolean; supersedes?: string }> {
   const prov = (input.provenance ?? {}) as { source?: string; url?: string | null; evidence?: unknown };
   const origin = input.origin ?? "ingested";
+  // #6 pre-pass — embeddings are fetched OUTSIDE the main tx (HTTP under a transaction is a hazard).
+  // Null ⇒ the scope scan below runs pure Jaccard, exactly the pre-#6 behavior.
+  const embedScores = await prepareScopeSimilarity(
+    orgId,
+    {
+      projectId: input.projectId,
+      scopeRef: input.scopeRef,
+      ruleText: input.ruleText,
+      dedupe: { connectionId: input.connectionId, externalId: input.externalId, contentHash: input.contentHash },
+    },
+    embedder,
+  );
   const provRow = {
     source: prov.source,
     url: prov.url ?? null,
@@ -697,6 +711,10 @@ export async function fileProposedDecision(
       .where(and(eq(decisions.projectId, input.projectId), eq(decisions.scopeRef, input.scopeRef)));
     let fuseInto: string | null = null;
     let supersedes: string | undefined;
+    // #6: per-mate similarity — embedding cosine when the pre-pass scored this mate, Jaccard
+    // otherwise (no key, outage, or a mate created after the pre-pass — race-safe). The method +
+    // score are recorded in the audits so threshold tuning is data-driven.
+    let similarity: { method: "embedding" | "jaccard"; score: number } | undefined;
     for (const m of scopeMates) {
       if (m.status === "rejected" || m.status === "superseded") continue;
       if (origin === "document" && m.origin !== "document") continue;
@@ -707,12 +725,18 @@ export async function fileProposedDecision(
           .where(and(eq(decisionVersions.decisionId, m.id), eq(decisionVersions.version, m.currentVersion)))
           .limit(1)
       )[0];
-      const sim = similar(input.ruleText, v?.ruleText ?? "");
-      if (sim >= 0.6) {
+      const emb = embedScores?.get(m.id);
+      const method: "embedding" | "jaccard" = emb !== undefined ? "embedding" : "jaccard";
+      const score = emb !== undefined ? emb : similar(input.ruleText, v?.ruleText ?? "");
+      if (score >= (method === "embedding" ? EMBED_FUSE_MIN : 0.6)) {
         fuseInto = m.id;
+        similarity = { method, score };
         break;
       }
-      if (origin !== "document" && m.status === "binding" && sim < 0.4) supersedes = m.id; // different rule, same scope → likely supersession
+      if (origin !== "document" && m.status === "binding" && score < (method === "embedding" ? EMBED_SUPERSEDE_MAX : 0.4)) {
+        supersedes = m.id; // different rule, same scope → likely supersession
+        similarity = { method, score };
+      }
     }
 
     if (fuseInto) {
@@ -733,7 +757,7 @@ export async function fileProposedDecision(
         action: "decision.provenance_added",
         entityKind: "decision",
         entityId: fuseInto,
-        payload: { source: prov.source, externalId: input.externalId },
+        payload: { source: prov.source, externalId: input.externalId, similarity },
       });
       return { decisionId: fuseInto, deduped: false, fused: true };
     }
@@ -776,7 +800,7 @@ export async function fileProposedDecision(
       version: 1,
       baseVersion: 0,
       ruleText: input.ruleText,
-      provenance: supersedes ? { ...(input.provenance as object), supersedes } : (input.provenance ?? null),
+      provenance: supersedes ? { ...(input.provenance as object), supersedes, similarity } : (input.provenance ?? null),
       rationale: input.rationale ?? null,
       alternatives: input.alternatives ?? null,
       status,
@@ -798,7 +822,7 @@ export async function fileProposedDecision(
       entityKind: "decision",
       entityId: d.id,
       entityVersion: 1,
-      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin, status, supersedes },
+      payload: { scopeKind: input.scopeKind, scopeRef: input.scopeRef, origin, status, supersedes, similarity: supersedes ? similarity : undefined },
     });
     // NOTE: auto-bound rules are impact-0/own-area; drift-vs-PRD is checked on the deliberate
     // confirm/ack path (confirmDecision), not here (no single human author for the conflict notify).

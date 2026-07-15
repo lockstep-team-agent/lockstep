@@ -32,6 +32,10 @@ const schema = z.object({
   COMPOSIO_API_KEY: z.string().optional(),
   LOCKSTEP_INGEST_TOKEN: z.string().optional(),
 
+  // #6 embedding-based fusion/supersession (Voyage AI). Optional — unset means the Jaccard path
+  // runs exactly as before. Core's only AI seam; the distillation LLM stays in the ingest worker.
+  VOYAGE_API_KEY: z.string().optional(),
+
   LOCKSTEP_DEPLOYMENT: z.enum(["cloud", "self-host"]).default("self-host"),
 
   // Dev-only login bypass (never honored when NODE_ENV=production).
