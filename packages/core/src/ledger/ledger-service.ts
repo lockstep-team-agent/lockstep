@@ -2064,6 +2064,55 @@ export function capConstraints(constraints: ScopedConstraint[]): { shown: Scoped
   return { shown, overflow: constraints.length - shown.length };
 }
 
+/* ── Phase P: project principles (TOMASP "meta-decision") ── */
+
+// Principles are binding decisions with decisionType="principle" — the team's standing decision
+// criteria ("server-side business logic → Ruby"). Few by design: small budget + hard item cap.
+const PRINCIPLE_BUDGET = Math.floor(BRIEFING_TOKEN_BUDGET * 0.1);
+const PRINCIPLE_MAX = 5;
+
+export function principleLine(ruleText: string): string {
+  return `◆ [principle] ${ruleText}`;
+}
+
+/** Binding project principles, impact-ranked, budget/item-capped for the session-start briefing. */
+export async function projectPrinciples(
+  orgId: string,
+  projectId: string,
+): Promise<{ principles: Array<{ line: string; impact: number }>; overflow: number }> {
+  return withOrg(orgId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(decisions)
+      .where(
+        and(
+          eq(decisions.projectId, projectId),
+          eq(decisions.decisionType, "principle"),
+          eq(decisions.status, "binding"),
+        ),
+      );
+    rows.sort((a, b) => b.impact - a.impact);
+    const principles: Array<{ line: string; impact: number }> = [];
+    let spent = 0;
+    for (const d of rows) {
+      if (principles.length >= PRINCIPLE_MAX) break;
+      const v = (
+        await tx
+          .select()
+          .from(decisionVersions)
+          .where(and(eq(decisionVersions.decisionId, d.id), eq(decisionVersions.version, d.currentVersion)))
+          .limit(1)
+      )[0];
+      const line = principleLine(v?.ruleText ?? "");
+      const cost = estimateTokens(line);
+      if (principles.length > 0 && spent + cost > PRINCIPLE_BUDGET) break;
+      principles.push({ line, impact: d.impact });
+      spent += cost;
+    }
+    return { principles, overflow: rows.length - principles.length };
+  });
+}
+
 /** The GET /briefing backend: in-scope constraints, ranked + 15%-capped, with an overflow count. */
 export async function briefingConstraints(
   orgId: string,

@@ -264,3 +264,28 @@ test("ingested deliberation fields land as first-class columns", async () => {
   assert.deepEqual(d.alternatives, ["Partition by month"]);
   assert.ok(d.reviewAt);
 });
+
+test("project principles (Phase P): binding principle decisions surface capped + ranked", async () => {
+  const s = await setup();
+  const { projectPrinciples } = await import("./ledger-service.js");
+  // Six binding principles (one over the item cap) + one still-proposed (must not surface).
+  for (let i = 0; i < 6; i++) {
+    await proposeDecision(s.orgId, {
+      projectId: s.projectId,
+      memberId: s.memberId,
+      scopeKind: "project",
+      scopeRef: `project:principle-${i}`,
+      ruleText: `Principle number ${i}: prefer boring technology tier ${i}.`,
+      baseVersion: 0,
+      decisionType: "principle",
+    });
+  }
+  await fileIngested(s, "project:principle-proposed", "Proposed principle that must not surface.", {
+    decisionType: "principle",
+  });
+
+  const r = await projectPrinciples(s.orgId, s.projectId);
+  assert.equal(r.principles.length, 5, "hard item cap");
+  assert.equal(r.overflow, 1, "the sixth binding principle is counted as overflow, the proposed one is not in scope");
+  assert.ok(r.principles.every((p) => p.line.startsWith("◆ [principle] ")));
+});

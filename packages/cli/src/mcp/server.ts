@@ -63,7 +63,7 @@ export async function runMcpServer(): Promise<void> {
       scopeRef: z.string(),
       ruleText: z.string(),
       baseVersion: z.number(),
-      decisionType: z.enum(["rule", "architecture"]).optional(),
+      decisionType: z.enum(["rule", "architecture", "principle"]).optional(),
       capabilityRef: z.string().optional(),
       rationale: z.string().optional(), // the why, one or two sentences (ADR context)
       alternatives: z.array(z.string()).optional(), // options considered and rejected

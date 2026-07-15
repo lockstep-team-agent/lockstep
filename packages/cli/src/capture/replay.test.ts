@@ -86,3 +86,33 @@ test("drift conflicts from the inbox render their own briefing section", () => {
   assert.match(out, /⚔️ 1 drift conflict\(s\)/);
   assert.match(out, /\[http:POST \/payments\/init\] your "OTP on all inits" vs constraint "no OTP before payment" — review both/);
 });
+
+test("project principles lead the briefing, above the binding-decisions section (Phase P)", () => {
+  const withPrinciples: BriefingResp = {
+    constraints: [],
+    overflow: 0,
+    principles: [
+      { line: "◆ [principle] Server-side business logic is Ruby.", impact: 3 },
+      { line: "◆ [principle] Prefer boring technology.", impact: 0 },
+    ],
+    principlesOverflow: 0,
+  };
+  const out = formatReplay(null, decisions, withPrinciples);
+  const lines = out.split("\n");
+  assert.equal(lines[1], "◆ 2 project principle(s) — the team's standing decision criteria:");
+  assert.ok(lines[2]!.includes("Server-side business logic is Ruby."));
+  assert.ok(
+    out.indexOf("project principle(s)") < out.indexOf("binding decision(s)"),
+    "principles render before binding decisions",
+  );
+  assert.doesNotMatch(out, /more — query the ledger/);
+
+  const overflowing: BriefingResp = { ...withPrinciples, principlesOverflow: 2 };
+  assert.match(formatReplay(null, decisions, overflowing), /\(\+2 more — query the ledger\)/);
+
+  // Absent principles (old core) → byte-identical to before.
+  assert.equal(
+    formatReplay(null, decisions, { constraints: [], overflow: 0 }),
+    formatReplay(null, decisions, null),
+  );
+});

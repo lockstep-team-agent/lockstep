@@ -12,6 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { extractSurfaces, isContractSurface } from "./surface.mjs";
+import { buildComment, COMMENT_MARKER } from "./comment.mjs";
 
 const API = process.env.INPUT_API_URL || process.env.LOCKSTEP_API_URL;
 const TOKEN = process.env.INPUT_TOKEN || process.env.LOCKSTEP_CI_TOKEN;
@@ -52,7 +53,11 @@ async function api(method, path, session, body) {
 /** GitHub Actions workflow-command annotations (no token/permission needed). */
 const annotate = (level, msg) => console.log(`::${level}::${msg.replace(/\n/g, "%0A")}`);
 
-/** Best-effort PR comment (only when a github-token is supplied + we're on a pull_request event). */
+/**
+ * Best-effort PR comment (only when a github-token is supplied + we're on a pull_request event).
+ * UPSERTS by the marker: finds our previous comment and PATCHes it, else POSTs — one living
+ * comment per PR instead of a new one per push.
+ */
 async function postPrComment(body) {
   if (!GH_TOKEN) return;
   const repo = process.env.GITHUB_REPOSITORY;
@@ -66,16 +71,26 @@ async function postPrComment(body) {
     return;
   }
   if (!prNumber) return;
-  try {
-    await fetch(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments`, {
-      method: "POST",
+  const gh = (path, init) =>
+    fetch(`https://api.github.com${path}`, {
+      ...init,
       headers: {
         authorization: `Bearer ${GH_TOKEN}`,
         accept: "application/vnd.github+json",
         "content-type": "application/json",
+        ...(init?.headers ?? {}),
       },
-      body: JSON.stringify({ body }),
     });
+  try {
+    const existing = await gh(`/repos/${repo}/issues/${prNumber}/comments?per_page=100`).then((r) =>
+      r.ok ? r.json() : [],
+    );
+    const mine = Array.isArray(existing) ? existing.find((c) => c.body?.startsWith(COMMENT_MARKER)) : undefined;
+    if (mine) {
+      await gh(`/repos/${repo}/issues/comments/${mine.id}`, { method: "PATCH", body: JSON.stringify({ body }) });
+    } else {
+      await gh(`/repos/${repo}/issues/${prNumber}/comments`, { method: "POST", body: JSON.stringify({ body }) });
+    }
   } catch {
     /* best-effort */
   }
@@ -131,20 +146,17 @@ async function main() {
 
   // Missing-binding-decision violations (the existing hard gate).
   let failed = false;
+  const violations = result.ok ? [] : (result.violations ?? []);
   if (!result.ok) {
-    annotate("error", `❌ Lockstep: contract surface(s) changed without a binding decision: ${result.violations.join(", ")}. Propose + ack a decision before merging.`);
+    annotate("error", `❌ Lockstep: contract surface(s) changed without a binding decision: ${violations.join(", ")}. Propose + ack a decision before merging.`);
     failed = true;
   }
-  if (openConflicts.length > 0) {
-    if (commentLines.length) {
-      await postPrComment(
-        `### ⚠ Lockstep: product-constraint conflict${openConflicts.length === 1 ? "" : "s"} on this PR\n\n` +
-          commentLines.join("\n") +
-          `\n\nResolve in the Lockstep dashboard (Review → Conflicts), or amend the PRD.`,
-      );
-    }
-    if (BLOCK_ON_CONFLICT) failed = true;
-  }
+  if (openConflicts.length > 0 && BLOCK_ON_CONFLICT) failed = true;
+
+  // One upserted comment: backfill suggestions per violating surface (templated, no LLM — the
+  // developer's own agent drafts the decision locally) + the conflict section.
+  const comment = buildComment({ violations, conflictLines: commentLines });
+  if (comment) await postPrComment(comment);
 
   if (failed) process.exit(1);
   console.log(

@@ -181,7 +181,7 @@ export const decisions = pgTable("decisions", {
   scopeRef: text("scope_ref").notNull(),
   // A decision is a durable RULE or ARCHITECTURAL choice that shapes future work — never a routine
   // change event (those live in change_feed_entries). See the product thesis.
-  decisionType: text("decision_type").notNull().default("rule"), // rule | architecture
+  decisionType: text("decision_type").notNull().default("rule"), // rule | architecture | principle (project-level meta-decision / standing criteria)
   // Blast radius, derived from the usage graph (count of consumers of the scope) with optional
   // agent/human override. Drives noise filtering, session-start ranking, and the binding model.
   impact: integer("impact").notNull().default(0),

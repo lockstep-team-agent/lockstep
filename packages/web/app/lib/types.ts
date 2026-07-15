@@ -17,6 +17,7 @@ export interface ProjectOverview {
     origin?: string;
     version: number;
     ruleText: string;
+    decisionType?: string;
     // Phase J deliberation + lifecycle fields
     rationale?: string | null;
     alternatives?: string[] | null;

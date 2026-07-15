@@ -58,6 +58,13 @@ export async function orgOverview(
 export async function projectOverview(orgId: string, projectId: string, viewerMemberId?: string) {
   return withOrg(orgId, async (tx) => {
     const ds = await tx.select().from(decisions).where(eq(decisions.projectId, projectId));
+    // Reverse lineage map (Phase J): "X supersedes Y" is Y.supersededById === X.
+    const supersedesBy = new Map<string, string[]>();
+    for (const d of ds) {
+      if (!d.supersededById) continue;
+      supersedesBy.set(d.supersededById, [...(supersedesBy.get(d.supersededById) ?? []), d.id]);
+    }
+    const now = new Date();
     const decisionList = [];
     for (const d of ds) {
       const v = (
@@ -75,6 +82,14 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
         origin: d.origin,
         version: d.currentVersion,
         ruleText: v?.ruleText ?? "",
+        decisionType: d.decisionType,
+        // Phase J deliberation + lifecycle fields (the decisions page + Review-due tab read these).
+        rationale: v?.rationale ?? null,
+        alternatives: (v?.alternatives as string[] | null) ?? null,
+        reviewAt: d.reviewAt,
+        dueForReview: d.status === "binding" && d.reviewAt != null && d.reviewAt < now,
+        supersededById: d.supersededById,
+        supersedes: supersedesBy.get(d.id) ?? [],
       });
     }
     const qs = (await tx.select().from(questions).where(eq(questions.projectId, projectId))).map((q) => ({

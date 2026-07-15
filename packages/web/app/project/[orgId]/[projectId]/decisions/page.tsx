@@ -27,6 +27,7 @@ export default async function Page({ params }: { params: { orgId: string; projec
         <div className="meta">
           <span className="code-ref">{d.scopeRef}</span>
           <span className="pill plain">{d.scopeKind}</span>
+          {d.decisionType === "principle" && <span className="pill plain">principle</span>}
           {d.origin && d.origin !== "agent" && <span className="pill plain">{d.origin}</span>}
           <span>v{d.version}</span>
           {d.dueForReview && <span className="pill conflict">due for review</span>}

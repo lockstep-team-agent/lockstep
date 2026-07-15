@@ -16,6 +16,7 @@ import {
   completeTask,
   reconcile,
   briefingConstraints,
+  projectPrinciples,
   getProductContext,
 } from "../../ledger/ledger-service.js";
 import { whoowns, refreshOwnership } from "../../graph/ownership-service.js";
@@ -131,23 +132,31 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
     return { decisions: await listDecisions(c.orgId, c.projectId, scope) };
   });
 
-  // briefing — ranked, 15%-budget-capped product constraints in scope for this repo (session start).
-  // Silent when the product layer is off, so the CLI degrades to the plain briefing.
+  // briefing — ranked, 15%-budget-capped product constraints in scope for this repo (session start),
+  // plus project principles (Phase P). The product-layer gate silences only the CONSTRAINTS —
+  // principles are engineering meta-decisions and flow regardless.
   app.get("/briefing", async (req, reply) => {
     const c = await ctx(req, reply);
     if (!c) return;
-    if (!(await productLayerOn(c.orgId, c.projectId))) return { constraints: [], overflow: 0 };
-    return briefingConstraints(c.orgId, c.projectId, c.repoId);
+    const p = await projectPrinciples(c.orgId, c.projectId);
+    if (!(await productLayerOn(c.orgId, c.projectId)))
+      return { constraints: [], overflow: 0, principles: p.principles, principlesOverflow: p.overflow };
+    const b = await briefingConstraints(c.orgId, c.projectId, c.repoId);
+    return { ...b, principles: p.principles, principlesOverflow: p.overflow };
   });
 
   // get_product_context(scope) — pull-based depth: full constraint set for a capability/surface/text.
+  // Principles ride along uncapped (the pull path) — same product-layer carve-out as /briefing.
   app.get("/product-context", async (req, reply) => {
     const c = await ctx(req, reply);
     if (!c) return;
     const { scope } = req.query as { scope?: string };
     if (!scope) return reply.code(400).send({ error: "scope query param required" });
-    if (!(await productLayerOn(c.orgId, c.projectId))) return { scope, constraints: [], governedSurfaces: [] };
-    return getProductContext(c.orgId, c.projectId, scope);
+    const p = await projectPrinciples(c.orgId, c.projectId);
+    if (!(await productLayerOn(c.orgId, c.projectId)))
+      return { scope, constraints: [], governedSurfaces: [], principles: p.principles };
+    const full = await getProductContext(c.orgId, c.projectId, scope);
+    return { ...full, principles: p.principles };
   });
 
   // register_dependency(consumer, produced_surface)

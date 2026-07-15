@@ -33,6 +33,9 @@ interface DecisionsResp {
 export interface BriefingResp {
   constraints: Array<{ line: string; impact: number; conflictOpen: boolean }>;
   overflow: number;
+  /** Phase P: binding decisionType=principle decisions — the team's standing decision criteria. */
+  principles?: Array<{ line: string; impact: number }>;
+  principlesOverflow?: number;
 }
 
 /** Highest-blast-radius first, so the session-start briefing leads with what matters most. */
@@ -71,6 +74,14 @@ export function formatReplay(
     lines.push(`⚔️ ${conflicts.length} drift conflict(s) — your work may conflict with a ratified product constraint:`);
     for (const c of conflicts.slice(0, 8))
       lines.push(`  • [${c.surface}] your "${c.engRuleText}" vs constraint "${c.constraintRuleText}" — review both`);
+  }
+  // Principles lead — they're the criteria the agent should judge everything else by (TOMASP "M").
+  const principles = briefing?.principles ?? [];
+  if (principles.length) {
+    lines.push(`◆ ${principles.length} project principle(s) — the team's standing decision criteria:`);
+    for (const p of principles) lines.push(`  • ${p.line}`);
+    if ((briefing?.principlesOverflow ?? 0) > 0)
+      lines.push(`  • (+${briefing?.principlesOverflow} more — query the ledger)`);
   }
   const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding").sort(byImpact);
   const constraints = briefing?.constraints ?? [];
