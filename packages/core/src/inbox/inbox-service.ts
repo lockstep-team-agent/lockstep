@@ -129,7 +129,14 @@ export async function readInbox(
 
 /**
  * Acknowledge inbox items — mark them as read. Call this after the user has seen the messages.
- * If itemIds is empty, marks ALL unread items as read.
+ * If itemIds is empty, marks ALL unread items of the CURRENT repo's inbox as read.
+ *
+ * Member-wide ack (IMPROVEMENTS #5): fan-out replicates a ping into one inbox per (member, repo),
+ * so the same question used to nag from every folder's session until each cleared it separately.
+ * Acking a refId now clears it across ALL of this member's inboxes in the project. The ack-all
+ * form first reads the CURRENT repo's unread refIds — it only clears member-wide what this session
+ * actually saw, so an item delivered exclusively to another repo's inbox (e.g. a change event for
+ * that consumer repo) is never blind-cleared. Returns the total rows updated across inboxes.
  */
 export async function ackInbox(
   orgId: string,
@@ -137,30 +144,31 @@ export async function ackInbox(
   itemIds?: string[],
 ): Promise<{ acknowledged: number }> {
   return withOrg(orgId, async (tx) => {
-    const inbox = (
-      await tx
-        .select()
-        .from(inboxes)
-        .where(
-          and(eq(inboxes.memberId, ctx.memberId), eq(inboxes.repoId, ctx.repoId), eq(inboxes.projectId, ctx.projectId)),
-        )
-        .limit(1)
-    )[0];
-    if (!inbox) return { acknowledged: 0 };
+    const memberInboxes = await tx
+      .select()
+      .from(inboxes)
+      .where(and(eq(inboxes.memberId, ctx.memberId), eq(inboxes.projectId, ctx.projectId)));
+    const current = memberInboxes.find((i) => i.repoId === ctx.repoId);
+    if (!current) return { acknowledged: 0 };
+    const allInboxIds = memberInboxes.map((i) => i.id);
 
-    if (itemIds && itemIds.length > 0) {
-      const result = await tx
-        .update(inboxItems)
-        .set({ state: "read" })
-        .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread"), inArray(inboxItems.refId, itemIds)))
-        .returning();
-      return { acknowledged: result.length };
+    let refIds = itemIds ?? [];
+    if (refIds.length === 0) {
+      // Ack-all: the refIds this session's inbox actually holds unread.
+      const unread = await tx
+        .select({ refId: inboxItems.refId })
+        .from(inboxItems)
+        .where(and(eq(inboxItems.inboxId, current.id), eq(inboxItems.state, "unread")));
+      refIds = [...new Set(unread.map((r) => r.refId))];
+      if (refIds.length === 0) return { acknowledged: 0 };
     }
 
     const result = await tx
       .update(inboxItems)
       .set({ state: "read" })
-      .where(and(eq(inboxItems.inboxId, inbox.id), eq(inboxItems.state, "unread")))
+      .where(
+        and(inArray(inboxItems.inboxId, allInboxIds), eq(inboxItems.state, "unread"), inArray(inboxItems.refId, refIds)),
+      )
       .returning();
     return { acknowledged: result.length };
   });
