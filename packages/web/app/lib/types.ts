@@ -35,6 +35,8 @@ export interface ProjectOverview {
     producedRepoId: string | null;
     producedSurface: string;
     source: string;
+    /** #4: set when the producer lives in another (shared) project. */
+    producerProject?: { id: string; name: string } | null;
   }>;
   contracts: Array<{
     id: string;

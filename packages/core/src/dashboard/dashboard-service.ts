@@ -110,18 +110,33 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
       gitRemote: r.gitRemote,
     }));
     const repoIds = rps.map((r) => r.id);
+    // #4: producer repos may live in other projects — resolve names org-wide, shared projects only.
+    const orgRepos = await tx.select().from(repos);
+    const repoById = new Map(orgRepos.map((r) => [r.id, r]));
+    const projById = new Map(
+      (await tx.select().from(projects))
+        .filter((p) => projectVisibility(p.settings) === "shared")
+        .map((p) => [p.id, p]),
+    );
     const deps = (
       await tx
         .select()
         .from(dependencyEdges)
         .where(and(eq(dependencyEdges.projectId, projectId), eq(dependencyEdges.active, true)))
-    ).map((d) => ({
-      id: d.id,
-      consumerRepoId: d.consumerRepoId,
-      producedRepoId: d.producedRepoId,
-      producedSurface: d.producedSurface,
-      source: d.source,
-    }));
+    ).map((d) => {
+      // #4: a producer repo outside this project gets its (shared) project named for the UI badge.
+      const producerRepo = d.producedRepoId ? repoById.get(d.producedRepoId) : undefined;
+      const producerProj =
+        producerRepo && producerRepo.projectId !== projectId ? projById.get(producerRepo.projectId) : undefined;
+      return {
+        id: d.id,
+        consumerRepoId: d.consumerRepoId,
+        producedRepoId: d.producedRepoId,
+        producedSurface: d.producedSurface,
+        source: d.source,
+        producerProject: producerProj ? { id: producerProj.id, name: producerProj.name } : null,
+      };
+    });
     const contractRows = repoIds.length
       ? (await tx.select().from(contracts).where(inArray(contracts.repoId, repoIds))).map((c) => ({
           id: c.id,

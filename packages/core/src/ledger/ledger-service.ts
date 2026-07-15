@@ -1,4 +1,4 @@
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, or } from "drizzle-orm";
 import { withOrg, type Tx } from "../db/rls.js";
 import {
   decisions,
@@ -26,7 +26,7 @@ import {
   upsertGovernsEdgeTx,
   confirmGovernsEdgesForSurfacesTx,
 } from "../graph/graph-service.js";
-import { canRatifyTx } from "../auth/permissions.js";
+import { canRatifyTx, projectVisibility, projectArchived } from "../auth/permissions.js";
 import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
 import { notifyConflictTx } from "../routing/routing-engine.js";
 import { inArray } from "drizzle-orm";
@@ -58,27 +58,64 @@ async function producerRepoForSurfaceTx(
 ): Promise<string | null> {
   const rps = await tx.select({ id: repos.id }).from(repos).where(eq(repos.projectId, projectId));
   const repoIds = rps.map((r) => r.id).filter((id) => id !== excludeRepoId);
-  if (repoIds.length === 0) return null;
-  const c = (
+  if (repoIds.length > 0) {
+    const c = (
+      await tx
+        .select({ repoId: contracts.repoId })
+        .from(contracts)
+        .where(and(inArray(contracts.repoId, repoIds), eq(contracts.surface, surface)))
+        .limit(1)
+    )[0];
+    if (c) return c.repoId;
+  }
+  // #4 cross-project resolution: fall back org-wide among SHARED, non-archived projects. Walled
+  // projects are fully invisible here (the simplest wall-respecting rule); same-project always wins
+  // (above). Deterministic pick: oldest contract row.
+  const shared = (await tx.select().from(projects)).filter(
+    (p) => p.id !== projectId && projectVisibility(p.settings) === "shared" && !projectArchived(p.settings),
+  );
+  if (shared.length === 0) return null;
+  const otherRepos = await tx
+    .select({ id: repos.id })
+    .from(repos)
+    .where(
+      inArray(
+        repos.projectId,
+        shared.map((p) => p.id),
+      ),
+    );
+  const otherIds = otherRepos.map((r) => r.id).filter((id) => id !== excludeRepoId);
+  if (otherIds.length === 0) return null;
+  const hit = (
     await tx
       .select({ repoId: contracts.repoId })
       .from(contracts)
-      .where(and(inArray(contracts.repoId, repoIds), eq(contracts.surface, surface)))
+      .where(and(inArray(contracts.repoId, otherIds), eq(contracts.surface, surface)))
+      .orderBy(contracts.createdAt)
       .limit(1)
   )[0];
-  return c?.repoId ?? null;
+  return hit?.repoId ?? null;
 }
 
-/** Distinct consumers of a surface in the usage graph = its blast radius. */
+/**
+ * Distinct consumers of a surface in the usage graph = its blast radius. #4: counts ORG-WIDE —
+ * same-project edges plus other projects' edges that resolved to this project's repos as producer.
+ * The count is a scalar (no identity leak), so walled consumers are included: undercounting would
+ * misrank a genuinely cross-cutting decision as own-area.
+ */
 async function consumerCountTx(tx: Tx, projectId: string, surface: string): Promise<number> {
+  const rps = await tx.select({ id: repos.id }).from(repos).where(eq(repos.projectId, projectId));
+  const repoIds = rps.map((r) => r.id);
   const edges = await tx
     .select()
     .from(dependencyEdges)
     .where(
       and(
-        eq(dependencyEdges.projectId, projectId),
         eq(dependencyEdges.producedSurface, surface),
         eq(dependencyEdges.active, true),
+        repoIds.length > 0
+          ? or(eq(dependencyEdges.projectId, projectId), inArray(dependencyEdges.producedRepoId, repoIds))
+          : eq(dependencyEdges.projectId, projectId),
       ),
     );
   return new Set(edges.map((e) => e.consumerRepoId)).size;
@@ -1348,25 +1385,41 @@ export async function listConsumers(
   projectId: string,
   surface: string,
   askingRepoId?: string,
-): Promise<{ surface: string; count: number; consumers: Array<{ repoId: string; gitRemote: string }> }> {
+): Promise<{ surface: string; count: number; consumers: Array<{ repoId: string; gitRemote: string; projectName?: string }> }> {
   return withOrg(orgId, async (tx) => {
+    // #4: count org-wide (same-project edges + other projects' edges resolved to this project's
+    // producers); consumer DETAIL only for same-project and SHARED projects — a walled project's
+    // consumers appear in the count (a scalar leaks nothing) but never by name.
+    const own = await tx.select({ id: repos.id }).from(repos).where(eq(repos.projectId, projectId));
+    const ownIds = own.map((r) => r.id);
     const edges = await tx
       .select()
       .from(dependencyEdges)
       .where(
         and(
-          eq(dependencyEdges.projectId, projectId),
           eq(dependencyEdges.producedSurface, surface),
           eq(dependencyEdges.active, true),
+          ownIds.length > 0
+            ? or(eq(dependencyEdges.projectId, projectId), inArray(dependencyEdges.producedRepoId, ownIds))
+            : eq(dependencyEdges.projectId, projectId),
         ),
       );
     const repoIds = [...new Set(edges.map((e) => e.consumerRepoId))].filter((r) => r !== askingRepoId);
-    const consumers: Array<{ repoId: string; gitRemote: string }> = [];
+    const projs = await tx.select().from(projects);
+    const projById = new Map(projs.map((p) => [p.id, p]));
+    const consumers: Array<{ repoId: string; gitRemote: string; projectName?: string }> = [];
     for (const repoId of repoIds) {
       const r = (await tx.select().from(repos).where(eq(repos.id, repoId)).limit(1))[0];
-      consumers.push({ repoId, gitRemote: r?.gitRemote ?? "(unknown)" });
+      if (!r) continue;
+      if (r.projectId !== projectId) {
+        const p = projById.get(r.projectId);
+        if (!p || projectVisibility(p.settings) !== "shared") continue; // walled: count-only
+        consumers.push({ repoId, gitRemote: r.gitRemote, projectName: p.name });
+      } else {
+        consumers.push({ repoId, gitRemote: r.gitRemote });
+      }
     }
-    return { surface, count: consumers.length, consumers };
+    return { surface, count: repoIds.length, consumers };
   });
 }
 
@@ -1374,6 +1427,10 @@ export interface ProjectSurface {
   surface: string;
   repoId: string;
   gitRemote: string;
+  /** #4: set when the producer lives in ANOTHER (shared) project — surface/repo/name only, never rule text. */
+  crossProject?: boolean;
+  projectId?: string;
+  projectName?: string;
 }
 
 /**
@@ -1412,6 +1469,48 @@ export async function listProjectSurfaces(orgId: string, projectId: string): Pro
           repoId: e.producedRepoId,
           gitRemote: remoteById.get(e.producedRepoId)!,
         });
+      }
+    }
+    // #4 cross-project section: SHARED, non-archived sibling projects' contracts join the catalog so
+    // `lockstep scan` resolves cross-project consumes. Payload = surface + repo + project name only —
+    // never decision/rule text. Walled projects contribute nothing.
+    const shared = (await tx.select().from(projects)).filter(
+      (p) => p.id !== projectId && projectVisibility(p.settings) === "shared" && !projectArchived(p.settings),
+    );
+    if (shared.length > 0) {
+      const nameByProject = new Map(shared.map((p) => [p.id, p.name]));
+      const otherRepos = await tx
+        .select()
+        .from(repos)
+        .where(
+          inArray(
+            repos.projectId,
+            shared.map((p) => p.id),
+          ),
+        );
+      const otherById = new Map(otherRepos.map((r) => [r.id, r]));
+      if (otherRepos.length > 0) {
+        for (const c of await tx
+          .select()
+          .from(contracts)
+          .where(
+            inArray(
+              contracts.repoId,
+              otherRepos.map((r) => r.id),
+            ),
+          )) {
+          const r = otherById.get(c.repoId)!;
+          if (!out.has(`${c.surface} ${c.repoId}`)) {
+            out.set(`${c.surface} ${c.repoId}`, {
+              surface: c.surface,
+              repoId: c.repoId,
+              gitRemote: r.gitRemote,
+              crossProject: true,
+              projectId: r.projectId,
+              projectName: nameByProject.get(r.projectId),
+            });
+          }
+        }
       }
     }
     return [...out.values()];

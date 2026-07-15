@@ -36,6 +36,11 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <span className="mono" style={{ color: "var(--violet)" }}>
                       {d.producedSurface}
                     </span>
+                    {d.producerProject && (
+                      <span className="tip" data-tip="Produced by a repo in another project (cross-project dependency)">
+                        <span className="pill plain">↗ {d.producerProject.name}</span>
+                      </span>
+                    )}
                   </div>
                   <span className="pill plain">{d.source}</span>
                 </div>

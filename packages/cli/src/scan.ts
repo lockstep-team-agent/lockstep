@@ -11,6 +11,9 @@ export interface CatalogEntry {
   surface: string;
   repoId: string;
   gitRemote: string;
+  /** #4: producer lives in another (shared) project — shown so the human approves with attribution. */
+  crossProject?: boolean;
+  projectName?: string;
 }
 interface MatchedConsume {
   surface: string;
@@ -86,7 +89,10 @@ export function classify(
       // dependency edge matches the producer's future change events exactly.
       if (!consumeSet.has(hit.surface)) {
         consumeSet.add(hit.surface);
-        consumes.push({ surface: hit.surface, producer: hit.gitRemote });
+        consumes.push({
+          surface: hit.surface,
+          producer: hit.projectName ? `${hit.gitRemote} (project: ${hit.projectName})` : hit.gitRemote,
+        });
       }
     } else if (ref.hint) {
       // service/package hint (gRPC client, generated import) — resolve to the sibling's surfaces it could mean.
