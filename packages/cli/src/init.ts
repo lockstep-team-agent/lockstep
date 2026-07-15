@@ -18,7 +18,11 @@ export async function runInit(opts: { vendor?: string; scope: Scope; dryRun: boo
     }
   }
   if (!opts.dryRun && opts.scope === "project") {
-    console.log("\nCommit the written files so teammates get Lockstep automatically on clone.");
+    console.log(
+      "\nCommit the shared files (.mcp.json, CLAUDE.md, .claude/skills) so teammates get Lockstep on clone." +
+        "\n.claude/settings.local.json is personal (hooks + statusline) and auto-gitignored — each teammate" +
+        "\nruns `lockstep onboard` once to get their own.",
+    );
   }
 }
 

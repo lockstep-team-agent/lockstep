@@ -128,7 +128,9 @@ user chose from \`review\`/\`unmatched\`, add those surface IDs to \`consumes\` 
 
 ### 5. Offer next steps
 Suggest committing \`lockstep.yaml\` so teammates get the same graph, and (if not connected yet)
-\`lockstep connect\`.
+\`lockstep connect\`. Shared config to commit: \`.mcp.json\`, \`CLAUDE.md\`, \`.claude/skills\`.
+\`.claude/settings.local.json\` (hooks + statusline) is personal and auto-gitignored — each teammate
+runs \`lockstep onboard\` to get their own.
 
 ## Maintenance (re-run anytime)
 Re-running \`lockstep scan\` diffs current code surfaces against \`lockstep.yaml\` and shows only the delta

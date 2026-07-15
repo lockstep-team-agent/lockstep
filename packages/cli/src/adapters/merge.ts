@@ -81,6 +81,35 @@ export function mergeStatusLine(existing: string | null, command: string, args: 
   return JSON.stringify(obj, null, 2) + "\n";
 }
 
+/**
+ * Strip lockstep-managed hook entries from a settings JSON, preserving foreign hooks byte-for-byte.
+ * The healing half of the personal-scope move (IMPROVEMENTS #2): hooks/statusline used to land in
+ * the committed `.claude/settings.json`; re-running init removes them there (this) and re-writes
+ * them to `settings.local.json` (mergeHooks).
+ */
+export function removeManagedHooks(existing: string): string {
+  const obj: Json = JSON.parse(existing) as Json;
+  const hooks = obj.hooks as Record<string, HookEntry[]> | undefined;
+  if (hooks) {
+    for (const [event, arr] of Object.entries(hooks)) {
+      if (!Array.isArray(arr)) continue;
+      const foreign = arr.filter((e) => !isOurs(e));
+      if (foreign.length > 0) hooks[event] = foreign;
+      else delete hooks[event];
+    }
+    if (Object.keys(hooks).length === 0) delete obj.hooks;
+  }
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
+/** Strip a lockstep-managed statusLine (a user's custom one is never ours — mergeStatusLine never overwrote it). */
+export function removeManagedStatusLine(existing: string): string {
+  const obj: Json = JSON.parse(existing) as Json;
+  const sl = obj.statusLine as { command?: string; args?: string[] } | undefined;
+  if (sl && `${sl.command ?? ""} ${(sl.args ?? []).join(" ")}`.includes(MARKER)) delete obj.statusLine;
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
 const START = "<!-- lockstep:start -->";
 const END = "<!-- lockstep:end -->";
 
