@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withOrg, withSystem } from "../db/rls.js";
-import { sourceConnections, ingestAllowlist, ingestWatermarks } from "../db/schema.js";
+import { sourceConnections, ingestAllowlist, ingestWatermarks, projects } from "../db/schema.js";
+import { projectArchived } from "../auth/permissions.js";
 import * as defaultComposio from "./composio.js";
 import type { Tool as ComposioTool } from "./composio.js";
 
@@ -35,6 +36,9 @@ export async function listWork(): Promise<WorkItem[]> {
     const conns = await tx.select().from(sourceConnections).where(eq(sourceConnections.status, "active"));
     const items: WorkItem[] = [];
     for (const c of conns) {
+      // Archived projects are inert — no sweeps (mirrors getDocumentWork's project gate).
+      const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
+      if (proj && projectArchived(proj.settings)) continue;
       const allow = await tx
         .select()
         .from(ingestAllowlist)

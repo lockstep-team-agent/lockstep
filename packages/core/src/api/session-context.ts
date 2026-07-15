@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withSystem } from "../db/rls.js";
-import { repos, members, sessions } from "../db/schema.js";
+import { repos, members, sessions, projects } from "../db/schema.js";
+import { projectArchived } from "../auth/permissions.js";
 import type { Principal } from "../auth/tokens.js";
 
 export interface SessionContext {
@@ -29,6 +30,9 @@ export async function registerSession(
   return withSystem(async (tx) => {
     const candidates = await tx.select().from(repos).where(eq(repos.gitRemote, input.gitRemote));
     for (const repo of candidates) {
+      // Archived projects are inert — no new sessions (the capture hook degrades silently by design).
+      const proj = (await tx.select().from(projects).where(eq(projects.id, repo.projectId)).limit(1))[0];
+      if (proj && projectArchived(proj.settings)) continue;
       const m = (
         await tx
           .select()

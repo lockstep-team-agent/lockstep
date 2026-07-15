@@ -13,6 +13,7 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { productLayerEnabled } from "./document-service.js";
+import { projectArchived } from "../auth/permissions.js";
 
 /** ISO-week bucket (e.g. "2026-W27") — the dedupe key so a digest fires at most once per project/week. */
 export function isoWeek(d: Date): string {
@@ -39,6 +40,7 @@ export async function enqueueWeeklyDigests(now = new Date()): Promise<{ enqueued
     const projs = await tx.select().from(projects);
     let enqueued = 0;
     for (const p of projs) {
+      if (projectArchived(p.settings)) continue; // archived = inert, no digests
       const productLayer = productLayerEnabled(p.settings);
 
       // Phase J: binding decisions past their review tripwire (query-time — nothing flips status).

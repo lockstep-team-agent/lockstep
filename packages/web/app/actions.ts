@@ -61,6 +61,25 @@ export async function setVisibilityAction(formData: FormData): Promise<void> {
   revalidatePath(`/project/${orgId}/${projectId}/members`);
 }
 
+/** Archive/unarchive a project (owner-only, enforced server-side by the settings route). */
+export async function setArchivedAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const archived = String(formData.get("archived") ?? "") === "true";
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/settings`, { archived });
+  revalidatePath(`/project/${orgId}/${projectId}/members`);
+  revalidatePath("/");
+}
+
+/** Disconnect a repo (owner/pm): contracts + repo row deleted, edges deactivated, history retained. */
+export async function disconnectRepoAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const repoId = String(formData.get("repoId") ?? "");
+  await apiDelete(`/orgs/${orgId}/projects/${projectId}/repos/${repoId}`);
+  revalidatePath(`/project/${orgId}/${projectId}/members`);
+}
+
 export async function setProductLayerAction(formData: FormData): Promise<void> {
   const orgId = String(formData.get("orgId") ?? "");
   const projectId = String(formData.get("projectId") ?? "");

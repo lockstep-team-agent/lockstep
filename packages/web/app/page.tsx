@@ -90,23 +90,53 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
 
         <div className="stagger" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {orgs.flatMap(({ id, data }) =>
-            (data?.projects ?? []).map((p) => (
-              <Link
-                key={p.id}
-                href={`/project/${id}/${p.id}`}
-                className="card pad"
-                style={{ display: "flex", alignItems: "center", gap: 14 }}
-              >
-                <span className="avatar" style={{ borderRadius: 9 }}>
-                  {(p.name[0] ?? "?").toUpperCase()}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 650 }}>{p.name}</div>
-                  <div style={{ color: "var(--dim)", fontSize: 12.5 }}>{(data?.members ?? []).length} member(s)</div>
-                </div>
-                <IconArrow style={{ width: 18, height: 18, color: "var(--dim)" }} />
-              </Link>
-            )),
+            (data?.projects ?? [])
+              .filter((p) => !p.archived)
+              .map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/project/${id}/${p.id}`}
+                  className="card pad"
+                  style={{ display: "flex", alignItems: "center", gap: 14 }}
+                >
+                  <span className="avatar" style={{ borderRadius: 9 }}>
+                    {(p.name[0] ?? "?").toUpperCase()}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 650 }}>{p.name}</div>
+                    <div style={{ color: "var(--dim)", fontSize: 12.5 }}>{(data?.members ?? []).length} member(s)</div>
+                  </div>
+                  <IconArrow style={{ width: 18, height: 18, color: "var(--dim)" }} />
+                </Link>
+              )),
+          )}
+          {orgs.some(({ data }) => (data?.projects ?? []).some((p) => p.archived)) && (
+            <details className="collapse animate-in">
+              <summary>Archived projects</summary>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+                {orgs.flatMap(({ id, data }) =>
+                  (data?.projects ?? [])
+                    .filter((p) => p.archived)
+                    .map((p) => (
+                      <Link
+                        key={p.id}
+                        href={`/project/${id}/${p.id}/members`}
+                        className="card pad"
+                        style={{ display: "flex", alignItems: "center", gap: 14, opacity: 0.65 }}
+                      >
+                        <span className="avatar" style={{ borderRadius: 9 }}>
+                          {(p.name[0] ?? "?").toUpperCase()}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 650 }}>{p.name}</div>
+                          <div style={{ color: "var(--dim)", fontSize: 12.5 }}>archived — open to unarchive</div>
+                        </div>
+                        <IconArrow style={{ width: 18, height: 18, color: "var(--dim)" }} />
+                      </Link>
+                    )),
+                )}
+              </div>
+            </details>
           )}
         </div>
       </div>

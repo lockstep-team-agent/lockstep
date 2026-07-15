@@ -7,6 +7,8 @@ import {
   connectRepoAction,
   updateMemberRoleAction,
   setVisibilityAction,
+  setArchivedAction,
+  disconnectRepoAction,
   setMemberSlackAction,
 } from "@/actions";
 import type { OrgOverview } from "@/lib/types";
@@ -34,7 +36,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const members = org?.members ?? [];
   const projectMembers = o?.members;
   const isOwner = o?.viewer?.role === "owner";
+  const canAdminRepos = isOwner || o?.viewer?.role === "pm";
   const visibility = o?.visibility ?? "shared";
+  const archived = o?.archived ?? false;
   const repos = o?.repos ?? [];
   const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const api = process.env.LOCKSTEP_API_URL ?? "https://your-core";
@@ -103,6 +107,39 @@ export default async function Page({ params }: { params: { orgId: string; projec
             <span className="tip" data-tip="Only project owners can change visibility">
               <button className="btn" disabled>
                 Update visibility
+              </button>
+            </span>
+          )}
+        </form>
+      </div>
+
+      <div className="section-title" style={{ marginTop: 18 }}>
+        Archive
+      </div>
+      <div className="card pad animate-in">
+        <p style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 10 }}>
+          {archived ? (
+            <>
+              This project is <strong>archived</strong> — hidden from the workspace list, no new sessions, no sweeps or
+              digests. Everything is retained; unarchive to restore it.
+            </>
+          ) : (
+            <>
+              Archiving makes the project <strong>inert</strong>: hidden from the workspace list, connect/join blocked,
+              no sweeps or digests. Nothing is deleted — decisions, history, and the audit trail stay intact.
+            </>
+          )}
+        </p>
+        <form className="inline" action={setArchivedAction}>
+          <input type="hidden" name="orgId" value={orgId} />
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="archived" value={archived ? "false" : "true"} />
+          {isOwner ? (
+            <button className="btn">{archived ? "Unarchive project" : "Archive project"}</button>
+          ) : (
+            <span className="tip" data-tip="Only project owners can archive">
+              <button className="btn" disabled>
+                {archived ? "Unarchive project" : "Archive project"}
               </button>
             </span>
           )}
@@ -219,6 +256,16 @@ export default async function Page({ params }: { params: { orgId: string; projec
                 <div className="body">
                   <div className="title mono">{r.gitRemote}</div>
                 </div>
+                {canAdminRepos && (
+                  <form action={disconnectRepoAction}>
+                    <input type="hidden" name="orgId" value={orgId} />
+                    <input type="hidden" name="projectId" value={projectId} />
+                    <input type="hidden" name="repoId" value={r.id} />
+                    <span className="tip" data-tip="Removes the repo + its contracts from the graph (history retained). Reconnect any time.">
+                      <button className="btn ghost">Disconnect</button>
+                    </span>
+                  </form>
+                )}
               </div>
             ))
           )}

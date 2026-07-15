@@ -12,6 +12,16 @@ export function projectVisibility(settings: unknown): "shared" | "walled" {
 }
 
 /**
+ * Archived = inert, not deleted (hard delete fights the append-only ledger). An archived project is
+ * hidden from overviews, rejects connect/join + new sessions, and is skipped by sweeps/digests.
+ * Data (decisions, audit, versions) is fully retained; unarchive restores everything. Stored in
+ * projects.settings — same merge-patch route as visibility/productLayer.
+ */
+export function projectArchived(settings: unknown): boolean {
+  return Boolean((settings as { archived?: boolean } | null)?.archived);
+}
+
+/**
  * Role-based action gates (v3). Pages stay open to every member — permissions gate ACTIONS only
  * (ratify, resolve, mapping admin). Roles live on project_members: owner | pm | member.
  */

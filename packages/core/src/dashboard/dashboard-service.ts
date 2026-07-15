@@ -14,13 +14,13 @@ import {
   projectMembers,
 } from "../db/schema.js";
 import { inArray } from "drizzle-orm";
-import { projectVisibility } from "../auth/permissions.js";
+import { projectVisibility, projectArchived } from "../auth/permissions.js";
 
 export async function orgOverview(
   orgId: string,
   viewerMemberId?: string,
 ): Promise<{
-  projects: Array<{ id: string; name: string; repos: Array<{ gitRemote: string }> }>;
+  projects: Array<{ id: string; name: string; archived: boolean; repos: Array<{ gitRemote: string }> }>;
   members: Array<{ id: string; githubLogin: string }>;
 }> {
   return withOrg(orgId, async (tx) => {
@@ -42,9 +42,12 @@ export async function orgOverview(
     return {
       // Include each project's connected repos so the CLI can resolve which project a repo belongs
       // to by its git remote (e.g. for `lockstep invite`) instead of guessing from the remote name.
+      // Archived projects stay in the payload, flagged — the web renders them in a collapsed
+      // section (so unarchive stays reachable); the CLI ignores them (connect is blocked anyway).
       projects: visible.map((p) => ({
         id: p.id,
         name: p.name,
+        archived: projectArchived(p.settings),
         repos: rs.filter((r) => r.projectId === p.id).map((r) => ({ gitRemote: r.gitRemote })),
       })),
       members: ms.map((m) => ({ id: m.id, githubLogin: m.githubLogin })),
@@ -154,6 +157,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
       members: memberList,
       viewer,
       visibility: proj ? projectVisibility(proj.settings) : "shared",
+      archived: proj ? projectArchived(proj.settings) : false,
       productLayer: Boolean((proj?.settings as { productLayer?: { enabled?: boolean } } | null)?.productLayer?.enabled),
       autoBind: Boolean((proj?.settings as { autoBind?: { enabled?: boolean } } | null)?.autoBind?.enabled),
     };

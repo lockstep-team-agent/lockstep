@@ -4,7 +4,7 @@ export interface Me {
 }
 
 export interface OrgOverview {
-  projects: Array<{ id: string; name: string }>;
+  projects: Array<{ id: string; name: string; archived?: boolean }>;
   members: Array<{ id: string; githubLogin: string }>;
 }
 
@@ -56,6 +56,7 @@ export interface ProjectOverview {
     slackUserId?: string | null;
   }>;
   visibility?: "shared" | "walled";
+  archived?: boolean;
   productLayer?: boolean;
   autoBind?: boolean;
 }

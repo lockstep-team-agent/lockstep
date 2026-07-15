@@ -16,7 +16,7 @@ import {
 } from "../db/schema.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { fileProposedDecision, reproposeDocConstraint, similar } from "../ledger/ledger-service.js";
-import { getProjectRoleTx, canManageDocTx } from "../auth/permissions.js";
+import { getProjectRoleTx, canManageDocTx, projectArchived } from "../auth/permissions.js";
 import { reconcileCandidateTx, type DocForReconcile } from "./reconcile-service.js";
 
 function one<T>(rows: T[]): T {
@@ -301,7 +301,7 @@ export async function getDocumentWork(): Promise<DocWorkItem[]> {
     const items: DocWorkItem[] = [];
     for (const c of conns) {
       const proj = (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0];
-      if (!proj || !productLayerEnabled(proj.settings)) continue;
+      if (!proj || !productLayerEnabled(proj.settings) || projectArchived(proj.settings)) continue;
       if (c.tool === "gdocs" && !gdocsEnabled(proj.settings)) continue; // gdocs behind its own sub-flag
       if (c.tool === "confluence" && !confluenceEnabled(proj.settings)) continue; // confluence behind its own sub-flag
       const allow = await tx

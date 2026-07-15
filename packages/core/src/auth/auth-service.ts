@@ -1,13 +1,26 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { withOrg, withSystem, type Tx } from "../db/rls.js";
-import { principals, members, projects, projectMembers, orgs, githubCredentials, repos } from "../db/schema.js";
+import {
+  principals,
+  members,
+  projects,
+  projectMembers,
+  orgs,
+  githubCredentials,
+  repos,
+  contracts,
+  dependencyEdges,
+  inboxes,
+  inboxItems,
+  sessions,
+} from "../db/schema.js";
 import { issueTokenTx, type Principal } from "./tokens.js";
 import * as gh from "./github.js";
 import { encrypt, decrypt } from "./crypto.js";
 import { env } from "../env.js";
 import { ingestCodeownersFromGitHub } from "../graph/ownership-service.js";
 import { writeAudit } from "../audit/audit-service.js";
-import { getProjectRoleTx } from "./permissions.js";
+import { getProjectRoleTx, projectArchived } from "./permissions.js";
 
 const PROJECT_ROLES = ["member", "pm", "owner"];
 
@@ -208,6 +221,10 @@ export async function connectRepo(
 ): Promise<{ repoId: string }> {
   await ensureMember(orgId, principal.id);
   const { repoId } = await withOrg(orgId, async (tx) => {
+    const proj = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
+    if (proj && projectArchived(proj.settings)) {
+      throw Object.assign(new Error("project is archived — unarchive it before connecting repos"), { statusCode: 409 });
+    }
     const r = one(await tx.insert(repos).values({ orgId, projectId, gitRemote, isMonorepo }).returning());
     return { repoId: r.id };
   });
@@ -218,6 +235,77 @@ export async function connectRepo(
     /* App not installed / no CODEOWNERS — fine, ownership graph just stays empty */
   }
   return { repoId };
+}
+
+/**
+ * Disconnect a repo (E2E finding: a mistaken connect was permanent). Per-table honesty against the
+ * append-only design: DELETE what is derived/delivery state (contracts — re-derivable by rescanning;
+ * the repo's inboxes+items; the repos row itself, which frees the unique remote for reconnect);
+ * DEACTIVATE dependency edges in both directions (`active` is the designed tombstone — routing
+ * history cites them); END live sessions (the allowed status mutation); RETAIN change_feed_entries,
+ * audit_events, and ownership rows (append-only / historical — UIs already fall back to "(unknown)").
+ */
+export async function disconnectRepo(
+  orgId: string,
+  input: { projectId: string; repoId: string; memberId: string },
+): Promise<{ ok: true; contractsDeleted: number; edgesDeactivated: number; sessionsEnded: number }> {
+  return withOrg(orgId, async (tx) => {
+    const repo = (
+      await tx
+        .select()
+        .from(repos)
+        .where(and(eq(repos.id, input.repoId), eq(repos.projectId, input.projectId)))
+        .limit(1)
+    )[0];
+    if (!repo) throw Object.assign(new Error("repo not found in this project"), { statusCode: 404 });
+
+    const contractsDeleted = (await tx.delete(contracts).where(eq(contracts.repoId, repo.id)).returning()).length;
+
+    const edgesDeactivated = (
+      await tx
+        .update(dependencyEdges)
+        .set({ active: false })
+        .where(
+          and(
+            eq(dependencyEdges.active, true),
+            or(eq(dependencyEdges.consumerRepoId, repo.id), eq(dependencyEdges.producedRepoId, repo.id)),
+          ),
+        )
+        .returning()
+    ).length;
+
+    const repoInboxes = await tx.select().from(inboxes).where(eq(inboxes.repoId, repo.id));
+    if (repoInboxes.length > 0) {
+      await tx.delete(inboxItems).where(
+        inArray(
+          inboxItems.inboxId,
+          repoInboxes.map((i) => i.id),
+        ),
+      );
+      await tx.delete(inboxes).where(eq(inboxes.repoId, repo.id));
+    }
+
+    const sessionsEnded = (
+      await tx
+        .update(sessions)
+        .set({ state: "ended" })
+        .where(and(eq(sessions.repoId, repo.id), eq(sessions.state, "live")))
+        .returning()
+    ).length;
+
+    await tx.delete(repos).where(eq(repos.id, repo.id));
+
+    await writeAudit(tx, {
+      orgId,
+      projectId: input.projectId,
+      actorMemberId: input.memberId,
+      action: "repo.disconnected",
+      entityKind: "repo",
+      entityId: repo.id,
+      payload: { gitRemote: repo.gitRemote, contractsDeleted, edgesDeactivated, sessionsEnded },
+    });
+    return { ok: true, contractsDeleted, edgesDeactivated, sessionsEnded };
+  });
 }
 
 async function getGithubToken(principalId: string): Promise<string | null> {
@@ -254,6 +342,17 @@ async function projectNameOf(orgId: string, projectId: string): Promise<string> 
   });
 }
 
+/** Archived projects reject connect/join — the repo may still exist in the DB, but it's inert. */
+async function assertProjectNotArchived(projectId: string): Promise<void> {
+  const archived = await withSystem(async (tx) => {
+    const p = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
+    return p ? projectArchived(p.settings) : false;
+  });
+  if (archived) {
+    throw Object.assign(new Error("project is archived — unarchive it in the dashboard first"), { statusCode: 409 });
+  }
+}
+
 export interface ConnectResult {
   orgId: string;
   projectId: string;
@@ -277,6 +376,7 @@ export async function connectOrJoin(
   // already a member of a connected org → open it
   for (const repo of candidates) {
     if (await isMemberOf(repo.orgId, principal.id)) {
+      await assertProjectNotArchived(repo.projectId);
       // Backfill the project roster on this path too — org members who created/auto-joined before the
       // roster existed (or who simply reconnect) otherwise never get a project_members row and vanish
       // from the Members page + org graph. Idempotent (onConflictDoNothing).
@@ -313,6 +413,7 @@ export async function connectOrJoin(
       const hasAccess = await gh.userCanAccessRepo(token, parts[1]!, parts[2]!).catch(() => false);
       if (hasAccess) {
         const repo = candidates[0]!;
+        await assertProjectNotArchived(repo.projectId);
         await withSystem(async (tx) => {
           const m = one(
             await tx

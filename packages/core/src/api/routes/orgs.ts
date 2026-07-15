@@ -6,6 +6,7 @@ import {
   listMemberships,
   connectRepo,
   connectOrJoin,
+  disconnectRepo,
 } from "../../auth/auth-service.js";
 import { ensureMember, requireProjectRole } from "../guards.js";
 import { recordInstallation, getInstallation } from "../../graph/ownership-service.js";
@@ -65,6 +66,16 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     const b = req.body as { gitRemote?: string; isMonorepo?: boolean } | undefined;
     if (!b?.gitRemote) return reply.code(400).send({ error: "gitRemote required" });
     return connectRepo(p, orgId, projectId, b.gitRemote, b.isMonorepo ?? false);
+  });
+
+  // Disconnect a repo from its project (owner/pm): deletes contracts + the repo row, deactivates
+  // dependency edges, ends live sessions; history (changes/audit) is retained. Reconnect works.
+  app.delete("/orgs/:orgId/projects/:projectId/repos/:repoId", async (req, reply) => {
+    const { orgId, projectId, repoId } = req.params as { orgId: string; projectId: string; repoId: string };
+    const memberId = await ensureMember(req, reply, orgId);
+    if (!memberId) return;
+    if (!(await requireProjectRole(reply, orgId, projectId, memberId, ["owner", "pm"]))) return;
+    return disconnectRepo(orgId, { projectId, repoId, memberId });
   });
 
   // Record the GitHub App installation for this org (dashboard install flow). The installation id is

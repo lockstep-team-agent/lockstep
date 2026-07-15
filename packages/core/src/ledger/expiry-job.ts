@@ -6,6 +6,8 @@ import { writeAudit } from "../audit/audit-service.js";
 /**
  * Expiry job (FR-CORE-11). A dated product constraint (a launch gate with an `expiresAt`) should stop
  * governing once its window passes — otherwise C-4-style gates haunt briefings forever. This flips
+ * Deliberately does NOT skip archived projects: expiring a past-due gate there is harmless state
+ * hygiene, and the job is decision-driven, not project-driven (unlike sweeps/digests, which do skip).
  * `binding` → `expired` for every document constraint past its `expiresAt`, retires its open conflicts,
  * and writes a `decision.expired` audit. Cross-org (the worker calls it on a tick), idempotent (only
  * touches past-due rows; an already-`expired` row no longer matches).
