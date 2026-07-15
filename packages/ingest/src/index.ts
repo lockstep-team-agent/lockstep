@@ -77,7 +77,7 @@ async function cmdConnect(): Promise<void> {
   if (!connectionId || !entity) throw new Error("--connection <id> --entity <projectId> required");
   const conn = composio(entity, toolFlag());
   const { redirectUrl, connectedAccountId } = await conn.initiate();
-  console.log(`\nAuthorize Slack here, then return:\n\n  ${redirectUrl}\n`);
+  console.log(`\nAuthorize ${toolFlag()} here, then return:\n\n  ${redirectUrl}\n`);
   process.stdout.write("Waiting for authorization");
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 3000));

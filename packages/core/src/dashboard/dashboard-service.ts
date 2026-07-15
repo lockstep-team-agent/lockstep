@@ -110,6 +110,7 @@ export async function projectOverview(orgId: string, projectId: string, viewerMe
           repoId: c.repoId,
           surface: c.surface,
           verified: c.verified,
+          verifiedAgainst: c.verifiedAgainst,
           verificationStatus: c.verificationStatus,
           version: c.version,
         }))

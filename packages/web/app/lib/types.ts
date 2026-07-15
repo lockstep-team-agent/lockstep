@@ -40,6 +40,7 @@ export interface ProjectOverview {
     repoId: string;
     surface: string;
     verified: boolean;
+    verifiedAgainst?: string | null;
     verificationStatus: string;
     version: number;
   }>;

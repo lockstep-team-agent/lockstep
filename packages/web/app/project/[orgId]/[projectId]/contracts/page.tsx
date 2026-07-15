@@ -91,8 +91,22 @@ export default async function Page({
                           <span>v{c.version}</span>
                         </div>
                       </div>
-                      <span className={`pill ${c.verified ? "verified" : "unverified"}`}>
-                        {c.verified ? "verified" : "asserted"}
+                      {/* Honest wording (#3): mechanical extraction from source/diff is "extracted",
+                          not "verified" — that word is reserved for a future runtime/OpenAPI check. */}
+                      <span
+                        className={`pill ${
+                          c.verifiedAgainst === "git-diff" || c.verifiedAgainst === "source-extracted"
+                            ? "plain"
+                            : c.verified
+                              ? "verified"
+                              : "unverified"
+                        }`}
+                      >
+                        {c.verifiedAgainst === "git-diff" || c.verifiedAgainst === "source-extracted"
+                          ? "extracted"
+                          : c.verified
+                            ? "verified"
+                            : "asserted"}
                       </span>
                     </div>
                   );

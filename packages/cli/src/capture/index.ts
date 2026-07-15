@@ -200,7 +200,7 @@ export async function runCapture(event: string): Promise<void> {
           summary,
           surface,
           riskTier,
-          verified: true, // mechanical delta is derived from real local code
+          verified: true, // mechanical delta is derived from real local code (displayed as "extracted", not "verified")
           verifiedAgainst: "git-diff",
           diffHash: `${baseHash}:${surface}`,
           capabilityRef: capabilityRef ?? undefined,

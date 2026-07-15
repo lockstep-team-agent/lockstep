@@ -257,8 +257,11 @@ export const contracts = pgTable(
     repoId: uuid("repo_id").notNull(),
     surface: text("surface").notNull(), // e.g. "POST /orders" — dependency-graph key
     delta: jsonb("delta"), // added/removed/changed fields & types
+    // "verified" here means MECHANICALLY DERIVED (from a git diff or source extraction), never
+    // runtime-verified — the UI renders git-diff/source-extracted as "extracted" and reserves the
+    // word "verified" for a future runtime/OpenAPI check (IMPROVEMENTS #3).
     verified: boolean("verified").notNull().default(false),
-    verifiedAgainst: text("verified_against"), // "openapi:..." | "ts:..." | null
+    verifiedAgainst: text("verified_against"), // "git-diff" | "source-extracted" | "openapi:..." | null
     verificationStatus: text("verification_status").notNull().default("asserted_unverified"),
     version: integer("version").notNull().default(1),
     decisionId: uuid("decision_id"),

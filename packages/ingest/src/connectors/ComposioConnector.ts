@@ -141,16 +141,39 @@ export class ComposioConnector implements SourceConnector, DocumentConnector {
 
   /**
    * Enumerate the connected Slack workspace's users (id + profile email) so core can auto-link
-   * members.slack_user_id by email. Slug varies by Composio version — FLAG: verify live (alternates:
-   * SLACK_LIST_ALL_USERS, SLACK_FIND_USERS). Defensive against members/users response shapes and
+   * members.slack_user_id by email. The slug drifts across Composio versions (this broke silently
+   * once, E2E 2026-07-08) — so try a fallback chain, first success wins, remembered for pagination.
+   * `COMPOSIO_SLACK_USERS_SLUG` overrides the chain outright. Live verification of the winning slug
+   * still required per Composio upgrade. Defensive against members/users response shapes and
    * profile.email vs email. Empty for non-Slack tools.
    */
+  private slackUsersSlug: string | null = null;
+
+  private async execSlackUsers(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const chain = process.env.COMPOSIO_SLACK_USERS_SLUG
+      ? [process.env.COMPOSIO_SLACK_USERS_SLUG]
+      : ["SLACK_LIST_ALL_SLACK_TEAM_USERS_WITH_PAGINATION", "SLACK_LIST_ALL_USERS", "SLACK_FIND_USERS"];
+    if (this.slackUsersSlug) return this.exec(this.slackUsersSlug, args);
+    let lastErr: unknown;
+    for (const slug of chain) {
+      try {
+        const d = await this.exec(slug, args);
+        this.slackUsersSlug = slug;
+        console.log(`[composio] slack users via ${slug}`);
+        return d;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  }
+
   async listSlackUsers(): Promise<Array<{ slackUserId: string; email: string | null }>> {
     if (this.tool !== "slack") return [];
     const out: Array<{ slackUserId: string; email: string | null }> = [];
     let cursor: string | null = null;
     do {
-      const d = await this.exec("SLACK_LIST_ALL_USERS", {
+      const d = await this.execSlackUsers({
         limit: 200,
         ...(cursor ? { cursor } : {}),
       });

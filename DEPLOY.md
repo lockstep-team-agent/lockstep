@@ -1,13 +1,14 @@
 # Deploying Lockstep on Railway
 
-Two services + a database, all from this repo. Railway builds each via its Dockerfile
+Three services + a database, all from this repo. Railway builds each via its Dockerfile
 (monorepo, root build context).
 
 ```
 Railway project
 ├─ Postgres            (Railway plugin)
-├─ core   → packages/core/Dockerfile   (Fastify API; migrations run on boot)
-└─ web    → packages/web/Dockerfile    (Next.js dashboard)
+├─ core   → packages/core/Dockerfile    (Fastify API; migrations run on boot)
+├─ web    → packages/web/Dockerfile     (Next.js dashboard)
+└─ ingest → packages/ingest/Dockerfile  (sweep worker: Slack/Notion ingestion, digests, expiry)
 ```
 
 > Prefer Vercel for the dashboard? It's the better host for Next.js — deploy `packages/web`
@@ -39,7 +40,42 @@ Railway project
 - **Variables:** `LOCKSTEP_API_URL = https://<core-public-url>`
 - Open the web service URL → sign in with a Lockstep token (`lockstep login` locally prints one).
 
-## 4. Point the CLI at the deployed core
+## 4. Deploy `ingest` (the sweep worker)
+
+Without this service there is **no ingestion**: no Slack/Notion sweeps, no ratification digests,
+no weekly digests, no constraint expiry. It polls core on an interval (default 900s).
+
+- **Add → GitHub Repo → same repo.** In the service settings point **Config File** at
+  `railway.ingest.json` (Dockerfile `packages/ingest/Dockerfile`, restart ON_FAILURE).
+- **Variables:**
+  | Key | Value |
+  |---|---|
+  | `LOCKSTEP_API_URL` | `https://<core-public-url>` — **no trailing slash** |
+  | `LOCKSTEP_INGEST_TOKEN` | shared secret; **must equal core's** `LOCKSTEP_INGEST_TOKEN` |
+  | `ANTHROPIC_API_KEY` | for the distillation LLM (extract/recheck) |
+  | `COMPOSIO_API_KEY` | same key as core (connector execution) |
+  | `LOCKSTEP_WEB_URL` | `https://<web-public-url>` — dashboard links in Slack digests |
+  | `SLACK_BOT_TOKEN` | _optional_ — digests/alerts stay queued (writebacks) without it |
+  | `NANGO_SECRET_KEY` / `NANGO_HOST` | _optional_ — only for `--nango` connectors |
+
+## Which service holds which secret
+
+Keep the blast radius small — each service gets only what it needs. **web holds no provider secrets.**
+
+| Env key | core | web | ingest |
+|---|---|---|---|
+| `DATABASE_URL` | ✓ | — | — |
+| `TOKEN_SIGNING_SECRET` | ✓ | — | — |
+| `GITHUB_APP_*` / `GITHUB_WEBHOOK_SECRET` | ✓ | — | — |
+| `COMPOSIO_API_KEY` | ✓ (server-side OAuth initiate) | — | ✓ (sweep execution) |
+| `LOCKSTEP_INGEST_TOKEN` | ✓ | — | ✓ (must match) |
+| `ANTHROPIC_API_KEY` | — | — | ✓ |
+| `SLACK_BOT_TOKEN` | — | — | ✓ (optional) |
+| `NANGO_SECRET_KEY` / `NANGO_HOST` | — | — | ✓ (optional) |
+| `LOCKSTEP_API_URL` | — | ✓ | ✓ |
+| `LOCKSTEP_WEB_URL` | — | ✓ (canonical URL; don't rely on x-forwarded-host) | ✓ (digest links) |
+
+## 5. Point the CLI at the deployed core
 
 On each developer machine:
 
