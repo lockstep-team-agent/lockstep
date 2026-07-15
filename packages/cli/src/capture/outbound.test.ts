@@ -63,3 +63,44 @@ test("dedupes repeated calls and ignores non-source files", () => {
   assert.deepEqual(surfaces("src/a.ts", `fetch("/x/y"); fetch("/x/y")`), ["http:GET /x/y"]);
   assert.deepEqual(extractOutbound("README.md", `fetch("/x/y")`), []);
 });
+
+test("wrapped clients: axios.create baseURL instances resolve base + path (same-file)", () => {
+  const content = `
+    const api = axios.create({ baseURL: "https://inventory.internal/v1" });
+    api.get("/items/42");
+    api.post(\`/items/\${sku}/reserve\`);
+  `;
+  assert.deepEqual(surfaces("src/client.ts", content), [
+    "http:GET /v1/items/42",
+    "http:POST /v1/items/:param/reserve",
+  ]);
+});
+
+test("wrapped clients: fetch with same-file const base — concat and template forms", () => {
+  const content = `
+    const BASE = "https://orders.internal";
+    fetch(BASE + "/orders/7");
+    fetch(\`\${BASE}/orders/\${id}/items\`, { method: "POST" });
+  `;
+  assert.deepEqual(surfaces("src/client.ts", content), ["http:GET /orders/7", "http:POST /orders/:param/items"]);
+});
+
+test("wrapped clients: unresolved client-ish instance with a literal /-path still yields an exact surface", () => {
+  const content = `
+    import { api } from "./api";
+    api.put("/profiles/me");
+  `;
+  assert.deepEqual(surfaces("src/settings.ts", content), ["http:PUT /profiles/me"]);
+});
+
+test("wrapped clients: unresolved client-ish instance without a literal path degrades to a service hint", () => {
+  const content = `
+    import { billingClient } from "@acme/billing-client";
+    billingClient.post(endpoint);
+  `;
+  assert.deepEqual(hints("src/pay.ts", content), ["billing"]);
+});
+
+test("wrapped clients: non-client-ish instance verbs are ignored (no phantom consumes)", () => {
+  assert.deepEqual(surfaces("src/map.ts", `cache.get("/looks/like/a/path")`), []);
+});

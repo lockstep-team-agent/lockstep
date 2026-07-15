@@ -181,3 +181,117 @@ test("runScan --apply (connected) resolves consumes against the catalog and sync
   const raw = await readFile(join(dir, "lockstep.yaml"), "utf8");
   assert.ok(raw.includes("http:POST /orders") && raw.includes("http:GET /inventory/:sku"));
 });
+
+test("scanCode: Python files contribute produces and outbound candidates", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "lockstep-scan-py-"));
+  await mkdir(join(dir, "api"), { recursive: true });
+  await writeFile(
+    join(dir, "api", "main.py"),
+    `router = APIRouter(prefix="/cards")\n\n@router.get("/{card_id}")\ndef get_card(card_id): ...\n\nresp = requests.post(f"/limits/{card_id}/refresh")\n`,
+  );
+  execFileSync("git", ["-C", dir, "init", "-q"]);
+  execFileSync("git", ["-C", dir, "add", "-A"]);
+
+  const { produces, outbound } = scanCode(dir);
+  assert.deepEqual(produces, ["http:GET /cards/:card_id"]);
+  assert.deepEqual(
+    outbound.map((o) => o.surface),
+    ["http:POST /limits/:param/refresh"],
+  );
+});
+
+test("runScan --apply (connected) pushes the MERGED manifest's produces — hand-authored entries heal", async () => {
+  const posted: Record<string, unknown[]> = { "/surfaces": [], "/dependencies": [] };
+  const server: Server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const send = (o: unknown) => res.end(JSON.stringify(o));
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/sessions/register")
+        return send({ sessionId: "s1", orgId: "o", projectId: "p", repoId: "r-web", memberId: "m" });
+      if (req.url === "/surfaces" && req.method === "GET") return send({ surfaces: [] });
+      if (req.url === "/surfaces") return (posted["/surfaces"]!.push(JSON.parse(body || "{}")), send({ added: 1 }));
+      if (req.url === "/dependencies") return (posted["/dependencies"]!.push(JSON.parse(body || "{}")), send({ edgeId: "e1" }));
+      res.statusCode = 404;
+      send({ error: "nope" });
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+
+  const dir = await mkdtemp(join(tmpdir(), "lockstep-scan-merge-"));
+  await mkdir(join(dir, "src"), { recursive: true });
+  await writeFile(join(dir, "src", "routes.ts"), `app.get("/health", h)`);
+  // A hand-authored produce the extractor can never detect (e.g. a legacy SOAP shim).
+  await writeFile(join(dir, "lockstep.yaml"), `produces:\n  - "http:POST /legacy/soap-bridge"\nconsumes:\n`);
+  execFileSync("git", ["-C", dir, "init", "-q"]);
+  execFileSync("git", ["-C", dir, "remote", "add", "origin", "git@github.com:acme/web.git"]);
+
+  const cwd = process.cwd();
+  const origWrite = process.stdout.write.bind(process.stdout);
+  (process.stdout as unknown as { write: (s: string) => boolean }).write = () => true;
+  process.env.LOCKSTEP_API_URL = `http://127.0.0.1:${port}`;
+  try {
+    process.chdir(dir);
+    await runScan({ json: true, apply: true });
+  } finally {
+    process.chdir(cwd);
+    (process.stdout as unknown as { write: typeof origWrite }).write = origWrite;
+    delete process.env.LOCKSTEP_API_URL;
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+
+  const pushed = (posted["/surfaces"]![0] as { surfaces: string[] }).surfaces.sort();
+  assert.deepEqual(
+    pushed,
+    ["http:GET /health", "http:POST /legacy/soap-bridge"],
+    "merged manifest (scan result + hand-authored) reaches the catalog",
+  );
+});
+
+test("runSync pushes lockstep.yaml as-is (produces + consumes), no rescan", async () => {
+  const { runSync } = await import("./scan.js");
+  const posted: Record<string, unknown[]> = { "/surfaces": [], "/dependencies": [] };
+  const server: Server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const send = (o: unknown) => res.end(JSON.stringify(o));
+      res.setHeader("content-type", "application/json");
+      if (req.url === "/sessions/register")
+        return send({ sessionId: "s1", orgId: "o", projectId: "p", repoId: "r-web", memberId: "m" });
+      if (req.url === "/surfaces") return (posted["/surfaces"]!.push(JSON.parse(body || "{}")), send({ added: 1 }));
+      if (req.url === "/dependencies") return (posted["/dependencies"]!.push(JSON.parse(body || "{}")), send({ edgeId: "e1" }));
+      res.statusCode = 404;
+      send({ error: "nope" });
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+
+  const dir = await mkdtemp(join(tmpdir(), "lockstep-sync-"));
+  await writeFile(
+    join(dir, "lockstep.yaml"),
+    `produces:\n  - "http:POST /manual"\nconsumes:\n  - "http:GET /inventory/:sku"\n`,
+  );
+  execFileSync("git", ["-C", dir, "init", "-q"]);
+  execFileSync("git", ["-C", dir, "remote", "add", "origin", "git@github.com:acme/web.git"]);
+
+  const cwd = process.cwd();
+  const origWrite = process.stdout.write.bind(process.stdout);
+  (process.stdout as unknown as { write: (s: string) => boolean }).write = () => true;
+  process.env.LOCKSTEP_API_URL = `http://127.0.0.1:${port}`;
+  try {
+    process.chdir(dir);
+    await runSync();
+  } finally {
+    process.chdir(cwd);
+    (process.stdout as unknown as { write: typeof origWrite }).write = origWrite;
+    delete process.env.LOCKSTEP_API_URL;
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+
+  assert.deepEqual(posted["/surfaces"], [{ surfaces: ["http:POST /manual"] }]);
+  assert.deepEqual(posted["/dependencies"], [{ producedSurface: "http:GET /inventory/:sku", source: "manifest" }]);
+});

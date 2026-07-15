@@ -24,6 +24,7 @@ usage: lockstep <command>
   connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
   onboard [--project <name>]                        one step: init + connect (for a teammate joining a repo)
   scan  [--json] [--apply] [--dry-run]              scan the repo → propose lockstep.yaml (produces + graph-resolved consumes)
+  sync                                              push lockstep.yaml (produces + consumes) to the graph, no rescan
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
   doctor                                            diagnose vendor config
@@ -76,6 +77,10 @@ async function main(): Promise<void> {
     case "scan": {
       const { runScan } = await import("./scan.js");
       return runScan({ json: has("json"), apply: has("apply"), dryRun: has("dry-run") });
+    }
+    case "sync": {
+      const { runSync } = await import("./scan.js");
+      return runSync();
     }
     case "invite": {
       const handle = argv[1];

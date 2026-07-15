@@ -7,7 +7,7 @@ import { gitRemote } from "../mcp/git.js";
 import { readFeatureContext } from "./feature-context.js";
 import { changedFiles } from "./diff.js";
 import { isContractSurface, riskTierFor } from "./classify.js";
-import { extractSurfaces } from "./surface.js";
+import { extractAllSurfaces } from "./extract.js";
 import { readManifest } from "./manifest.js";
 
 /** Sync this repo's declared dependencies (lockstep.yaml `consumes:`) into the usage graph. Idempotent. */
@@ -168,7 +168,7 @@ export async function runCapture(event: string): Promise<void> {
       } catch {
         /* deleted/binary — skip content */
       }
-      const ids = extractSurfaces(f, content);
+      const ids = extractAllSurfaces(f, content);
       if (ids.length > 0) {
         anyContractSurface = true;
         ids.forEach((s) => surfaceIds.add(s));

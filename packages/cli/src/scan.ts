@@ -3,8 +3,8 @@ import { join } from "node:path";
 import { registerSession, type Session } from "./mcp/session.js";
 import { call } from "./mcp/api.js";
 import { trackedFiles } from "./capture/diff.js";
-import { extractSurfaces } from "./capture/surface.js";
-import { extractOutbound } from "./capture/outbound.js";
+import { extractAllSurfaces, extractAllOutbound } from "./capture/extract.js";
+import type { OutboundRef } from "./capture/outbound.js";
 import { readManifest, writeManifest } from "./capture/manifest.js";
 
 export interface CatalogEntry {
@@ -43,9 +43,9 @@ export interface ScanProposal {
 }
 
 /** Walk the whole repo → produced surfaces + outbound-call candidates. */
-export function scanCode(cwd: string): { produces: string[]; outbound: ReturnType<typeof extractOutbound> } {
+export function scanCode(cwd: string): { produces: string[]; outbound: OutboundRef[] } {
   const produces = new Set<string>();
-  const outbound = new Map<string, ReturnType<typeof extractOutbound>[number]>();
+  const outbound = new Map<string, OutboundRef>();
   for (const f of trackedFiles(cwd)) {
     let content: string;
     try {
@@ -53,8 +53,8 @@ export function scanCode(cwd: string): { produces: string[]; outbound: ReturnTyp
     } catch {
       continue; // deleted/binary/unreadable — skip
     }
-    for (const s of extractSurfaces(f, content)) produces.add(s);
-    for (const o of extractOutbound(f, content)) outbound.set(`${o.via} ${o.surface ?? o.hint ?? o.ref}`, o);
+    for (const s of extractAllSurfaces(f, content)) produces.add(s);
+    for (const o of extractAllOutbound(f, content)) outbound.set(`${o.via} ${o.surface ?? o.hint ?? o.ref}`, o);
   }
   return { produces: [...produces].sort(), outbound: [...outbound.values()] };
 }
@@ -67,7 +67,7 @@ export function scanCode(cwd: string): { produces: string[]; outbound: ReturnTyp
 const matchKey = (surface: string): string => surface.replace(/\/:[^/\s]+/g, "/:");
 
 export function classify(
-  outbound: ReturnType<typeof extractOutbound>,
+  outbound: OutboundRef[],
   catalog: CatalogEntry[],
   ownRepoId: string | undefined,
 ): { consumes: MatchedConsume[]; unmatched: UnmatchedItem[]; review: ReviewItem[] } {
@@ -174,16 +174,49 @@ export async function runScan(opts: { json?: boolean; apply?: boolean; dryRun?: 
   );
   process.stderr.write(`[lockstep] ${status}\n`);
 
-  // Sync to the graph so the catalog stays complete and the dependency edges are recorded.
+  // Sync to the graph so the catalog stays complete and the dependency edges are recorded. Push the
+  // MERGED manifest (re-read after writeManifest), not the raw scan result — a hand-authored
+  // `produces:` entry the extractor can't see heals into the catalog on any scan (E2E finding).
   if (session && !opts.dryRun) {
-    await call("POST", "/surfaces", session.sessionId, { surfaces: proposal.produces }).catch(() => {});
+    const merged = readManifest(cwd);
+    await call("POST", "/surfaces", session.sessionId, { surfaces: merged.produces }).catch(() => {});
     for (const c of proposal.consumes) {
       await call("POST", "/dependencies", session.sessionId, { producedSurface: c.surface, source: "manifest" }).catch(
         () => {},
       );
     }
     process.stderr.write(
-      `[lockstep] synced ${proposal.produces.length} produce(s) + ${proposal.consumes.length} consume(s) to the graph\n`,
+      `[lockstep] synced ${merged.produces.length} produce(s) + ${proposal.consumes.length} consume(s) to the graph\n`,
     );
   }
+}
+
+/**
+ * `lockstep sync` — push lockstep.yaml as-is (produces + consumes) to the graph, no rescan. The
+ * explicit path for hand-authored manifest entries; unlike the capture hook (consumes-only,
+ * best-effort) this hard-errors when the repo isn't connected.
+ */
+export async function runSync(): Promise<void> {
+  const cwd = process.cwd();
+  const manifest = readManifest(cwd);
+  if (manifest.produces.length === 0 && manifest.consumes.length === 0) {
+    process.stderr.write("[lockstep] lockstep.yaml has nothing to sync — run `lockstep scan --apply` first\n");
+    return;
+  }
+  let session: Session;
+  try {
+    session = await registerSession(process.env.LOCKSTEP_VENDOR ?? "claude");
+  } catch {
+    console.error("not connected — run `lockstep login` and `lockstep connect` first");
+    process.exit(1);
+  }
+  if (manifest.produces.length > 0) {
+    await call("POST", "/surfaces", session.sessionId, { surfaces: manifest.produces });
+  }
+  for (const s of manifest.consumes) {
+    await call("POST", "/dependencies", session.sessionId, { producedSurface: s, source: "manifest" });
+  }
+  process.stdout.write(
+    `[lockstep] synced ${manifest.produces.length} produce(s) + ${manifest.consumes.length} consume(s) from lockstep.yaml\n`,
+  );
 }

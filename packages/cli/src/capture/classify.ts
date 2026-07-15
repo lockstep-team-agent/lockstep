@@ -1,4 +1,4 @@
-import { extractSurfaces } from "./surface.js";
+import { extractAllSurfaces } from "./extract.js";
 
 /**
  * Contract-surface detection (a safety gate). A file is a contract surface if it exposes a public
@@ -9,7 +9,7 @@ import { extractSurfaces } from "./surface.js";
  * route/controller paths). Pure + testable.
  */
 export function isContractSurface(path: string, content?: string): boolean {
-  if (extractSurfaces(path, content).length > 0) return true;
+  if (extractAllSurfaces(path, content).length > 0) return true;
   if (/(openapi|swagger)/i.test(path) && /\.(ya?ml|json)$/i.test(path)) return true;
   if (/\.(proto|graphql|gql)$/i.test(path)) return true;
   if (/(^|\/)(routes?|controllers?|api|handlers?|endpoints?|contracts?)(\/|\.)/i.test(path)) return true;
