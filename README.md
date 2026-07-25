@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://www.getlockstep.dev"><b>Website</b></a> ·
   <a href="https://lockstep-dashboard.up.railway.app"><b>▶ Try it live</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a> ·
   <a href="#how-it-works"><b>How it works</b></a> ·

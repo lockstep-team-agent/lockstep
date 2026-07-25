@@ -1,10 +1,10 @@
 {
   "name": "lockstep-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
   "type": "module",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/lockstep-team-agent/lockstep",
+  "homepage": "https://www.getlockstep.dev",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/lockstep-team-agent/lockstep.git",
