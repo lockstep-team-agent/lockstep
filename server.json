@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.lockstep-team-agent/lockstep",
+  "description": "Decision memory for AI coding agents: captures decisions once, briefs every agent before it acts.",
+  "title": "Lockstep",
+  "websiteUrl": "https://www.getlockstep.dev",
+  "repository": {
+    "url": "https://github.com/lockstep-team-agent/lockstep",
+    "source": "github",
+    "subfolder": "packages/cli"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "lockstep-cli",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Run the per-session MCP server"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "LOCKSTEP_VENDOR",
+          "description": "Agent vendor label used for session registration (e.g. claude-code, cursor). Optional; defaults to unknown.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
