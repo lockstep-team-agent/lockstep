@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { registerSession } from "./session.js";
+import { registerSession, type Session } from "./session.js";
 import { call } from "./api.js";
 import { gitRemote } from "./git.js";
 import { writeFeatureContext } from "../capture/feature-context.js";
@@ -14,8 +14,16 @@ import { writeDecisionPack, packPath, type PackResp } from "../pack.js";
  */
 export async function runMcpServer(): Promise<void> {
   const vendor = process.env.LOCKSTEP_VENDOR ?? "unknown";
-  const session = await registerSession(vendor); // stderr-safe: throws to caller on failure
-  const sid = session.sessionId;
+  // Start the stdio transport before authenticating so registries and clients can
+  // discover tools without credentials. Register lazily on the first tool call.
+  let sessionPromise: Promise<Session> | undefined;
+  const getSession = (): Promise<Session> => {
+    sessionPromise ??= registerSession(vendor);
+    return sessionPromise;
+  };
+  const withSession = async <T>(
+    fn: (sid: string) => Promise<T>,
+  ): Promise<T> => fn((await getSession()).sessionId);
   let featureCtx: string | null = null; // set via set_feature_context; defaults capabilityRef on notify/propose
   const remote = gitRemote(process.cwd());
   const ok = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data) }] });
@@ -34,28 +42,28 @@ export async function runMcpServer(): Promise<void> {
       diffHash: z.string().optional(),
       capabilityRef: z.string().optional(),
     },
-    async (a) => ok(await call("POST", "/changes", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined })),
+    async (a) => ok(await withSession((sid) => call("POST", "/changes", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined }))),
   );
-  server.tool("inbox", {}, async () => ok(await call("GET", "/inbox", sid)));
+  server.tool("inbox", {}, async () => ok(await withSession((sid) => call("GET", "/inbox", sid))));
   server.tool("ack_inbox", { itemIds: z.array(z.string()).optional() }, async (a) =>
-    ok(await call("POST", "/inbox/ack", sid, { itemIds: a.itemIds })),
+    ok(await withSession((sid) => call("POST", "/inbox/ack", sid, { itemIds: a.itemIds }))),
   );
   server.tool("query", { question: z.string(), scope: z.string().optional() }, async (a) =>
-    ok(await call("POST", "/query", sid, a)),
+    ok(await withSession((sid) => call("POST", "/query", sid, a))),
   );
   server.tool(
     "ask",
     { question: z.string(), scope: z.string().optional(), urgent: z.boolean().optional() },
-    async (a) => ok(await call("POST", "/questions", sid, a)),
+    async (a) => ok(await withSession((sid) => call("POST", "/questions", sid, a))),
   );
   server.tool("answer", { questionId: z.string(), response: z.string() }, async (a) =>
-    ok(await call("POST", `/questions/${a.questionId}/answer`, sid, { response: a.response })),
+    ok(await withSession((sid) => call("POST", `/questions/${a.questionId}/answer`, sid, { response: a.response }))),
   );
   server.tool("delegate", { to: z.string(), task: z.string(), refs: z.any().optional() }, async (a) =>
-    ok(await call("POST", "/tasks", sid, a)),
+    ok(await withSession((sid) => call("POST", "/tasks", sid, a))),
   );
   server.tool("complete", { taskId: z.string(), note: z.string().optional() }, async (a) =>
-    ok(await call("POST", `/tasks/${a.taskId}/complete`, sid, { note: a.note })),
+    ok(await withSession((sid) => call("POST", `/tasks/${a.taskId}/complete`, sid, { note: a.note }))),
   );
   server.tool(
     "propose_decision",
@@ -70,30 +78,30 @@ export async function runMcpServer(): Promise<void> {
       alternatives: z.array(z.string()).optional(), // options considered and rejected
       reviewAt: z.string().optional(), // ISO date — when this decision should be revisited
     },
-    async (a) => ok(await call("POST", "/decisions", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined })),
+    async (a) => ok(await withSession((sid) => call("POST", "/decisions", sid, { ...a, capabilityRef: a.capabilityRef ?? featureCtx ?? undefined }))),
   );
   server.tool(
     "ack_decision",
     { decisionId: z.string(), version: z.number(), verdict: z.string().optional() },
     async (a) =>
-      ok(await call("POST", `/decisions/${a.decisionId}/ack`, sid, { version: a.version, verdict: a.verdict })),
+      ok(await withSession((sid) => call("POST", `/decisions/${a.decisionId}/ack`, sid, { version: a.version, verdict: a.verdict }))),
   );
   server.tool(
     "register_dependency",
     { producedSurface: z.string(), producedRepoId: z.string().optional() },
-    async (a) => ok(await call("POST", "/dependencies", sid, a)),
+    async (a) => ok(await withSession((sid) => call("POST", "/dependencies", sid, a))),
   );
   server.tool("decisions", { scope: z.string().optional() }, async (a) =>
-    ok(await call("GET", `/decisions${a.scope ? `?scope=${encodeURIComponent(a.scope)}` : ""}`, sid)),
+    ok(await withSession((sid) => call("GET", `/decisions${a.scope ? `?scope=${encodeURIComponent(a.scope)}` : ""}`, sid))),
   );
   server.tool("whoowns", { path: z.string() }, async (a) =>
-    ok(await call("GET", `/owners?path=${encodeURIComponent(a.path)}`, sid)),
+    ok(await withSession((sid) => call("GET", `/owners?path=${encodeURIComponent(a.path)}`, sid))),
   );
   server.tool("consumers", { surface: z.string() }, async (a) =>
-    ok(await call("GET", `/consumers?surface=${encodeURIComponent(a.surface)}`, sid)),
+    ok(await withSession((sid) => call("GET", `/consumers?surface=${encodeURIComponent(a.surface)}`, sid))),
   );
   server.tool("get_product_context", { scope: z.string() }, async (a) =>
-    ok(await call("GET", `/product-context?scope=${encodeURIComponent(a.scope)}`, sid)),
+    ok(await withSession((sid) => call("GET", `/product-context?scope=${encodeURIComponent(a.scope)}`, sid))),
   );
   server.tool("set_feature_context", { capabilityRef: z.string() }, async (a) => {
     featureCtx = a.capabilityRef;
@@ -102,7 +110,7 @@ export async function runMcpServer(): Promise<void> {
   });
   // Local FS side effect (like set_feature_context): rewrites the generated decision-pack skill.
   server.tool("refresh_decision_pack", {}, async () => {
-    const p = await call<PackResp>("GET", "/decision-pack", sid);
+    const p = await withSession((sid) => call<PackResp>("GET", "/decision-pack", sid));
     const results = await writeDecisionPack(process.cwd(), p.markdown, false);
     return ok({
       packHash: p.packHash,
