@@ -18,6 +18,7 @@ import { writeAudit } from "../audit/audit-service.js";
 import { fileProposedDecision, reproposeDocConstraint, similar } from "../ledger/ledger-service.js";
 import { getProjectRoleTx, canManageDocTx, projectArchived } from "../auth/permissions.js";
 import { reconcileCandidateTx, type DocForReconcile } from "./reconcile-service.js";
+import { confidenceFraction } from "../ledger/confidence.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -1194,7 +1195,7 @@ export async function getDocument(orgId: string, docId: string): Promise<Record<
         ),
       );
     const extractionHistory = artifacts
-      .map((a) => ({ id: a.id, at: a.createdAt.toISOString(), status: a.status, confidence: a.confidence }))
+      .map((a) => ({ id: a.id, at: a.createdAt.toISOString(), status: a.status, confidence: confidenceFraction(a.confidence) }))
       .sort((a, b) => b.at.localeCompare(a.at));
     const wbs = await tx
       .select()
@@ -1428,7 +1429,7 @@ export async function listRatifications(
           externalId: p.externalId,
           url: p.url,
           evidence: p.evidence,
-          confidence: p.confidence,
+          confidence: confidenceFraction(p.confidence),
         })),
         doc: doc
           ? { id: doc.id, title: doc.title, url: doc.url, state: doc.state, ownerMemberId: doc.ownerMemberId }

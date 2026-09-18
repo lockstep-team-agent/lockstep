@@ -21,6 +21,7 @@ import {
 } from "../db/schema.js";
 import { inArray } from "drizzle-orm";
 import { projectVisibility, projectArchived } from "../auth/permissions.js";
+import { confidenceFraction } from "../ledger/confidence.js";
 
 export async function orgOverview(
   orgId: string,
@@ -319,7 +320,7 @@ export async function decisionDetail(orgId: string, projectId: string, id: strin
         source: p.source,
         url: p.url,
         evidence: (p.evidence as Array<{ quote: string }> | null) ?? null,
-        confidence: p.confidence,
+        confidence: confidenceFraction(p.confidence),
       }),
     );
 
