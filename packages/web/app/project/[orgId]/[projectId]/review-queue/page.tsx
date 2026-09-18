@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -154,7 +155,11 @@ export default async function Page({
         <DialogFooter>
           <form action={rejectDecisionAction}>
             {hidden(id)}
-            <Button variant="destructive">Reject</Button>
+            <DialogClose asChild>
+              <Button type="submit" variant="destructive">
+                Reject
+              </Button>
+            </DialogClose>
           </form>
         </DialogFooter>
       </DialogContent>

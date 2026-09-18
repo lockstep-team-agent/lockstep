@@ -50,13 +50,15 @@ export async function saveNativeBrief(orgId: string, projectId: string, memberId
     return row;
   });
   const { sections, partial } = nativeSections(input.content);
-  let rules: ExtractedRule[] | null;
+  let extracted: { rules: ExtractedRule[]; degraded: boolean } | null;
   if (input.manualRules?.length) {
     if (input.manualRules.some((text) => !input.content.includes(text))) throw fail("manual requirements must quote the pasted source");
-    rules = input.manualRules.map((text) => ({ anchorKey: sections.find((s) => s.text.includes(text))?.anchorKey ?? "manual", evidence: text, ruleText: text, rationale: "Selected from source by the author; awaiting ratification.", confidence: 1, decisionType: "rule", constraintKind: "behavioral" }));
-  } else rules = await extractor(sections, "product");
+    extracted = { degraded: false, rules: input.manualRules.map((text) => ({ anchorKey: sections.find((s) => s.text.includes(text))?.anchorKey ?? "manual", evidence: text, ruleText: text, rationale: "Selected from source by the author; awaiting ratification.", confidence: 1, decisionType: "rule", constraintKind: "behavioral" })) };
+  } else extracted = await extractor(sections, "product");
   const unchanged = "unchanged" in saved && saved.unchanged === true;
-  if (rules === null) return { documentId: id, version: saved.version, unchanged, featureRef, status: "unavailable", partial, proposals: 0 };
+  if (extracted === null)
+    return { documentId: id, version: saved.version, unchanged, featureRef, status: "unavailable", degraded: false, partial, proposals: 0 };
+  const { rules, degraded } = extracted;
 
   const items: DocCandidateItem[] = [];
   const counts = new Map<string, number>();
@@ -80,5 +82,5 @@ export async function saveNativeBrief(orgId: string, projectId: string, memberId
     await fileDocCandidates(id, items, contentHash, partial ? [] : [...oldAnchors, ...items.map((it) => it.anchor.blockId)], items.map((it) => ({ anchorKey: it.anchor.blockId, headingPath: it.anchor.headingPath, snippet: it.anchor.snippet })));
   });
   await usage({ orgId, projectId, memberId }, "brief_imported", `${id}:${saved.version}`, { proposals: items.length });
-  return { documentId: id, version: saved.version, unchanged, featureRef, status: partial ? "partial" : "completed", partial, proposals: items.length };
+  return { documentId: id, version: saved.version, unchanged, featureRef, status: partial ? "partial" : "completed", degraded, partial, proposals: items.length };
 }

@@ -29,7 +29,7 @@ export function Sidebar({
         <Nav base={base} counts={counts} />
       </ScrollArea>
       <div className="border-t px-4 py-3 text-2xs text-muted-foreground">
-        v0.2 ·{" "}
+        v{process.env.NEXT_PUBLIC_LOCKSTEP_VERSION ?? "0.3"} ·{" "}
         <a href="https://www.getlockstep.dev" className="hover:text-foreground" target="_blank" rel="noreferrer">
           docs
         </a>

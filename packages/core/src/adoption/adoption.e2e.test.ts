@@ -9,7 +9,7 @@ import { listDecisions } from "../ledger/ledger-service.js";
 import { addedLines, boundHunks, interpretJudgments } from "./checks.js";
 import { validateExtraction, type Extractor, type Judge } from "./providers.js";
 
-const extractor: Extractor = async (sections) => sections.map((s) => ({ anchorKey: s.anchorKey, ruleText: s.text, evidence: s.text, rationale: "Explicit source rule", confidence: .95, decisionType: "rule", constraintKind: "behavioral" }));
+const extractor: Extractor = async (sections) => ({ degraded: false, rules: sections.map((s) => ({ anchorKey: s.anchorKey, ruleText: s.text, evidence: s.text, rationale: "Explicit source rule", confidence: .95, decisionType: "rule", constraintKind: "behavioral" })) });
 let seq = Date.now() + 900_000_000;
 async function identity() {
   return withSystem(async (tx) => {

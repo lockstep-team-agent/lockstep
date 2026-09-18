@@ -13,11 +13,20 @@ async function post(path: string, body: unknown) {
   return data;
 }
 
-/** PMs type "expense-approvals"; the ledger wants "feature:expense-approvals". Accept both. */
+/**
+ * PMs type what they mean: "Expense approvals", "expense_approvals", "feature:Expense Approvals".
+ * The ledger wants "feature:expense-approvals". Slugify rather than reject — the previous version
+ * only lowercased and prefixed, so anything containing a space still came back as a bare "Invalid".
+ */
 function featureRef(raw: FormDataEntryValue | null): string | undefined {
-  const v = String(raw ?? "").trim().toLowerCase();
-  if (!v) return undefined;
-  return v.startsWith("feature:") ? v : `feature:${v.replace(/^[^a-z0-9]+/, "")}`;
+  const slug = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^feature:/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 180);
+  return slug ? `feature:${slug}` : undefined;
 }
 
 export async function createPilotAction(_prev: AdoptionState, form: FormData): Promise<AdoptionState> {
@@ -42,7 +51,7 @@ export async function saveBriefAction(_prev: AdoptionState, form: FormData): Pro
     });
     revalidatePath(base, "layout");
     const saved = result.unchanged ? `No changes — version ${result.version} is still current.` : `Saved version ${result.version}.`;
-    return { href: `${base}/sources/${result.documentId}`, message: `${saved} ${result.status === "unavailable" ? "Extraction unavailable. Open the saved brief to select requirements manually." : `${result.proposals} requirements processed. Review their current status below.`}${result.partial ? " Some source content exceeded the extraction limits; review the complete source." : ""}` };
+    return { href: `${base}/sources/${result.documentId}`, message: `${saved} ${result.status === "unavailable" ? "Extraction unavailable. Open the saved brief to select requirements manually." : `${result.proposals} requirements processed. Review their current status below.${result.degraded ? " The rewriting model was unavailable, so only passages already written as a single rule were imported — check the provider key and its credit balance." : ""}`}${result.partial ? " Some source content exceeded the extraction limits; review the complete source." : ""}` };
   } catch (e) { return { error: e instanceof Error ? e.message : "Could not save brief." }; }
 }
 

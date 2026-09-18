@@ -8,7 +8,16 @@ export interface ExtractedRule {
   constraintKind: "behavioral" | "scope_exclusion" | "launch_gate";
   confidence: number;
 }
-export type Extractor = (sections: Section[], kind: "repo" | "product") => Promise<ExtractedRule[] | null>;
+/**
+ * `degraded` means the rewriting model was configured but could not be used (no credit, revoked key,
+ * rate limit, timeout) and Jev selection ran instead — so "0 rules" needs an explanation rather than
+ * being read as "the source contains no rules". Null still means no extraction was possible at all.
+ */
+export interface Extraction {
+  rules: ExtractedRule[];
+  degraded: boolean;
+}
+export type Extractor = (sections: Section[], kind: "repo" | "product") => Promise<Extraction | null>;
 export type Judgment = { type: "noul"; noul: number };
 export type Judge = (state: unknown, questions: Record<string, { type: "noul"; instructions: string }>) => Promise<Record<string, Judgment> | null>;
 
@@ -84,11 +93,13 @@ async function rewriteWithAnthropic(sections: Section[], kind: "repo" | "product
 }
 
 export const extractRules: Extractor = async (sections, kind) => {
-  if (sections.length === 0) return [];
+  if (sections.length === 0) return { rules: [], degraded: false };
   // Prefer the rewriting model, but a configured-yet-failing key must NOT be worse than no key at
   // all: an unfunded or revoked ANTHROPIC_API_KEY used to fail the whole import as "unavailable"
   // even though Jev could still have selected the rules that were already written as rules.
   const rewritten = await rewriteWithAnthropic(sections, kind);
-  if (rewritten !== null) return rewritten;
-  return selectVerbatimWithJev(sections, kind);
+  if (rewritten !== null) return { rules: rewritten, degraded: false };
+  const selected = await selectVerbatimWithJev(sections, kind);
+  if (selected === null) return null;
+  return { rules: selected, degraded: Boolean(env.ANTHROPIC_API_KEY) };
 };

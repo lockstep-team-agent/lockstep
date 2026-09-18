@@ -35,6 +35,7 @@ usage: lockstep <command>
   pack  [--check] [--dry-run]                       write the compiled decision pack skill (--check: exit 1 if stale)
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
+  --version                                         print the CLI version
   doctor                                            diagnose vendor config
   mcp                                               run the per-session MCP server (used by agents)
   capture --event <E>                               hook entrypoint (used by hooks)              [P6]
@@ -150,6 +151,13 @@ async function main(): Promise<void> {
     case "statusline": {
       const { runStatusLine } = await import("./statusline.js");
       await runStatusLine();
+      return;
+    }
+    case "version":
+    case "--version":
+    case "-v": {
+      const { CLI_VERSION } = await import("./adapters/templates.js");
+      console.log(CLI_VERSION);
       return;
     }
     case "help":

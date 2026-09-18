@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
-import { auditEvents, briefingCursors, sessions, usageEvents, decisionChecks, checkFeedback, repos, projects, sourceDocuments, contracts, dependencyEdges } from "../db/schema.js";
+import { auditEvents, briefingCursors, sessions, usageEvents, decisionChecks, checkFeedback, repos, projects, sourceDocuments, contracts, dependencyEdges, changeFeedEntries } from "../db/schema.js";
 import type { SessionContext } from "../api/session-context.js";
 import { fileProposedDecision, listDecisions, constraintsInScope } from "../ledger/ledger-service.js";
 import { extractRules, type Extractor, type Section } from "./providers.js";
@@ -26,8 +26,9 @@ export async function sessionRepo(c: SessionContext) {
 export async function distillRepo(c: SessionContext, files: Array<{ path: string; sections: Section[] }>, commit: string, extractor: Extractor = extractRules) {
   const repo = await sessionRepo(c);
   const sections = files.flatMap((f) => f.sections.map((s) => ({ ...s, anchorKey: `${f.path}#${s.anchorKey}` })));
-  const rules = await extractor(sections, "repo");
-  if (rules === null) return { proposals: [], status: "unavailable", orgId: c.orgId, projectId: c.projectId };
+  const extracted = await extractor(sections, "repo");
+  if (extracted === null) return { proposals: [], status: "unavailable", degraded: false, orgId: c.orgId, projectId: c.projectId };
+  const { rules, degraded } = extracted;
   const proposals = [];
   for (const rule of rules) {
     const source = sections.find((s) => s.anchorKey === rule.anchorKey);
@@ -43,7 +44,7 @@ export async function distillRepo(c: SessionContext, files: Array<{ path: string
     proposals.push({ ...result, ruleText: rule.ruleText, decisionType: rule.decisionType, anchorKey: rule.anchorKey, evidence: rule.evidence });
   }
   await usage(c, "repo_imported", digest({ files, commit }), { proposals: proposals.length });
-  return { proposals, status: "completed", orgId: c.orgId, projectId: c.projectId };
+  return { proposals, status: "completed", degraded, orgId: c.orgId, projectId: c.projectId };
 }
 
 export async function scopedRules(c: SessionContext, surfaces: string[], featureRef?: string) {
@@ -81,7 +82,15 @@ export async function repoSurfaces(c: SessionContext): Promise<string[]> {
       .select({ s: dependencyEdges.producedSurface })
       .from(dependencyEdges)
       .where(and(eq(dependencyEdges.consumerRepoId, c.repoId), eq(dependencyEdges.active, true)));
-    return [...new Set([...produced, ...consumed].map((r) => r.s))];
+    // Surfaces this repo has actually CHANGED. A contracts row only appears when a contract delta is
+    // published or `scan --apply` runs, and the capture hook sends neither — so an agent that called
+    // propose_decision on a surface it had just edited never saw that rule again in its own pack.
+    // The change feed is repo-scoped and always written, so it closes that hole without a CLI change.
+    const touched = await tx
+      .select({ s: changeFeedEntries.surface })
+      .from(changeFeedEntries)
+      .where(eq(changeFeedEntries.repoId, c.repoId));
+    return [...new Set([...produced, ...consumed, ...touched].map((r) => r.s).filter((v): v is string => !!v))];
   });
 }
 
