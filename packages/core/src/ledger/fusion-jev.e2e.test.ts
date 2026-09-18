@@ -25,8 +25,18 @@ const uid = (): number => ++seq;
 async function setup() {
   const n = uid();
   return withSystem(async (tx) => {
-    const org = one(await tx.insert(orgs).values({ name: `Jev-${n}` }).returning());
-    const p = one(await tx.insert(principals).values({ githubUserId: uid(), githubLogin: `u-${n}` }).returning());
+    const org = one(
+      await tx
+        .insert(orgs)
+        .values({ name: `Jev-${n}` })
+        .returning(),
+    );
+    const p = one(
+      await tx
+        .insert(principals)
+        .values({ githubUserId: uid(), githubLogin: `u-${n}` })
+        .returning(),
+    );
     const m = one(
       await tx
         .insert(members)
@@ -90,7 +100,11 @@ test("replaces on a binding mate yields a supersedes hint even when Jaccard over
   await confirmDecision(s.orgId, first.decisionId, s.memberId); // impact 0 → binding
   // Jaccard between these two is above 0.4 (shared: auth, tokens, jwt, expiry), so the lexical path
   // would NOT hint supersession. Jev sees the flip.
-  const second = await fileWith(s, "Auth tokens are opaque; JWT expiry rules no longer apply.", judge("replaces", 0.97));
+  const second = await fileWith(
+    s,
+    "Auth tokens are opaque; JWT expiry rules no longer apply.",
+    judge("replaces", 0.97),
+  );
   assert.equal(second.fused, false);
   assert.equal(second.supersedes, first.decisionId);
 });

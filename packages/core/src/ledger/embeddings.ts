@@ -148,7 +148,13 @@ export async function gatherScopeMates(
           .where(and(eq(decisionVersions.decisionId, m.id), eq(decisionVersions.version, m.currentVersion)))
           .limit(1)
       )[0];
-      mates.push({ id: m.id, version: m.currentVersion, ruleText: v?.ruleText ?? "", status: m.status, origin: m.origin });
+      mates.push({
+        id: m.id,
+        version: m.currentVersion,
+        ruleText: v?.ruleText ?? "",
+        status: m.status,
+        origin: m.origin,
+      });
     }
     const cached = await tx
       .select()
