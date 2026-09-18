@@ -1,36 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ReactFlow, Background, Controls, MiniMap, Position, type Node, type Edge } from "@xyflow/react";
+import { ReactFlow, Background, Controls, Position, type Node, type Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ProjectOverview } from "../lib/types";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 
 const short = (r: string) => r.split("/").pop() ?? r;
 
-const consumerStyle = {
-  background: "var(--surface-3)",
-  color: "var(--text)",
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  fontSize: 12,
-  padding: "6px 10px",
-  width: 190,
-};
-const surfaceStyle = {
-  background: "var(--surface-2)",
-  color: "var(--violet)",
-  border: "1px solid var(--border-soft)",
-  borderRadius: 10,
-  fontSize: 11.5,
-  fontFamily: "var(--mono, monospace)",
-  padding: "6px 10px",
-  width: 260,
-};
-
 /**
- * Interactive dependency graph (React Flow): consumer repos (left) → produced surfaces (right), with
- * pan / zoom / fit-to-view / minimap and a text filter. Scales to many nodes where the old fixed SVG
- * clipped. Client component (the app's graph island).
+ * Interactive dependency graph: consumer repos (left) → produced surfaces (right), with pan / zoom /
+ * fit-to-view and a text filter. The canvas starts below the filter so no node hides under it.
  */
 export function DependencyGraphFlow({
   repos,
@@ -62,7 +43,8 @@ export function DependencyGraphFlow({
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         type: "input",
-        style: consumerStyle,
+        className:
+          "!rounded-md !border !border-border !bg-muted !px-2.5 !py-1.5 !text-xs !text-foreground !shadow-none !w-[190px]",
       }),
     );
     surfaces.forEach((s, i) =>
@@ -73,40 +55,47 @@ export function DependencyGraphFlow({
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         type: "output",
-        style: surfaceStyle,
+        className:
+          "!rounded-md !border !border-border !bg-card !px-2.5 !py-1.5 !font-mono !text-[11.5px] !text-primary !shadow-none !w-[260px]",
       }),
     );
     const es: Edge[] = deps.map((d, i) => ({
       id: `e:${i}:${d.consumerRepoId}:${d.producedSurface}`,
       source: `c:${d.consumerRepoId}`,
       target: `s:${d.producedSurface}`,
-      style: { stroke: "var(--border)" },
     }));
     return { nodes: ns, edges: es };
   }, [dependencies, q, repoName]);
 
   return (
-    <div className="card" style={{ height: 480, marginBottom: 16, position: "relative", overflow: "hidden" }}>
-      <input
-        className="input"
-        placeholder="filter by repo or surface…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        style={{ position: "absolute", top: 10, left: 10, zIndex: 5, maxWidth: 260 }}
-      />
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        fitView
-        minZoom={0.05}
-        nodesConnectable={false}
-        edgesFocusable={false}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="var(--border-soft)" gap={20} />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable style={{ background: "var(--surface-2)" }} />
-      </ReactFlow>
-    </div>
+    <Card className="relative mb-6 flex h-[520px] flex-col overflow-hidden shadow-none">
+      <div className="flex items-center gap-2 border-b p-3">
+        <Input
+          placeholder="Filter by repo or surface…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="h-8 max-w-xs"
+          aria-label="Filter dependency graph"
+        />
+        <span className="text-xs text-muted-foreground">
+          {nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} edge{edges.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          fitView
+          colorMode="dark"
+          minZoom={0.05}
+          nodesConnectable={false}
+          edgesFocusable={false}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="var(--border)" gap={20} />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </div>
+    </Card>
   );
 }

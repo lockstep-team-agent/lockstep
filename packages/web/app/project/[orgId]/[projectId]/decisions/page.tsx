@@ -1,106 +1,132 @@
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
 import { getOverview } from "@/lib/data";
-import { PageHead, StatusPill, EmptyState } from "@/components/ui";
-import { IconDecisions } from "@/components/icons";
+import type { ProjectOverview } from "@/lib/types";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkTabs } from "@/components/LinkTabs";
+import { ListRow } from "@/components/ListRow";
+import { StatusBadge } from "@/components/StatusBadge";
+import { RefChip } from "@/components/RefChip";
+import { Who } from "@/components/Who";
+import { When } from "@/components/When";
+import { Section } from "@/components/Section";
+import { EmptyState } from "@/components/EmptyState";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: { orgId: string; projectId: string } }) {
+type Decision = ProjectOverview["decisions"][number];
+type View = "all" | "awaiting" | "binding" | "cross" | "history";
+
+const isAwaiting = (d: Decision) => d.status === "open" || d.status === "proposed";
+const isHistory = (d: Decision) => d.status === "superseded" || d.status === "rejected";
+
+export default async function Page({
+  params,
+  searchParams,
+}: {
+  params: { orgId: string; projectId: string };
+  searchParams: { view?: string };
+}) {
   const { orgId, projectId } = params;
+  const base = `/project/${orgId}/${projectId}`;
   const o = await getOverview(orgId, projectId);
-  const items = o?.decisions ?? [];
-  const proposed = items.filter((d) => d.status === "proposed" || d.status === "open");
-  const settled = items.filter((d) => d.status !== "proposed" && d.status !== "open");
+  const all = o?.decisions ?? [];
+  const view = (["all", "awaiting", "binding", "cross", "history"] as View[]).includes(searchParams.view as View)
+    ? (searchParams.view as View)
+    : "all";
 
-  const reviewHref = (origin?: string) =>
-    origin === "document" ? `/project/${orgId}/${projectId}/sources` : `/project/${orgId}/${projectId}/review-queue`;
+  const awaiting = all.filter(isAwaiting);
+  const binding = all.filter((d) => d.status === "binding");
+  const cross = all.filter((d) => d.impact > 0 && !isHistory(d));
+  const history = all.filter(isHistory);
 
-  // ruleText lookup for lineage links — "superseded by →" shows the successor's rule, not a bare id.
-  const byId = new Map(items.map((d) => [d.id, d]));
-  const lineageLabel = (id: string) => byId.get(id)?.ruleText || byId.get(id)?.scopeRef || "another decision";
+  const reviewHref = (d: Decision) =>
+    d.origin === "document"
+      ? `${base}/review-queue?tab=ratifications`
+      : d.origin === "ingested"
+        ? `${base}/review-queue`
+        : `${base}/decisions/${d.id}`;
 
-  const Row = ({ d }: { d: (typeof items)[number] }) => (
-    <div className="row" key={d.id} id={d.id}>
-      <div className="body">
-        <div className="title">{d.ruleText || d.scopeRef}</div>
-        {d.rationale && <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 13 }}>{d.rationale}</p>}
-        <div className="meta">
-          <span className="code-ref">{d.scopeRef}</span>
-          <span className="pill plain">{d.scopeKind}</span>
-          {d.decisionType === "principle" && <span className="pill plain">principle</span>}
-          {d.origin && d.origin !== "agent" && <span className="pill plain">{d.origin}</span>}
-          <span>v{d.version}</span>
-          {d.dueForReview && <span className="pill conflict">due for review</span>}
-        </div>
-        {d.alternatives && d.alternatives.length > 0 && (
-          <details className="collapse" style={{ marginTop: 6 }}>
-            <summary>Alternatives considered ({d.alternatives.length})</summary>
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: "var(--muted)", fontSize: 13 }}>
-              {d.alternatives.map((a) => (
-                <li key={a}>{a}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {(d.supersededById || (d.supersedes && d.supersedes.length > 0)) && (
-          <div className="meta" style={{ marginTop: 4 }}>
-            {d.supersededById && (
-              <a href={`#${d.supersededById}`}>superseded by → “{lineageLabel(d.supersededById)}”</a>
-            )}
-            {d.supersedes?.map((id) => (
-              <a key={id} href={`#${id}`}>
-                supersedes → “{lineageLabel(id)}”
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-      {d.status === "proposed" || d.status === "open" ? (
-        <Link className="btn ghost" href={reviewHref(d.origin)}>
-          {d.origin === "document" ? "Ratify →" : "Review →"}
-        </Link>
-      ) : (
-        <StatusPill status={d.status} />
-      )}
-    </div>
+  const Row = ({ d }: { d: Decision }) => (
+    <ListRow
+      key={d.id}
+      href={`${base}/decisions/${d.id}`}
+      title={d.ruleText || d.scopeRef}
+      meta={
+        <>
+          <RefChip kind={d.scopeKind}>{d.scopeRef}</RefChip>
+          {d.proposedBy && <Who login={d.proposedBy} />}
+          <When at={d.createdAt} />
+          {d.impact > 0 && <RefChip copy={false}>{`impact ${d.impact}`}</RefChip>}
+          {d.version > 1 && <RefChip copy={false}>{`v${d.version}`}</RefChip>}
+          {d.decisionType === "principle" && <RefChip copy={false}>principle</RefChip>}
+          {d.origin && d.origin !== "agent" && <RefChip copy={false}>{d.origin}</RefChip>}
+          {d.dueForReview && <StatusBadge status="due" />}
+        </>
+      }
+      extra={d.rationale ? <span className="line-clamp-1">{d.rationale}</span> : undefined}
+      status={<StatusBadge status={d.status} origin={d.origin} />}
+      action={
+        isAwaiting(d) ? (
+          <Button asChild size="sm" variant="ghost">
+            <Link href={reviewHref(d)}>
+              {d.origin === "document" ? "Ratify" : d.origin === "ingested" ? "Review" : "View"}
+            </Link>
+          </Button>
+        ) : undefined
+      }
+    />
   );
+
+  const groups: Array<{ key: View; label: string; items: Decision[] }> = [
+    { key: "awaiting", label: "Awaiting review", items: awaiting },
+    { key: "binding", label: "Binding", items: binding },
+    { key: "history", label: "History", items: history },
+  ];
+  const visible =
+    view === "all"
+      ? groups.filter((g) => g.items.length > 0)
+      : view === "cross"
+        ? [{ key: "cross" as View, label: "Cross-cutting (impact > 0)", items: cross }]
+        : groups.filter((g) => g.key === view);
 
   return (
     <>
-      <PageHead title="Decisions" subtitle="Binding rules every agent must honor — versioned and attributed." />
-      {items.length === 0 ? (
-        <EmptyState icon={<IconDecisions />} title="No decisions yet">
-          Agents record binding rules here via <span className="code-ref">propose_decision</span>.
+      <PageHeader
+        title="Decisions"
+        description="Binding rules every agent must honor — versioned and attributed."
+        tabs={
+          <LinkTabs
+            active={view}
+            tabs={[
+              { key: "all", label: "All", href: `${base}/decisions`, count: all.length },
+              { key: "awaiting", label: "Awaiting", href: `${base}/decisions?view=awaiting`, count: awaiting.length },
+              { key: "binding", label: "Binding", href: `${base}/decisions?view=binding`, count: binding.length },
+              { key: "cross", label: "Cross-cutting", href: `${base}/decisions?view=cross`, count: cross.length },
+              { key: "history", label: "History", href: `${base}/decisions?view=history`, count: history.length },
+            ]}
+          />
+        }
+      />
+      {all.length === 0 ? (
+        <EmptyState icon={<CheckCircle2 />} title="No decisions yet">
+          Agents record binding rules here via <RefChip copy={false}>propose_decision</RefChip>.
+        </EmptyState>
+      ) : visible.every((g) => g.items.length === 0) ? (
+        <EmptyState icon={<CheckCircle2 />} title="Nothing here">
+          No decisions match this view.
         </EmptyState>
       ) : (
-        <>
-          {proposed.length > 0 && (
-            <>
-              <div className="section-title">Awaiting review ({proposed.length})</div>
-              <div className="card animate-in" style={{ marginBottom: 18 }}>
-                <div className="rows stagger">
-                  {proposed.map((d) => (
-                    <Row d={d} key={d.id} />
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-          <div className="section-title">Binding &amp; settled ({settled.length})</div>
-          {settled.length === 0 ? (
-            <EmptyState icon={<IconDecisions />} title="Nothing binding yet">
-              Confirm or ratify the proposals above to make them binding.
-            </EmptyState>
-          ) : (
-            <div className="card animate-in">
-              <div className="rows stagger">
-                {settled.map((d) => (
-                  <Row d={d} key={d.id} />
-                ))}
-              </div>
-            </div>
-          )}
-        </>
+        visible.map((g) => (
+          <Section key={g.key} label={g.label} count={g.items.length}>
+            {g.items.length === 0 ? (
+              <EmptyState icon={<CheckCircle2 />} title="Nothing here" />
+            ) : (
+              g.items.map((d) => <Row d={d} key={d.id} />)
+            )}
+          </Section>
+        ))
       )}
     </>
   );

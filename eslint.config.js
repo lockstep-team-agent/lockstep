@@ -44,4 +44,17 @@ export default [
       "no-console": "off",
     },
   },
+  {
+    // Dashboard: styling is Tailwind classes or a composite component — never inline styles.
+    files: ["packages/web/**/*.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'JSXAttribute[name.name="style"]',
+          message: "Inline styles are not allowed; compose Tailwind classes or a composite component.",
+        },
+      ],
+    },
+  },
 ];

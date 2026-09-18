@@ -1,8 +1,18 @@
+import { FileCode2 } from "lucide-react";
 import { getOverview } from "@/lib/data";
-import { PageHead, EmptyState } from "@/components/ui";
-import { IconContracts } from "@/components/icons";
+import { PageHeader } from "@/components/PageHeader";
+import { ListRow } from "@/components/ListRow";
+import { StatusBadge } from "@/components/StatusBadge";
+import { RefChip } from "@/components/RefChip";
+import { Section } from "@/components/Section";
+import { EmptyState } from "@/components/EmptyState";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
+
+const shortRepo = (remote: string) => remote.split("/").pop() ?? remote;
 
 export default async function Page({
   params,
@@ -14,7 +24,7 @@ export default async function Page({
   const o = await getOverview(params.orgId, params.projectId);
   const all = o?.contracts ?? [];
   const repos = o?.repos ?? [];
-  const repoName = new Map(repos.map((r) => [r.id, r.gitRemote.split("/").pop() ?? r.gitRemote]));
+  const repoName = new Map(repos.map((r) => [r.id, shortRepo(r.gitRemote)]));
 
   const q = (searchParams?.q ?? "").trim().toLowerCase();
   const repoFilter = searchParams?.repo ?? "";
@@ -23,97 +33,83 @@ export default async function Page({
     .filter((c) => (q ? c.surface.toLowerCase().includes(q) : true))
     .sort((a, b) => a.surface.localeCompare(b.surface));
 
-  // group by repo
   const byRepo = new Map<string, typeof items>();
-  for (const c of items) {
-    const arr = byRepo.get(c.repoId) ?? [];
-    arr.push(c);
-    byRepo.set(c.repoId, arr);
-  }
+  for (const c of items) byRepo.set(c.repoId, [...(byRepo.get(c.repoId) ?? []), c]);
+
+  const verification = (c: (typeof all)[number]) =>
+    c.verifiedAgainst === "git-diff" || c.verifiedAgainst === "source-extracted"
+      ? "extracted"
+      : c.verified
+        ? "verified"
+        : "asserted";
 
   return (
     <>
-      <PageHead
+      <PageHeader
         title="Contracts"
-        subtitle="Interface surfaces across your repos — extracted from source. Search or filter by repo."
+        description="Interface surfaces across your repos, extracted from source. Consumer counts come from the usage graph."
       />
 
       {all.length > 0 && (
-        <form method="get" className="card pad animate-in" style={{ marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input
-              name="q"
-              defaultValue={searchParams?.q ?? ""}
-              placeholder="search surface e.g. /auth or POST"
-              className="input"
-              style={{ flex: 1, minWidth: 220 }}
-            />
-            <select name="repo" defaultValue={repoFilter} className="input" style={{ maxWidth: 220 }}>
-              <option value="">all repos</option>
-              {repos.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {repoName.get(r.id)}
-                </option>
-              ))}
-            </select>
-            <button className="btn">Filter</button>
-          </div>
-          <p style={{ color: "var(--dim)", fontSize: 12.5, margin: "8px 0 0" }}>
-            {items.length} of {all.length} surfaces
-          </p>
-        </form>
+        <Card className="mb-6 shadow-none">
+          <CardContent className="p-4">
+            <form method="get" className="flex flex-wrap items-center gap-2">
+              <Input
+                name="q"
+                defaultValue={searchParams?.q ?? ""}
+                placeholder="Search surfaces, e.g. /auth or POST"
+                className="min-w-56 flex-1"
+                aria-label="Search surfaces"
+              />
+              <select
+                name="repo"
+                defaultValue={repoFilter}
+                aria-label="Filter by repo"
+                className="h-9 rounded-md border bg-card px-3 text-sm"
+              >
+                <option value="">All repos</option>
+                {repos.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {repoName.get(r.id)}
+                  </option>
+                ))}
+              </select>
+              <Button variant="secondary">Filter</Button>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {items.length} of {all.length} surfaces
+              </span>
+            </form>
+          </CardContent>
+        </Card>
       )}
 
       {all.length === 0 ? (
-        <EmptyState icon={<IconContracts />} title="No contracts captured yet">
-          When an agent changes an API surface, the contract delta appears here.
+        <EmptyState icon={<FileCode2 />} title="No contracts captured yet">
+          When an agent changes an API surface, or <RefChip copy={false}>lockstep scan</RefChip> syncs a repo, surfaces
+          appear here.
         </EmptyState>
       ) : items.length === 0 ? (
-        <EmptyState icon={<IconContracts />} title="No matches">
-          Nothing matches your search — clear it to see all {all.length} surfaces.
+        <EmptyState icon={<FileCode2 />} title="No matches">
+          Nothing matches this search — clear it to see all {all.length} surfaces.
         </EmptyState>
       ) : (
         [...byRepo.entries()].map(([repoId, list]) => (
-          <div key={repoId} style={{ marginBottom: 18 }}>
-            <div className="section-title">
-              {repoName.get(repoId) ?? "repo"} ({list.length})
-            </div>
-            <div className="card animate-in">
-              <div className="rows">
-                {list.map((c) => {
-                  const m = /^http:(\w+)\s/.exec(c.surface)?.[1];
-                  return (
-                    <div className="row" key={c.id}>
-                      <div className="body">
-                        <div className="title mono">{c.surface}</div>
-                        <div className="meta">
-                          {m && <span className="pill plain">{m}</span>}
-                          <span>v{c.version}</span>
-                        </div>
-                      </div>
-                      {/* Honest wording (#3): mechanical extraction from source/diff is "extracted",
-                          not "verified" — that word is reserved for a future runtime/OpenAPI check. */}
-                      <span
-                        className={`pill ${
-                          c.verifiedAgainst === "git-diff" || c.verifiedAgainst === "source-extracted"
-                            ? "plain"
-                            : c.verified
-                              ? "verified"
-                              : "unverified"
-                        }`}
-                      >
-                        {c.verifiedAgainst === "git-diff" || c.verifiedAgainst === "source-extracted"
-                          ? "extracted"
-                          : c.verified
-                            ? "verified"
-                            : "asserted"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <Section key={repoId} label={repoName.get(repoId) ?? "repo"} count={list.length}>
+            {list.map((c) => (
+              <ListRow
+                key={c.id}
+                title={<span className="font-mono text-sm">{c.surface}</span>}
+                meta={
+                  <>
+                    <RefChip copy={false}>{`${c.consumerCount} consumer${c.consumerCount === 1 ? "" : "s"}`}</RefChip>
+                    {c.verifiedAgainst && <span>via {c.verifiedAgainst}</span>}
+                    {c.version > 1 && <RefChip copy={false}>{`v${c.version}`}</RefChip>}
+                  </>
+                }
+                status={<StatusBadge status={verification(c)} />}
+              />
+            ))}
+          </Section>
         ))
       )}
     </>

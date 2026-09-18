@@ -1,5 +1,5 @@
 import { apiGet } from "./api";
-import type { ProjectOverview } from "./types";
+import type { ProjectOverview, DecisionDetail } from "./types";
 
 export const getOverview = (orgId: string, projectId: string) =>
   apiGet<ProjectOverview>(`/orgs/${orgId}/projects/${projectId}/overview`);
@@ -282,18 +282,56 @@ export const conflictKindLabel = (k: ConflictKind): string => (k === "pre_approv
 
 export const constraintKindLabel = (k: ConstraintKind): string => k.replace(/_/g, " ");
 
-export function timeAgo(iso: string): string {
-  const d = new Date(iso).getTime();
-  if (Number.isNaN(d)) return "";
-  const s = Math.floor((Date.now() - d) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const dd = Math.floor(h / 24);
-  if (dd < 30) return `${dd}d ago`;
-  return new Date(iso).toLocaleDateString();
+export { timeAgo } from "./time";
+
+export const getDecisionDetail = (orgId: string, projectId: string, id: string) =>
+  apiGet<DecisionDetail>(`/orgs/${orgId}/projects/${projectId}/decisions/${id}`);
+
+const VERB: Record<string, string> = {
+  "decision.proposed": "proposed",
+  "decision.acked": "acknowledged",
+  "decision.confirmed": "confirmed",
+  "decision.superseded": "superseded",
+  "decision.provenance_added": "added a source to",
+  "decision.review_updated": "updated the review date of",
+  "decision.expired": "expired",
+  "constraint.ratified": "ratified",
+  "constraint.staled": "staled",
+  "question.asked": "asked",
+  "question.answered": "answered",
+  "task.delegated": "delegated",
+  "task.completed": "completed",
+  "change.published": "changed",
+  "dependency.registered": "registered a dependency on",
+  "conflict.opened": "opened a conflict on",
+  "conflict.resolved": "resolved a conflict on",
+  "member.role_changed": "changed a role",
+  "member.slack_linked": "linked Slack for",
+  "repo.disconnected": "disconnected",
+  "document.registered": "registered",
+  "document.unregistered": "unregistered",
+  "document.resync_requested": "requested a re-sync of",
+  "document.state_changed": "changed the state of",
+  "edge.confirmed": "confirmed an edge for",
+  "edge.rejected": "rejected an edge for",
+  "project.settings_updated": "updated project settings",
+};
+
+/** "alice-chen proposed “Auth tokens are JWT…”" — actor and object when known, a verb always. */
+export function humanizeAudit(a: { action: string; actor: string | null; summary: string | null }): {
+  actor: string | null;
+  verb: string;
+  object: string | null;
+} {
+  return { actor: a.actor, verb: VERB[a.action] ?? a.action.replace(/[._]/g, " "), object: a.summary };
 }
 
-export const humanizeAction = (a: string): string => a.replace(/[._]/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+export const entityHref = (base: string, kind: string | null, id: string | null): string | undefined => {
+  if (!id) return undefined;
+  if (kind === "decision") return `${base}/decisions/${id}`;
+  if (kind === "question") return `${base}/questions#${id}`;
+  if (kind === "task") return `${base}/tasks#${id}`;
+  if (kind === "change_feed_entry") return `${base}/contracts`;
+  if (kind === "dependency_edge") return `${base}/dependencies`;
+  return undefined;
+};

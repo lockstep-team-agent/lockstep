@@ -1,10 +1,37 @@
-import { getProposed, getRatifications, getConflicts, getOverview, constraintKindLabel, conflictKindLabel } from "@/lib/data";
-import type { RatificationCandidate, ConflictView } from "@/lib/data";
-import { PageHead, EmptyState, StatusPill } from "@/components/ui";
-import { IconQuestions, IconDoc, IconDecisions } from "@/components/icons";
-import { EvidenceBlock } from "@/components/review/EvidenceBlock";
-import { ConflictWarning } from "@/components/review/ConflictWarning";
-import { Tabs } from "@/components/review/Tabs";
+import { Inbox, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
+import type { ReactNode } from "react";
+import {
+  getProposed,
+  getRatifications,
+  getConflicts,
+  getOverview,
+  constraintKindLabel,
+  conflictKindLabel,
+  type RatificationCandidate,
+  type ConflictView,
+  type ProvenanceRow,
+} from "@/lib/data";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkTabs } from "@/components/LinkTabs";
+import { StatusBadge } from "@/components/StatusBadge";
+import { RefChip } from "@/components/RefChip";
+import { When } from "@/components/When";
+import { EmptyState } from "@/components/EmptyState";
+import { EvidenceQuote } from "@/components/EvidenceQuote";
+import { Field } from "@/components/Field";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   confirmDecisionAction,
   rejectDecisionAction,
@@ -15,6 +42,58 @@ import {
 
 export const dynamic = "force-dynamic";
 
+type Tab = "proposed" | "ratifications" | "conflicts" | "review-due";
+const TABS: Tab[] = ["proposed", "ratifications", "conflicts", "review-due"];
+
+function Warning({ children }: { children: ReactNode }) {
+  return (
+    <p className="mt-2 flex items-start gap-1.5 text-sm text-destructive">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+      <span>{children}</span>
+    </p>
+  );
+}
+
+function Collapsible({ summary, children }: { summary: string; children: ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+        {summary}
+      </summary>
+      <div className="mt-3 grid gap-3">{children}</div>
+    </details>
+  );
+}
+
+function Evidence({ rows }: { rows: ProvenanceRow[] }) {
+  return (
+    <>
+      {rows.map((row, ri) =>
+        (row.evidence ?? []).length > 0 ? (
+          (row.evidence ?? []).map((e, i) => (
+            <EvidenceQuote
+              key={`${ri}:${i}`}
+              quote={e.quote}
+              source={row.source}
+              url={row.url}
+              confidence={row.confidence}
+            />
+          ))
+        ) : (
+          <div key={ri} className="mt-2 text-xs text-muted-foreground">
+            via {row.source}
+            {row.url && (
+              <a href={row.url} target="_blank" rel="noreferrer" className="ml-2 hover:text-foreground">
+                open ↗
+              </a>
+            )}
+          </div>
+        ),
+      )}
+    </>
+  );
+}
+
 export default async function Page({
   params,
   searchParams,
@@ -23,14 +102,7 @@ export default async function Page({
   searchParams: { tab?: string };
 }) {
   const { orgId, projectId } = params;
-  const tab =
-    searchParams.tab === "ratifications"
-      ? "ratifications"
-      : searchParams.tab === "conflicts"
-        ? "conflicts"
-        : searchParams.tab === "review-due"
-          ? "review-due"
-          : "proposed";
+  const base = `/project/${orgId}/${projectId}/review-queue`;
   const [proposedData, ratificationData, conflictData, overview] = await Promise.all([
     getProposed(orgId, projectId),
     getRatifications(orgId, projectId),
@@ -48,272 +120,283 @@ export default async function Page({
   const recentlyResolved = conflicts.filter(
     (c) => c.status !== "open" && c.resolvedAt !== null && Date.now() - new Date(c.resolvedAt).getTime() <= SEVEN_DAYS,
   );
-  const base = `/project/${orgId}/${projectId}/review-queue`;
+
+  const counts: Record<Tab, number> = {
+    proposed: items.length,
+    ratifications: candidates.length,
+    conflicts: openConflicts.length,
+    "review-due": reviewDue.length,
+  };
+  // Open on the first tab that has items (spec §5.4) unless the URL names one.
+  const requested = TABS.includes(searchParams.tab as Tab) ? (searchParams.tab as Tab) : undefined;
+  const tab: Tab = requested ?? TABS.find((t) => counts[t] > 0) ?? "proposed";
+
+  const hidden = (id: string) => (
+    <>
+      <input type="hidden" name="orgId" value={orgId} />
+      <input type="hidden" name="projectId" value={projectId} />
+      <input type="hidden" name="id" value={id} />
+    </>
+  );
+
+  const RejectDialog = ({ id, what }: { id: string; what: string }) => (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="destructive">
+          Reject
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reject this {what}?</DialogTitle>
+          <DialogDescription>It stays in history as rejected and never binds.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <form action={rejectDecisionAction}>
+            {hidden(id)}
+            <Button variant="destructive">Reject</Button>
+          </form>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   const renderConflict = (c: ConflictView, resolved: boolean) => (
-    <div className="card animate-in" key={c.id} style={{ marginBottom: 14 }}>
-      <div className="body" style={{ padding: "4px 2px" }}>
-        <div className="meta" style={{ marginBottom: 8, marginTop: 0 }}>
-          <span className="code-ref">{c.surface}</span>
-          <span className="pill conflict">{conflictKindLabel(c.kind)}</span>
-          <StatusPill status={c.status} />
+    <Card key={c.id} className="shadow-none">
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <RefChip>{c.surface}</RefChip>
+          <RefChip copy={false}>{conflictKindLabel(c.kind)}</RefChip>
+          <StatusBadge status={c.status === "open" ? "conflict" : c.status} />
+          <When at={c.openedAt} />
         </div>
-
-        <div className={`meta${resolved ? " resolved" : ""}`} style={{ marginTop: 6 }}>
-          <IconDoc style={{ width: 15, height: 15 }} />
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <FileText className="h-4 w-4" aria-hidden />
           <span>{c.docTitle ?? "Untitled document"}</span>
           {c.docUrl && (
-            <a href={c.docUrl} target="_blank" rel="noreferrer" className="code-ref">
-              Notion ↗
+            <a href={c.docUrl} target="_blank" rel="noreferrer" className="hover:text-foreground">
+              open ↗
             </a>
           )}
         </div>
-        <blockquote className="evidence">“{c.constraintRuleText}”</blockquote>
-
-        <ConflictWarning>
-          May conflict on <span className="code-ref">{c.surface}</span> — review both.
-        </ConflictWarning>
-        {c.engRuleText && <blockquote className="evidence plain">“{c.engRuleText}”</blockquote>}
-
-        {c.dismissReason && (
-          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>Dismissed: {c.dismissReason}</p>
-        )}
-
+        <EvidenceQuote quote={c.constraintRuleText} />
+        <Warning>
+          May conflict on <RefChip copy={false}>{c.surface}</RefChip> — review both.
+        </Warning>
+        {c.engRuleText && <EvidenceQuote quote={c.engRuleText} source="engineering decision" />}
+        {c.dismissReason && <p className="mt-2 text-sm text-muted-foreground">Dismissed: {c.dismissReason}</p>}
         {!resolved && (
-          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <form action={resolveConflictAction}>
-              <input type="hidden" name="orgId" value={orgId} />
-              <input type="hidden" name="projectId" value={projectId} />
-              <input type="hidden" name="id" value={c.id} />
+              {hidden(c.id)}
               <input type="hidden" name="resolution" value="holds" />
-              <button className="btn primary">Constraint holds</button>
+              <Button size="sm">Constraint holds</Button>
             </form>
-            <details className="collapse">
-              <summary>Dismiss</summary>
-              <form action={resolveConflictAction} style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                <input type="hidden" name="orgId" value={orgId} />
-                <input type="hidden" name="projectId" value={projectId} />
-                <input type="hidden" name="id" value={c.id} />
-                <input type="hidden" name="resolution" value="dismiss" />
-                <input
-                  type="text"
-                  name="reason"
-                  className="input"
-                  placeholder="Why dismiss this conflict?"
-                  style={{ minWidth: 260, maxWidth: "100%" }}
-                />
-                <button className="btn">Dismiss</button>
-              </form>
-            </details>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="destructive">
+                  Dismiss
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Dismiss this conflict?</DialogTitle>
+                  <DialogDescription>
+                    Say why so the extraction can be tuned. Dismissals show up in Insights.
+                  </DialogDescription>
+                </DialogHeader>
+                <form action={resolveConflictAction} className="grid gap-3">
+                  {hidden(c.id)}
+                  <input type="hidden" name="resolution" value="dismiss" />
+                  <Field label="Reason" htmlFor={`dismiss-${c.id}`}>
+                    <Input id={`dismiss-${c.id}`} name="reason" placeholder="Why is this not a real conflict?" />
+                  </Field>
+                  <DialogFooter>
+                    <Button variant="destructive">Dismiss</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+            <span className="text-xs text-muted-foreground">
+              To amend the requirement, edit the PRD — Lockstep picks it up.
+            </span>
           </div>
         )}
-
-        {!resolved && (
-          <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 13 }}>
-            To amend the requirement, edit the PRD in Notion — Lockstep will pick it up.
-          </p>
-        )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 
-  const renderCandidate = (c: RatificationCandidate) => {
-    const conf = typeof c.confidence === "number" ? Math.round(c.confidence * 100) : null;
-    return (
-      <div className="card animate-in" key={c.id} style={{ marginBottom: 14 }}>
-        <div className="body" style={{ padding: "4px 2px" }}>
-          <div className="meta" style={{ marginBottom: 8, marginTop: 0 }}>
-            <IconDoc style={{ width: 15, height: 15 }} />
-            <span>{c.doc.title ?? "Untitled document"}</span>
-            {c.doc.url && (
-              <a href={c.doc.url} target="_blank" rel="noreferrer" className="code-ref">
-                Notion ↗
-              </a>
-            )}
-            <StatusPill status={c.doc.state} />
-          </div>
-          <div className="title" style={{ fontSize: 16 }}>{c.ruleText}</div>
-          <div className="meta" style={{ marginTop: 6 }}>
-            <span className="code-ref">{c.scopeRef}</span>
-            <span className="pill plain">{c.scopeKind}</span>
-            {c.constraintKind && <span className={`pill kind-${c.constraintKind}`}>{constraintKindLabel(c.constraintKind)}</span>}
-            {conf !== null && <span>confidence {conf}%</span>}
-          </div>
-
-          {c.anchor.url && (
-            <div className="meta" style={{ marginTop: 6 }}>
-              <a href={c.anchor.url} target="_blank" rel="noreferrer">
-                view in PRD{c.anchor.heading ? ` § ${c.anchor.heading}` : ""} ↗
-              </a>
-            </div>
+  const renderCandidate = (c: RatificationCandidate) => (
+    <Card key={c.id} className="shadow-none">
+      <CardContent className="p-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <FileText className="h-4 w-4" aria-hidden />
+          <span>{c.doc.title ?? "Untitled document"}</span>
+          {c.doc.url && (
+            <a href={c.doc.url} target="_blank" rel="noreferrer" className="hover:text-foreground">
+              open ↗
+            </a>
           )}
-
-          {c.conflict && (
-            <>
-              <ConflictWarning>
-                May conflict with a binding decision on <span className="code-ref">{c.conflict.surface}</span> — review both.
-              </ConflictWarning>
-              <blockquote className="evidence">“{c.conflict.engRuleText}”</blockquote>
-            </>
-          )}
-
-          <EvidenceBlock rows={c.provenances ?? []} />
-
-          <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-            <form action={ratifyDecisionAction}>
-              <input type="hidden" name="orgId" value={orgId} />
-              <input type="hidden" name="projectId" value={projectId} />
-              <input type="hidden" name="id" value={c.id} />
-              <input type="hidden" name="originalRuleText" value={c.ruleText} />
-              <details className="collapse" style={{ marginBottom: 8 }}>
-                <summary>Edit rule text</summary>
-                <textarea
-                  name="ruleText"
-                  className="input"
-                  rows={3}
-                  defaultValue={c.ruleText}
-                  style={{ marginTop: 8, minWidth: 380, maxWidth: "100%" }}
-                />
-              </details>
-              {c.canRatify ? (
-                <button className="btn primary">Ratify</button>
-              ) : (
-                <span className="tip" data-tip={c.blockedReason ?? "Ratification unavailable"}>
-                  <button className="btn primary" disabled>Ratify</button>
-                </span>
-              )}
-            </form>
-            <form action={rejectDecisionAction}>
-              <input type="hidden" name="orgId" value={orgId} />
-              <input type="hidden" name="projectId" value={projectId} />
-              <input type="hidden" name="id" value={c.id} />
-              <button className="btn">Reject</button>
-            </form>
-          </div>
+          <StatusBadge status={c.doc.state} />
         </div>
-      </div>
-    );
-  };
+        <div className="mt-2 text-lg font-medium leading-6">{c.ruleText}</div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <RefChip kind={c.scopeKind}>{c.scopeRef}</RefChip>
+          {c.constraintKind && <RefChip copy={false}>{constraintKindLabel(c.constraintKind)}</RefChip>}
+          {typeof c.confidence === "number" && <span>confidence {Math.round(c.confidence * 100)}%</span>}
+          {c.anchor.url && (
+            <a href={c.anchor.url} target="_blank" rel="noreferrer" className="hover:text-foreground">
+              view in PRD{c.anchor.heading ? ` § ${c.anchor.heading}` : ""} ↗
+            </a>
+          )}
+        </div>
+        {c.conflict && (
+          <>
+            <Warning>
+              May conflict with a binding decision on <RefChip copy={false}>{c.conflict.surface}</RefChip> — review
+              both.
+            </Warning>
+            <EvidenceQuote quote={c.conflict.engRuleText} source="engineering decision" />
+          </>
+        )}
+        <Evidence rows={c.provenances ?? []} />
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <form action={ratifyDecisionAction} className="grid gap-3">
+            {hidden(c.id)}
+            <input type="hidden" name="originalRuleText" value={c.ruleText} />
+            <Collapsible summary="Edit rule text before ratifying">
+              <Textarea name="ruleText" rows={3} defaultValue={c.ruleText} className="min-w-80" />
+            </Collapsible>
+            {c.canRatify ? (
+              <Button size="sm">Ratify</Button>
+            ) : (
+              <Button size="sm" disabled title={c.blockedReason ?? "Ratification unavailable"}>
+                Ratify
+              </Button>
+            )}
+          </form>
+          <RejectDialog id={c.id} what="constraint" />
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   return (
     <>
-      <PageHead
+      <PageHeader
         title="Review queue"
-        subtitle="Decisions distilled from your connected tools. Nothing binds until you confirm it here."
-      />
-      <Tabs
-        active={tab}
-        tabs={[
-          { key: "proposed", label: "Proposed", href: base, count: items.length },
-          { key: "ratifications", label: "Ratifications", href: `${base}?tab=ratifications`, count: candidates.length },
-          { key: "conflicts", label: "Conflicts", href: `${base}?tab=conflicts`, count: openConflicts.length },
-          { key: "review-due", label: "Review due", href: `${base}?tab=review-due`, count: reviewDue.length },
-        ]}
+        description="Everything that needs a human before it binds — distilled decisions, PRD constraints, conflicts, and review tripwires."
+        tabs={
+          <LinkTabs
+            active={tab}
+            tabs={[
+              { key: "proposed", label: "Proposed", href: `${base}?tab=proposed`, count: counts.proposed },
+              {
+                key: "ratifications",
+                label: "Ratifications",
+                href: `${base}?tab=ratifications`,
+                count: counts.ratifications,
+              },
+              { key: "conflicts", label: "Conflicts", href: `${base}?tab=conflicts`, count: counts.conflicts },
+              { key: "review-due", label: "Review due", href: `${base}?tab=review-due`, count: counts["review-due"] },
+            ]}
+          />
+        }
       />
 
       {tab === "proposed" &&
         (items.length === 0 ? (
-          <EmptyState icon={<IconQuestions />} title="Nothing to review">
-            When a sweep distills a decision from an allowlisted Slack channel, it lands here as a draft with
-            the exact quote it came from.
+          <EmptyState icon={<Inbox />} title="Nothing to review">
+            When a sweep distills a decision from an allowlisted Slack channel, it lands here as a draft with the exact
+            quote it came from.
           </EmptyState>
         ) : (
-          <div className="rows stagger">
+          <div className="grid gap-4">
             {items.map((d) => {
               const p = d.provenance ?? {};
               const conf = typeof p.confidence === "number" ? Math.round(p.confidence * 100) : null;
-              // Prefer the fused provenance rows (one decision, many sources); fall back to the version's.
-              const rows =
+              const rows: ProvenanceRow[] =
                 d.provenances && d.provenances.length > 0
                   ? d.provenances
-                  : [{ source: p.source ?? "source", externalId: null, url: p.url ?? null, evidence: p.evidence ?? [], confidence: null }];
+                  : [
+                      {
+                        source: p.source ?? "source",
+                        externalId: null,
+                        url: p.url ?? null,
+                        evidence: p.evidence ?? [],
+                        confidence: null,
+                      },
+                    ];
               return (
-                <div className="card animate-in" key={d.id} style={{ marginBottom: 14 }}>
-                  <div className="body" style={{ padding: "4px 2px" }}>
-                    <div className="title" style={{ fontSize: 16 }}>{d.ruleText}</div>
-                    <div className="meta" style={{ marginTop: 6 }}>
-                      <span className="code-ref">{d.scopeRef}</span>
-                      <span className="pill plain">{d.scopeKind}</span>
-                      <span className="pill plain">{d.decisionType}</span>
+                <Card key={d.id} className="shadow-none">
+                  <CardContent className="p-4">
+                    <div className="text-lg font-medium leading-6">{d.ruleText}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <RefChip kind={d.scopeKind}>{d.scopeRef}</RefChip>
+                      <RefChip copy={false}>{d.decisionType}</RefChip>
                       {conf !== null && <span>confidence {conf}%</span>}
-                      {rows.length > 1 && <span className="pill plain">{rows.length} sources</span>}
-                      {d.stale && (
-                        <span className="pill conflict tip" data-tip="Waiting past the project's review window — agents are working without this rule.">
-                          stale · {d.ageDays}d
-                        </span>
-                      )}
+                      {rows.length > 1 && <RefChip copy={false}>{`${rows.length} sources`}</RefChip>}
+                      {d.stale && <StatusBadge status="stale" />}
+                      {d.stale && <span>{d.ageDays}d waiting</span>}
+                      <When at={d.createdAt} />
                     </div>
-
                     {p.supersedes && (
-                      <ConflictWarning>
-                        May supersede an existing binding decision on <span className="code-ref">{d.scopeRef}</span> — review both.
-                      </ConflictWarning>
+                      <Warning>
+                        May supersede an existing binding decision on <RefChip copy={false}>{d.scopeRef}</RefChip> —
+                        review both.
+                      </Warning>
                     )}
-
                     {(d.rationale ?? p.rationale) && (
-                      <p style={{ margin: "10px 0 0", color: "var(--muted)" }}>{d.rationale ?? p.rationale}</p>
+                      <p className="mt-3 text-sm text-muted-foreground">{d.rationale ?? p.rationale}</p>
                     )}
                     {(d.alternatives ?? p.alternatives)?.length ? (
-                      <div className="meta" style={{ marginTop: 6 }}>
-                        <span>alternatives considered: {(d.alternatives ?? p.alternatives)!.join(" · ")}</span>
-                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Alternatives considered: {(d.alternatives ?? p.alternatives)!.join(" · ")}
+                      </p>
                     ) : null}
                     {p.reviewHint && !d.reviewAt && (
-                      <div className="meta" style={{ marginTop: 6 }}>
-                        <span className="tip" data-tip="The team said to revisit this, but gave no date — set one below before confirming.">
-                          revisit hint: “{p.reviewHint}”
-                        </span>
-                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Revisit hint from the team: “{p.reviewHint}” — set a date below before confirming.
+                      </p>
                     )}
-
-                    <EvidenceBlock rows={rows} />
-
-                    <div className="meta" style={{ marginTop: 10, gap: 12 }}>
+                    <Evidence rows={rows} />
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       {p.decidedBy && p.decidedBy.length > 0 && <span>decided by {p.decidedBy.join(", ")}</span>}
-                      {d.reviewAt && <span>review on {new Date(d.reviewAt).toLocaleDateString()}</span>}
+                      {d.reviewAt && <span>review on {new Date(d.reviewAt).toLocaleDateString("en-GB")}</span>}
                     </div>
-
-                    <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                      <form action={confirmDecisionAction}>
-                        <input type="hidden" name="orgId" value={orgId} />
-                        <input type="hidden" name="projectId" value={projectId} />
-                        <input type="hidden" name="id" value={d.id} />
+                    <div className="mt-4 flex flex-wrap items-end gap-2">
+                      <form action={confirmDecisionAction} className="grid gap-3">
+                        {hidden(d.id)}
                         <input type="hidden" name="originalRuleText" value={d.ruleText} />
-                        <details className="collapse" style={{ marginBottom: 8 }}>
-                          <summary>Edit before confirming</summary>
-                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                            <textarea
+                        <Collapsible summary="Edit before confirming">
+                          <Field label="Rule text" htmlFor={`rule-${d.id}`}>
+                            <Textarea
+                              id={`rule-${d.id}`}
                               name="ruleText"
-                              className="input"
                               rows={2}
                               defaultValue={d.ruleText}
-                              style={{ minWidth: 380, maxWidth: "100%" }}
+                              className="min-w-80"
                             />
-                            <textarea
+                          </Field>
+                          <Field label="Rationale" htmlFor={`rat-${d.id}`}>
+                            <Textarea
+                              id={`rat-${d.id}`}
                               name="rationale"
-                              className="input"
                               rows={2}
-                              placeholder="Rationale — why this rule?"
                               defaultValue={d.rationale ?? p.rationale ?? ""}
-                              style={{ minWidth: 380, maxWidth: "100%" }}
+                              className="min-w-80"
                             />
-                            <label className="meta" style={{ gap: 8 }}>
-                              <span>review on</span>
-                              <input type="date" name="reviewAt" className="input" />
-                            </label>
-                          </div>
-                        </details>
-                        <button className="btn primary">Confirm</button>
+                          </Field>
+                          <Field label="Review on" htmlFor={`rev-${d.id}`}>
+                            <Input id={`rev-${d.id}`} type="date" name="reviewAt" className="w-48" />
+                          </Field>
+                        </Collapsible>
+                        <Button size="sm">Confirm</Button>
                       </form>
-                      <form action={rejectDecisionAction}>
-                        <input type="hidden" name="orgId" value={orgId} />
-                        <input type="hidden" name="projectId" value={projectId} />
-                        <input type="hidden" name="id" value={d.id} />
-                        <button className="btn">Reject</button>
-                      </form>
+                      <RejectDialog id={d.id} what="proposal" />
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               );
             })}
           </div>
@@ -321,81 +404,77 @@ export default async function Page({
 
       {tab === "ratifications" &&
         (candidates.length === 0 ? (
-          <EmptyState icon={<IconDoc />} title="No constraints awaiting ratification">
-            When a sweep extracts product constraints from a PRD in Notion, they land here for a PM to
-            ratify — with the exact section they came from.
+          <EmptyState icon={<FileText />} title="No constraints awaiting ratification">
+            When a sweep extracts product constraints from a PRD, they land here for a PM to ratify — with the exact
+            section they came from.
           </EmptyState>
         ) : (
-          <>
-            <div className="rows stagger">{main.map(renderCandidate)}</div>
+          <div className="grid gap-4">
+            {main.map(renderCandidate)}
             {low.length > 0 && (
-              <details className="collapse animate-in" style={{ marginTop: 10 }}>
-                <summary>Low confidence ({low.length})</summary>
-                <div className="rows" style={{ marginTop: 10 }}>{low.map(renderCandidate)}</div>
-              </details>
+              <Collapsible summary={`Low confidence (${low.length})`}>{low.map(renderCandidate)}</Collapsible>
             )}
-          </>
+          </div>
         ))}
 
       {tab === "conflicts" &&
         (openConflicts.length === 0 && recentlyResolved.length === 0 ? (
-          <EmptyState icon={<IconQuestions />} title="No conflicts 🎉">
+          <EmptyState icon={<CheckCircle2 />} title="No conflicts">
             When an engineering decision lands on a surface a ratified constraint governs, it shows up here.
           </EmptyState>
         ) : (
-          <>
-            <div className="rows stagger">{openConflicts.map((c) => renderConflict(c, false))}</div>
+          <div className="grid gap-4">
+            {openConflicts.map((c) => renderConflict(c, false))}
             {recentlyResolved.length > 0 && (
-              <details className="collapse animate-in" style={{ marginTop: 10 }}>
-                <summary>Recently resolved ({recentlyResolved.length})</summary>
-                <div className="rows" style={{ marginTop: 10 }}>{recentlyResolved.map((c) => renderConflict(c, true))}</div>
-              </details>
+              <Collapsible summary={`Recently resolved (${recentlyResolved.length})`}>
+                {recentlyResolved.map((c) => renderConflict(c, true))}
+              </Collapsible>
             )}
-          </>
+          </div>
         ))}
 
       {tab === "review-due" &&
         (reviewDue.length === 0 ? (
-          <EmptyState icon={<IconDecisions />} title="Nothing due for review">
-            A binding decision with a review date (“revisit in 30 days”) lands here when the date passes.
-            It stays binding — this is a nudge, not an expiry.
+          <EmptyState icon={<CheckCircle2 />} title="Nothing due for review">
+            A binding decision with a review date lands here when the date passes. It stays binding — this is a nudge,
+            not an expiry.
           </EmptyState>
         ) : (
-          <div className="rows stagger">
+          <div className="grid gap-4">
             {reviewDue.map((d) => {
               const snooze = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
               return (
-                <div className="card animate-in" key={d.id} style={{ marginBottom: 14 }}>
-                  <div className="body" style={{ padding: "4px 2px" }}>
-                    <div className="title" style={{ fontSize: 16 }}>{d.ruleText || d.scopeRef}</div>
-                    {d.rationale && <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>{d.rationale}</p>}
-                    <div className="meta" style={{ marginTop: 6 }}>
-                      <span className="code-ref">{d.scopeRef}</span>
-                      <span className="pill plain">{d.scopeKind}</span>
-                      {d.reviewAt && <span>review was due {new Date(d.reviewAt).toLocaleDateString()}</span>}
+                <Card key={d.id} className="shadow-none">
+                  <CardContent className="p-4">
+                    <div className="text-lg font-medium leading-6">{d.ruleText || d.scopeRef}</div>
+                    {d.rationale && <p className="mt-2 text-sm text-muted-foreground">{d.rationale}</p>}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <RefChip kind={d.scopeKind}>{d.scopeRef}</RefChip>
+                      <StatusBadge status="due" />
+                      {d.reviewAt && (
+                        <span className="inline-flex items-center gap-1">
+                          due <When at={d.reviewAt} />
+                        </span>
+                      )}
                     </div>
-                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
                       <form action={reviewDecisionAction}>
-                        <input type="hidden" name="orgId" value={orgId} />
-                        <input type="hidden" name="projectId" value={projectId} />
-                        <input type="hidden" name="id" value={d.id} />
-                        {/* no reviewAt → clears the tripwire */}
-                        <button className="btn primary">Still right — mark reviewed</button>
+                        {hidden(d.id)}
+                        <Button size="sm">Still right — mark reviewed</Button>
                       </form>
                       <form action={reviewDecisionAction}>
-                        <input type="hidden" name="orgId" value={orgId} />
-                        <input type="hidden" name="projectId" value={projectId} />
-                        <input type="hidden" name="id" value={d.id} />
+                        {hidden(d.id)}
                         <input type="hidden" name="reviewAt" value={snooze} />
-                        <button className="btn">Snooze 30d</button>
+                        <Button size="sm" variant="secondary">
+                          Snooze 30 days
+                        </Button>
                       </form>
+                      <span className="text-xs text-muted-foreground">
+                        No longer right? Propose a replacement from its detail page — confirming it supersedes this one.
+                      </span>
                     </div>
-                    <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 13 }}>
-                      No longer right? Have an agent (or a teammate) propose the replacement — confirming it
-                      will supersede this one.
-                    </p>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               );
             })}
           </div>
