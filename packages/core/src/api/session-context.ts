@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { withSystem } from "../db/rls.js";
-import { repos, members, sessions, projects } from "../db/schema.js";
-import { projectArchived } from "../auth/permissions.js";
+import { repos, members, sessions, projects, briefingCursors, projectMembers } from "../db/schema.js";
+import { projectArchived, projectVisibility, getProjectRoleTx } from "../auth/permissions.js";
 import type { Principal } from "../auth/tokens.js";
 
 export interface SessionContext {
@@ -25,7 +25,7 @@ function one<T>(rows: T[]): T {
  */
 export async function registerSession(
   principal: Principal,
-  input: { gitRemote: string; cwd?: string; vendor?: string },
+  input: { gitRemote: string; cwd?: string; vendor?: string; nativeSessionId?: string },
 ): Promise<SessionContext | null> {
   return withSystem(async (tx) => {
     const candidates = await tx.select().from(repos).where(eq(repos.gitRemote, input.gitRemote));
@@ -41,6 +41,20 @@ export async function registerSession(
           .limit(1)
       )[0];
       if (m) {
+        const roster = (await tx.select().from(projectMembers).where(and(eq(projectMembers.projectId, repo.projectId), eq(projectMembers.memberId, m.id))).limit(1))[0];
+        if (roster?.status === "revoked") continue;
+        if (projectVisibility(proj?.settings) === "walled" && !(await getProjectRoleTx(tx, repo.projectId, m.id))) continue;
+        const native = input.nativeSessionId;
+        if (native) {
+          const existing = (await tx.select().from(sessions).where(and(
+            eq(sessions.memberId, m.id), eq(sessions.repoId, repo.id),
+            eq(sessions.vendor, input.vendor ?? "unknown"), eq(sessions.nativeSessionId, native),
+          )).limit(1))[0];
+          if (existing) return { sessionId: existing.id, orgId: repo.orgId, projectId: repo.projectId, repoId: repo.id, memberId: m.id };
+        }
+        const cursor = native ? (await tx.select().from(briefingCursors).where(and(
+          eq(briefingCursors.memberId, m.id), eq(briefingCursors.repoId, repo.id),
+        )).limit(1))[0] : undefined;
         const sess = one(
           await tx
             .insert(sessions)
@@ -51,9 +65,12 @@ export async function registerSession(
               projectId: repo.projectId,
               gitRemote: input.gitRemote,
               cwd: input.cwd ?? null,
-              vendor: input.vendor ?? null,
+              vendor: input.vendor ?? "unknown",
               state: "live",
+              nativeSessionId: native ?? null,
+              briefingBaseline: cursor?.seenAt ?? null,
             })
+            .onConflictDoUpdate({ target: [sessions.memberId, sessions.repoId, sessions.vendor, sessions.nativeSessionId], set: { lastHeartbeat: new Date() } })
             .returning(),
         );
         return { sessionId: sess.id, orgId: repo.orgId, projectId: repo.projectId, repoId: repo.id, memberId: m.id };
@@ -76,6 +93,10 @@ export async function resolveSession(principal: Principal, sessionId: string): P
         .limit(1)
     )[0];
     if (!m) return null;
+    const proj = (await tx.select().from(projects).where(eq(projects.id, s.projectId)).limit(1))[0];
+    if (!proj || projectArchived(proj.settings)) return null;
+    const roster = (await tx.select().from(projectMembers).where(and(eq(projectMembers.projectId, s.projectId), eq(projectMembers.memberId, m.id))).limit(1))[0];
+    if (roster?.status === "revoked" || (projectVisibility(proj.settings) === "walled" && roster?.status !== "active")) return null;
     return { sessionId: s.id, orgId: s.orgId, projectId: s.projectId, repoId: s.repoId, memberId: s.memberId };
   });
 }

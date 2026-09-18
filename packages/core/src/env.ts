@@ -39,6 +39,9 @@ const schema = z.object({
   // Jev (Typesafe System One) — calibrated same_rule/replaces/unrelated verdicts in the fusion scan.
   // Optional — unset means the embedding/Jaccard path runs exactly as before.
   TYPESAFE_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  LOCKSTEP_EXTRACT_MODEL: z.string().default("claude-sonnet-4-6"),
+  LOCKSTEP_CHECKS_ENABLED: z.string().default("1").transform((v) => v !== "0"),
 
   LOCKSTEP_DEPLOYMENT: z.enum(["cloud", "self-host"]).default("self-host"),
 

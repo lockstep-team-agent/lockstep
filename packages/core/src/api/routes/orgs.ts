@@ -10,6 +10,7 @@ import {
 } from "../../auth/auth-service.js";
 import { ensureMember, requireProjectRole } from "../guards.js";
 import { recordInstallation, getInstallation } from "../../graph/ownership-service.js";
+import { connectExactProject } from "../../adoption/projects.js";
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get("/me", async (req, reply) => {
@@ -51,9 +52,13 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.post("/connect", async (req, reply) => {
     const p = req.principal;
     if (!p) return reply.code(401).send({ error: "unauthorized" });
-    const b = req.body as { gitRemote?: string; project?: string } | undefined;
+    const b = req.body as { gitRemote?: string; project?: string; projectId?: string; pilot?: boolean } | undefined;
     if (!b?.gitRemote) return reply.code(400).send({ error: "gitRemote required" });
-    return connectOrJoin(p, b.gitRemote, b.project);
+    if (b.projectId) {
+      if (!/^[0-9a-f-]{36}$/i.test(b.projectId)) return reply.code(400).send({ error: "invalid projectId" });
+      return connectExactProject(p, b.projectId, b.gitRemote);
+    }
+    return connectOrJoin(p, b.gitRemote, b.project, b.pilot === true);
   });
 
   app.post("/orgs/:orgId/projects/:projectId/repos", async (req, reply) => {

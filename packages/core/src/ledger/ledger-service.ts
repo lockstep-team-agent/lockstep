@@ -637,6 +637,8 @@ function supersedesHint(provenance: unknown): string | null {
 }
 
 export interface FileProposedInput {
+  /** Repo/native imports use explicit review rather than legacy similarity-driven replacement. */
+  explicitReview?: boolean;
   projectId: string;
   scopeKind: string; // surface | repo | topic | project | shared | contract | capability (v3)
   scopeRef: string;
@@ -675,7 +677,7 @@ export async function fileProposedDecision(
   const origin = input.origin ?? "ingested";
   // #6 pre-pass — embeddings are fetched OUTSIDE the main tx (HTTP under a transaction is a hazard).
   // Null ⇒ the scope scan below runs pure Jaccard, exactly the pre-#6 behavior.
-  const embedScores = await prepareScopeSimilarity(
+  const embedScores = input.explicitReview ? null : await prepareScopeSimilarity(
     orgId,
     {
       projectId: input.projectId,
@@ -687,7 +689,7 @@ export async function fileProposedDecision(
   );
   // Jev pre-pass — same_rule/replaces/unrelated per mate, also OUTSIDE the tx. Null ⇒ the scan below
   // uses cosine/Jaccard for every mate, exactly as before.
-  const relations = await judgeScopeRelations(
+  const relations = input.explicitReview ? null : await judgeScopeRelations(
     orgId,
     {
       projectId: input.projectId,
@@ -737,6 +739,7 @@ export async function fileProposedDecision(
     // pre-pass — race-safe). Method + score land in the audits so thresholds are tuned from data.
     let similarity: { method: "jev" | "embedding" | "jaccard"; score: number } | undefined;
     for (const m of scopeMates) {
+      if (input.explicitReview) continue;
       if (m.status === "rejected" || m.status === "superseded") continue;
       if (origin === "document" && m.origin !== "document") continue;
 
@@ -808,7 +811,7 @@ export async function fileProposedDecision(
     const ab = (proj?.settings as { autoBind?: { enabled?: boolean; floor?: number } } | null)?.autoBind;
     const floor = ab?.floor == null ? 90 : ab.floor <= 1 ? ab.floor * 100 : ab.floor;
     const impact = await impactForScopeTx(tx, input.projectId, input.scopeKind, input.scopeRef);
-    const autoBound = origin !== "document" && Boolean(ab?.enabled) && impact === 0 && (input.confidence ?? 0) >= floor;
+    const autoBound = !input.explicitReview && origin !== "document" && Boolean(ab?.enabled) && impact === 0 && (input.confidence ?? 0) >= floor;
     const status = autoBound ? "binding" : "proposed";
 
     const d = one(
@@ -875,6 +878,7 @@ export async function fileProposedDecision(
 }
 
 export interface ReproposeInput {
+  reviewRestored?: boolean;
   projectId: string;
   existingDecisionId: string;
   ruleText: string;
@@ -940,7 +944,7 @@ export async function reproposeDocConstraint(
           decisionId: d.id,
         });
 
-    if (unchanged) {
+    if (unchanged && !(input.reviewRestored && ["stale", "rejected", "superseded"].includes(d.status))) {
       // Section text drifted but the rule is identical — mark seen, don't churn a version.
       await recordArtifact("deduped");
       return { decisionId: d.id, reversioned: false, deduped: true };
@@ -1003,6 +1007,7 @@ export async function confirmDecision(
     rationale?: string;
     alternatives?: string[];
     reviewAt?: Date | null;
+    supersedesDecisionId?: string;
   },
 ): Promise<{ status: string; impact: number }> {
   return withOrg(orgId, async (tx) => {
@@ -1021,9 +1026,16 @@ export async function confirmDecision(
     const scopeKind = edits?.scopeKind ?? d.scopeKind;
     const scopeRef = edits?.scopeRef ?? d.scopeRef;
     const ruleText = edits?.ruleText ?? cur?.ruleText ?? "";
+    let confirmProvenance = cur?.provenance ?? null;
+    if (edits?.supersedesDecisionId) {
+      const old = (await tx.select().from(decisions).where(eq(decisions.id, edits.supersedesDecisionId)).limit(1))[0];
+      if (!old || old.id === d.id || old.projectId !== d.projectId || old.scopeKind !== scopeKind || old.scopeRef !== scopeRef || old.status !== "binding")
+        throw conflict("replacement must name a binding decision in the same project and scope");
+      confirmProvenance = { ...(cur?.provenance as object ?? {}), supersedes: old.id, replacementConfirmedBy: memberId };
+    }
     // Deliberation fields live on the version row (append-only) — editing them appends too.
     const edited = Boolean(
-      edits?.ruleText || edits?.scopeKind || edits?.scopeRef || edits?.rationale || edits?.alternatives,
+      edits?.ruleText || edits?.scopeKind || edits?.scopeRef || edits?.rationale || edits?.alternatives || edits?.supersedesDecisionId,
     );
 
     const impact = await impactForScopeTx(tx, d.projectId, scopeKind, scopeRef);
@@ -1038,7 +1050,7 @@ export async function confirmDecision(
         version,
         baseVersion: d.currentVersion,
         ruleText,
-        provenance: cur?.provenance ?? null,
+        provenance: confirmProvenance,
         rationale: edits?.rationale ?? cur?.rationale ?? null,
         alternatives: edits?.alternatives ?? cur?.alternatives ?? null,
         status,
@@ -1093,7 +1105,7 @@ export async function confirmDecision(
       await applySupersessionTx(tx, orgId, {
         newDecisionId: decisionId,
         projectId: d.projectId,
-        oldDecisionId: supersedesHint(cur?.provenance),
+        oldDecisionId: supersedesHint(confirmProvenance),
         actorMemberId: memberId,
       });
     }
@@ -1445,7 +1457,13 @@ export async function listConsumers(
   projectId: string,
   surface: string,
   askingRepoId?: string,
-): Promise<{ surface: string; count: number; consumers: Array<{ repoId: string; gitRemote: string; projectName?: string }> }> {
+): Promise<{
+  surface: string;
+  count: number;
+  consumers: Array<{ repoId: string; gitRemote: string; projectName?: string }>;
+  coverage: { connectedRepos: number };
+  hint?: string;
+}> {
   return withOrg(orgId, async (tx) => {
     // #4: count org-wide (same-project edges + other projects' edges resolved to this project's
     // producers); consumer DETAIL only for same-project and SHARED projects — a walled project's
@@ -1479,7 +1497,17 @@ export async function listConsumers(
         consumers.push({ repoId, gitRemote: r.gitRemote });
       }
     }
-    return { surface, count: repoIds.length, consumers };
+    // "No consumers" and "nobody has onboarded yet" look identical to an agent unless we say which
+    // one it is — so an empty answer carries how much of the project is actually on the graph.
+    const coverage = { connectedRepos: own.length };
+    if (repoIds.length > 0) return { surface, count: repoIds.length, consumers, coverage };
+    return {
+      surface,
+      count: 0,
+      consumers,
+      coverage,
+      hint: `unknown blast radius — only ${own.length} repo(s) in this project are connected; run \`lockstep invite\` for the teams that call this`,
+    };
   });
 }
 
@@ -2398,6 +2426,8 @@ export async function reconcile(
 ): Promise<{
   ok: boolean;
   violations: string[];
+  /** Repos connected to this project — the denominator behind the PR comment's consumer counts. */
+  connectedRepos: number;
   staleDependents: Array<{ surface: string; consumers: string[] }>;
   confirmedGovernsEdges: Array<{ surface: string; capabilityRef: string }>;
   openConflicts: Array<{
@@ -2412,6 +2442,7 @@ export async function reconcile(
 }> {
   return withOrg(orgId, async (tx) => {
     const violations: string[] = [];
+    const connectedRepos = (await tx.select({ id: repos.id }).from(repos).where(eq(repos.projectId, projectId))).length;
     const staleDependents: Array<{ surface: string; consumers: string[] }> = [];
     for (const surface of contractSurfaces) {
       const d = (
@@ -2494,6 +2525,7 @@ export async function reconcile(
     return {
       ok: violations.length === 0,
       violations,
+      connectedRepos,
       staleDependents,
       confirmedGovernsEdges: confirmed.map((c) => ({ surface: c.surface, capabilityRef: c.capabilityRef })),
       openConflicts,

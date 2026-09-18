@@ -370,6 +370,7 @@ export async function connectOrJoin(
   principal: Principal,
   gitRemote: string,
   projectName?: string,
+  pilot = false,
 ): Promise<ConnectResult> {
   const candidates = await withSystem((tx) => tx.select().from(repos).where(eq(repos.gitRemote, gitRemote)));
 
@@ -519,7 +520,7 @@ export async function connectOrJoin(
         .where(and(eq(members.orgId, orgId!), eq(members.principalId, principal.id)))
         .limit(1)
     )[0];
-    const p = one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id }).returning());
+    const p = one(await tx.insert(projects).values({ orgId: orgId!, name: pname, createdBy: me?.id, ...(pilot ? { settings: { adoption: { pilot: true }, productLayer: { enabled: true } } } : {}) }).returning());
     if (me) {
       await ensureProjectMemberTx(tx, {
         orgId: orgId!,
