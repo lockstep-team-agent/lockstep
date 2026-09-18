@@ -25,6 +25,7 @@ import type { SweptDoc } from "./client.js";
  *       Slack-event units and executes scheduled jobs (expiry / weekly digests / writeback drain)
  *
  * Env: LOCKSTEP_API_URL, LOCKSTEP_INGEST_TOKEN, COMPOSIO_API_KEY, ANTHROPIC_API_KEY,
+ *      TYPESAFE_API_KEY (optional — Jev recall/recheck; unset = keyword→Haiku, Opus recheck),
  *      SLACK_BOT_TOKEN (ratification digests — optional; digests stay queued without it).
  */
 

@@ -11,6 +11,15 @@ package is the only one published to npm; its npm version tracks the repo versio
 
 ## [Unreleased]
 
+### Added
+
+- **Jev judgment stages** (optional, `TYPESAFE_API_KEY`) — Typesafe's System One model now makes the
+  funnel's yes/no and pick-one calls: Stage-1 recall for threads and PRD sections (replaces the keyword
+  prefilter + Haiku), the borderline-confidence recheck (replaces the Opus re-extraction), and
+  `same_rule` / `replaces` / `unrelated` verdicts that lead the fusion/supersession scan ahead of cosine
+  and Jaccard (`similarity.method: "jev"` in audits). Sonnet still writes `rule_text` and evidence. Unset
+  key ⇒ every prior path runs unchanged.
+
 ## [0.2.0] - 2026-08-14
 
 ### Added

@@ -56,6 +56,7 @@ executes the scheduled jobs (`expiry` hourly, `weekly_digest` 6-hourly, `writeba
   | `LOCKSTEP_API_URL` | `https://<core-public-url>` — **no trailing slash** |
   | `LOCKSTEP_INGEST_TOKEN` | shared secret; **must equal core's** `LOCKSTEP_INGEST_TOKEN` |
   | `ANTHROPIC_API_KEY` | for the distillation LLM (extract/recheck) |
+  | `TYPESAFE_API_KEY` | _optional_ — Jev judgments for recall/recheck (worker) and fusion (core) |
   | `COMPOSIO_API_KEY` | same key as core (connector execution) |
   | `LOCKSTEP_WEB_URL` | `https://<web-public-url>` — dashboard links in Slack digests |
   | `SLACK_BOT_TOKEN` | _optional_ — digests/alerts stay queued (writebacks) without it |
@@ -74,6 +75,7 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 | `COMPOSIO_API_KEY` | ✓ (server-side OAuth initiate) | — | ✓ (sweep execution) |
 | `LOCKSTEP_INGEST_TOKEN` | ✓ | — | ✓ (must match) |
 | `ANTHROPIC_API_KEY` | — | — | ✓ |
+| `TYPESAFE_API_KEY` | ✓ (optional — fusion verdicts) | — | ✓ (optional — recall/recheck) |
 | `SLACK_BOT_TOKEN` | — | — | ✓ (optional) |
 | `NANGO_SECRET_KEY` / `NANGO_HOST` | — | — | ✓ (optional) |
 | `LOCKSTEP_API_URL` | — | ✓ | ✓ |
