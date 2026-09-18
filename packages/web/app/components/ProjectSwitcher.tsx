@@ -1,5 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function ProjectSwitcher({
   orgId,
@@ -12,16 +13,17 @@ export function ProjectSwitcher({
 }) {
   const router = useRouter();
   return (
-    <select
-      value={projectId}
-      onChange={(e) => router.push(`/project/${orgId}/${e.target.value}`)}
-      aria-label="Switch project"
-    >
-      {projects.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name}
-        </option>
-      ))}
-    </select>
+    <Select value={projectId} onValueChange={(v) => router.push(`/project/${orgId}/${v}`)}>
+      <SelectTrigger className="h-9" aria-label="Switch project">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {projects.map((p) => (
+          <SelectItem key={p.id} value={p.id}>
+            {p.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

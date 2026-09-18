@@ -25,9 +25,29 @@ export interface ProjectOverview {
     dueForReview?: boolean;
     supersededById?: string | null;
     supersedes?: string[];
+    impact: number;
+    createdAt: string;
+    proposedBy: string | null;
   }>;
-  questions: Array<{ id: string; body: string; status: string; scopeRef: string | null; urgent: boolean }>;
-  tasks: Array<{ id: string; title: string; runState: string; status: string }>;
+  questions: Array<{
+    id: string;
+    body: string;
+    status: string;
+    scopeRef: string | null;
+    urgent: boolean;
+    askedBy: string | null;
+    createdAt: string;
+    answer: { body: string; by: string | null; at: string } | null;
+  }>;
+  tasks: Array<{
+    id: string;
+    title: string;
+    runState: string;
+    status: string;
+    delegatedTo: string | null;
+    delegatedBy: string | null;
+    createdAt: string;
+  }>;
   repos: Array<{ id: string; gitRemote: string }>;
   dependencies: Array<{
     id: string;
@@ -46,8 +66,26 @@ export interface ProjectOverview {
     verifiedAgainst?: string | null;
     verificationStatus: string;
     version: number;
+    consumerCount: number;
   }>;
-  audit: Array<{ action: string; entityKind: string | null; createdAt: string }>;
+  changes: Array<{
+    id: string;
+    surface: string | null;
+    summary: string;
+    riskTier: string;
+    impact: number;
+    createdBy: string | null;
+    createdAt: string;
+    repoId: string;
+  }>;
+  audit: Array<{
+    action: string;
+    entityKind: string | null;
+    entityId: string | null;
+    createdAt: string;
+    actor: string | null;
+    summary: string | null;
+  }>;
   /* ── v3 product layer (optional — tolerate absence while core catches up) ── */
   viewer?: { memberId: string; role: "owner" | "pm" | "member" };
   members?: Array<{
@@ -62,4 +100,60 @@ export interface ProjectOverview {
   archived?: boolean;
   productLayer?: boolean;
   autoBind?: boolean;
+}
+
+export interface DecisionDetail {
+  id: string;
+  projectId: string;
+  scopeKind: string;
+  scopeRef: string;
+  decisionType: string;
+  status: string;
+  origin: string;
+  impact: number;
+  currentVersion: number;
+  constraintKind: string | null;
+  expiresAt: string | null;
+  reviewAt: string | null;
+  createdAt: string;
+  ruleText: string;
+  rationale: string | null;
+  alternatives: string[] | null;
+  proposedBy: string | null;
+  versions: Array<{
+    version: number;
+    baseVersion: number | null;
+    ruleText: string;
+    rationale: string | null;
+    alternatives: string[] | null;
+    status: string;
+    proposedBy: string | null;
+    createdAt: string;
+  }>;
+  approvals: Array<{
+    version: number;
+    reviewer: string | null;
+    verdict: string;
+    comment: string | null;
+    createdAt: string;
+  }>;
+  requiredReviewers: Array<{ reviewer: string | null; required: boolean }>;
+  provenances: Array<{
+    source: string;
+    url: string | null;
+    evidence: Array<{ quote: string }> | null;
+    confidence: number | null;
+  }>;
+  consumers: Array<{
+    repoId: string;
+    gitRemote: string | null;
+    project: { id: string; name: string } | null;
+    source: string;
+  }>;
+  sameSurfaceBinding: number;
+  lineage: {
+    supersedes: Array<{ id: string; ruleText: string; status: string }>;
+    supersededBy: { id: string; ruleText: string; status: string } | null;
+  };
+  conflicts: Array<{ id: string; kind: string; status: string; surface: string }>;
 }
