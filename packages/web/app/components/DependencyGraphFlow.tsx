@@ -9,27 +9,6 @@ import { Card } from "@/components/ui/card";
 
 const short = (r: string) => r.split("/").pop() ?? r;
 
-// React Flow positions and paints nodes from style objects; these are data, not JSX attributes.
-const consumerStyle = {
-  background: "var(--muted)",
-  color: "var(--foreground)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  fontSize: 12,
-  padding: "6px 10px",
-  width: 190,
-};
-const surfaceStyle = {
-  background: "var(--card)",
-  color: "var(--primary)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  fontSize: 11.5,
-  fontFamily: "var(--font-mono, monospace)",
-  padding: "6px 10px",
-  width: 260,
-};
-
 /**
  * Interactive dependency graph: consumer repos (left) → produced surfaces (right), with pan / zoom /
  * fit-to-view and a text filter. The canvas starts below the filter so no node hides under it.
@@ -107,6 +86,7 @@ export function DependencyGraphFlow({
           nodes={nodes}
           edges={edges}
           fitView
+          colorMode="dark"
           minZoom={0.05}
           nodesConnectable={false}
           edgesFocusable={false}

@@ -7,7 +7,10 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e:seed": "node e2e/seed.mjs",
+    "e2e:shots": "node e2e/shots.mjs",
+    "test": "node --import tsx --test app/lib/*.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.2.6",
@@ -37,6 +40,8 @@
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
-    "typescript": "^5.6.3"
+    "playwright": "^1.52.0",
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2"
   }
 }

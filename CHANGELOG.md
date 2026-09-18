@@ -13,6 +13,12 @@ package is the only one published to npm; its npm version tracks the repo versio
 
 ### Added
 
+- **Dashboard redesign** — Tailwind + shadcn design system with one token layer, one row grammar
+  (who · when · impact on every list), a regrouped scrollable sidebar and breadcrumb topbar with ⌘K
+  search, a role-aware Home ("needs you", ranked by blast radius), a Decision detail page (blast radius,
+  agreement, provenance, history, propose new version), and one Review inbox (Notifications folded in).
+  Backed by an enriched overview API (actors, impact, answers, consumer counts, recent changes),
+  `GET …/decisions/:id`, and web-auth ack/propose routes. `packages/web/e2e` seeds and screenshots every route.
 - **Jev judgment stages** (optional, `TYPESAFE_API_KEY`) — Typesafe's System One model now makes the
   funnel's yes/no and pick-one calls: Stage-1 recall for threads and PRD sections (replaces the keyword
   prefilter + Haiku), the borderline-confidence recheck (replaces the Opus re-extraction), and

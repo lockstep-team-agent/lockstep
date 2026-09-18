@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Lockstep tokens — dark is :root, light is .light on <html>. Components never use raw colours. */
+/* Lockstep tokens — dark is :root, light is html.light (scoped to <html>: React Flow puts a `light` class on its own root). */
 :root {
   color-scheme: dark;
   --background: #0b0d12;
@@ -31,7 +31,7 @@
   --radius: 10px;
   --sidebar-w: 240px;
 }
-.light {
+html.light {
   color-scheme: light;
   --background: #fafafa;
   --card: #ffffff;
