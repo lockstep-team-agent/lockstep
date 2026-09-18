@@ -36,6 +36,10 @@ const schema = z.object({
   // runs exactly as before. Core's only AI seam; the distillation LLM stays in the ingest worker.
   VOYAGE_API_KEY: z.string().optional(),
 
+  // Jev (Typesafe System One) — calibrated same_rule/replaces/unrelated verdicts in the fusion scan.
+  // Optional — unset means the embedding/Jaccard path runs exactly as before.
+  TYPESAFE_API_KEY: z.string().optional(),
+
   LOCKSTEP_DEPLOYMENT: z.enum(["cloud", "self-host"]).default("self-host"),
 
   // Dev-only login bypass (never honored when NODE_ENV=production).

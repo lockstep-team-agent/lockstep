@@ -28,6 +28,7 @@ import {
 } from "../graph/graph-service.js";
 import { canRatifyTx, projectVisibility, projectArchived } from "../auth/permissions.js";
 import { prepareScopeSimilarity, embedTexts, EMBED_FUSE_MIN, EMBED_SUPERSEDE_MAX, type Embedder } from "./embeddings.js";
+import { judgeScopeRelations, judgeWithJev, JEV_RELATION_MIN_CONF, type ScopeJudge } from "./jev.js";
 import {
   semanticDecisionScores,
   hybridRank,
@@ -668,6 +669,7 @@ export async function fileProposedDecision(
   orgId: string,
   input: FileProposedInput,
   embedder: Embedder = embedTexts,
+  judge: ScopeJudge = judgeWithJev,
 ): Promise<{ decisionId: string; deduped: boolean; fused: boolean; supersedes?: string }> {
   const prov = (input.provenance ?? {}) as { source?: string; url?: string | null; evidence?: unknown };
   const origin = input.origin ?? "ingested";
@@ -682,6 +684,18 @@ export async function fileProposedDecision(
       dedupe: { connectionId: input.connectionId, externalId: input.externalId, contentHash: input.contentHash },
     },
     embedder,
+  );
+  // Jev pre-pass — same_rule/replaces/unrelated per mate, also OUTSIDE the tx. Null ⇒ the scan below
+  // uses cosine/Jaccard for every mate, exactly as before.
+  const relations = await judgeScopeRelations(
+    orgId,
+    {
+      projectId: input.projectId,
+      scopeRef: input.scopeRef,
+      ruleText: input.ruleText,
+      dedupe: { connectionId: input.connectionId, externalId: input.externalId, contentHash: input.contentHash },
+    },
+    judge,
   );
   const provRow = {
     source: prov.source,
@@ -718,13 +732,28 @@ export async function fileProposedDecision(
       .where(and(eq(decisions.projectId, input.projectId), eq(decisions.scopeRef, input.scopeRef)));
     let fuseInto: string | null = null;
     let supersedes: string | undefined;
-    // #6: per-mate similarity — embedding cosine when the pre-pass scored this mate, Jaccard
-    // otherwise (no key, outage, or a mate created after the pre-pass — race-safe). The method +
-    // score are recorded in the audits so threshold tuning is data-driven.
-    let similarity: { method: "embedding" | "jaccard"; score: number } | undefined;
+    // Per-mate signal, in order of trust: a confident Jev relation verdict; else embedding cosine when
+    // the pre-pass scored this mate; else Jaccard (no key, outage, or a mate created after the
+    // pre-pass — race-safe). Method + score land in the audits so thresholds are tuned from data.
+    let similarity: { method: "jev" | "embedding" | "jaccard"; score: number } | undefined;
     for (const m of scopeMates) {
       if (m.status === "rejected" || m.status === "superseded") continue;
       if (origin === "document" && m.origin !== "document") continue;
+
+      const verdict = relations?.get(m.id);
+      if (verdict && verdict.confidence >= JEV_RELATION_MIN_CONF) {
+        if (verdict.relation === "same_rule") {
+          fuseInto = m.id;
+          similarity = { method: "jev", score: verdict.confidence };
+          break;
+        }
+        if (verdict.relation === "replaces" && origin !== "document" && m.status === "binding") {
+          supersedes = m.id;
+          similarity = { method: "jev", score: verdict.confidence };
+        }
+        continue; // confident unrelated / replaces-on-non-binding: nothing more to compare
+      }
+
       const v = (
         await tx
           .select()
