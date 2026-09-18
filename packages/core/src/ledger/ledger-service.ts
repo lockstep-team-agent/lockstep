@@ -39,6 +39,7 @@ import {
 import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
 import { notifyConflictTx } from "../routing/routing-engine.js";
 import { inArray } from "drizzle-orm";
+import { confidenceFraction } from "./confidence.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -586,7 +587,7 @@ export async function listProvenancesForProject(
         externalId: r.externalId,
         url: r.url,
         evidence: r.evidence,
-        confidence: r.confidence,
+        confidence: confidenceFraction(r.confidence),
       });
     }
     return out;
@@ -2599,8 +2600,16 @@ export async function queryLedger(
   const scores = await semanticDecisionScores(orgId, projectId, q, opts?.embedders);
   let ranked = hybridRank(gathered.decRows, substringIds, scores);
   if (opts?.scope) {
-    // Scope boost, not a filter: rows on the asked-about scope float to the top.
-    ranked = [...ranked.filter((r) => r.scopeRef === opts.scope), ...ranked.filter((r) => r.scopeRef !== opts.scope)];
+    // Scope is an INCLUSION, not merely a boost. Ranking above only admits rows that matched the
+    // question lexically or semantically, so "what governs http:POST /expenses" returned nothing
+    // whenever the rule's wording didn't echo the question — and with no embedding key, that is
+    // almost always. A decision on the scope the caller named is an answer to the question by
+    // definition, so it is added here and ranked first.
+    const rankedById = new Map(ranked.map((r) => [r.id, r]));
+    const onScope = gathered.decRows
+      .filter((r) => r.scopeRef === opts.scope)
+      .map((r) => rankedById.get(r.id) ?? { ...r, match: "exact" as const, score: null });
+    ranked = [...onScope, ...ranked.filter((r) => r.scopeRef !== opts.scope)];
   }
   return { decisions: ranked, changes: gathered.changes, answeredQuestions: gathered.answeredQuestions };
 }

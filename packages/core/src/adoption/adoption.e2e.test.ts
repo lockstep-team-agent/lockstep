@@ -100,6 +100,23 @@ test("pilot: independent PM → ratify/export → same-project developer → con
   }
   const isolated = await request("POST", "/pilot/projects", { name: "Another tenant" });
   assert.equal((await withOrg(isolated.orgId, (tx) => tx.select().from(nativeDocumentVersions))).length, 0);
+  // REGRESSION (QA P1): the briefing and the pack scope to the repo's own surfaces. Passing an empty
+  // surface list made every surface-scoped binding decision invisible to the agent — the ledger was
+  // written but never delivered back.
+  const surfaceRule = await request("POST", "/decisions", { scopeKind: "surface", scopeRef: "http:POST /expenses", decisionType: "architecture", ruleText: "Expense approvals are recorded as immutable events.", baseVersion: 0 }, ah);
+  assert.equal(surfaceRule.status, "binding", "own-area decision binds on assertion");
+  await request("POST", "/surfaces", { surfaces: ["http:POST /expenses"] }, ah);
+  const briefed = await request("GET", "/continuity", undefined, ah);
+  assert.ok(briefed.decisions.some((d: { ruleText: string }) => /immutable events/.test(d.ruleText)), "session briefing delivers the surface-scoped rule");
+  assert.match((await request("GET", "/continuity/pack", undefined, ah)).markdown, /immutable events/, "so does the decision pack");
+  // REGRESSION (QA P1): naming a scope must RETURN that scope's decisions, not merely re-rank hits.
+  const asked = await request("POST", "/query", { question: "What governs this endpoint?", scope: "http:POST /expenses" }, ah);
+  assert.ok(asked.decisions.some((d: { scopeRef: string }) => d.scopeRef === "http:POST /expenses"), "query answers from the named scope");
+  // REGRESSION (QA P1): re-inviting an already-invited handle is a no-op, not a 500.
+  const first = await request("POST", `${base}/invite`, { githubLogin: "qa-dupe" });
+  const again = await request("POST", `${base}/invite`, { githubLogin: "qa-dupe" });
+  assert.equal(again.inviteId, first.inviteId, "duplicate invite returns the standing invite");
+
   const events = await withOrg(orgId, (tx) => tx.select().from(usageEvents));
   assert.equal(events.filter((e) => e.event === "brief_exported").length, 1); assert.equal(events.filter((e) => e.event === "agent_briefing_delivered").length, 1);
   await withOrg(orgId, (tx) => tx.update(projectMembers).set({ status: "revoked" }).where(eq(projectMembers.projectId, projectId)));

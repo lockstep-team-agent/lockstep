@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
-import { auditEvents, briefingCursors, sessions, usageEvents, decisionChecks, checkFeedback, repos, projects, sourceDocuments } from "../db/schema.js";
+import { auditEvents, briefingCursors, sessions, usageEvents, decisionChecks, checkFeedback, repos, projects, sourceDocuments, contracts, dependencyEdges } from "../db/schema.js";
 import type { SessionContext } from "../api/session-context.js";
 import { fileProposedDecision, listDecisions, constraintsInScope } from "../ledger/ledger-service.js";
 import { extractRules, type Extractor, type Section } from "./providers.js";
@@ -69,8 +69,24 @@ export async function scopedRules(c: SessionContext, surfaces: string[], feature
   }).sort((a, b) => b.impact - a.impact || a.id.localeCompare(b.id));
 }
 
-export async function continuityPack(c: SessionContext, featureRef?: string) {
-  const rules = await scopedRules(c, [], featureRef);
+/**
+ * The surfaces this session's repo is answerable for: what it serves, plus what it has declared it
+ * calls. Without these, `scopedRules` can never match a surface- or contract-scoped decision, so the
+ * briefing and the pack silently omit exactly the rules an agent is about to break.
+ */
+export async function repoSurfaces(c: SessionContext): Promise<string[]> {
+  return withOrg(c.orgId, async (tx) => {
+    const produced = await tx.select({ s: contracts.surface }).from(contracts).where(eq(contracts.repoId, c.repoId));
+    const consumed = await tx
+      .select({ s: dependencyEdges.producedSurface })
+      .from(dependencyEdges)
+      .where(and(eq(dependencyEdges.consumerRepoId, c.repoId), eq(dependencyEdges.active, true)));
+    return [...new Set([...produced, ...consumed].map((r) => r.s))];
+  });
+}
+
+export async function continuityPack(c: SessionContext, featureRef?: string, surfaces?: string[]) {
+  const rules = await scopedRules(c, surfaces ?? (await repoSurfaces(c)), featureRef);
   const p = await withOrg(c.orgId, async (tx) => (await tx.select().from(projects).where(eq(projects.id, c.projectId)).limit(1))[0]);
   const rendered = renderDecisionPack({ projectName: p?.name ?? "Project", decisions: rules });
   const generatedAt = new Date().toISOString();
@@ -80,7 +96,8 @@ export async function continuityPack(c: SessionContext, featureRef?: string) {
 /** Read-only summary first. A separate receipt advances the cursor only after the hook delivered it. */
 export async function continuity(c: SessionContext, featureRef?: string) {
   const sess = await withOrg(c.orgId, async (tx) => (await tx.select().from(sessions).where(eq(sessions.id, c.sessionId)).limit(1))[0]);
-  const rules = await scopedRules(c, [], featureRef);
+  const surfaces = await repoSurfaces(c);
+  const rules = await scopedRules(c, surfaces, featureRef);
   const baseline = sess?.briefingBaseline ?? new Date(0);
   const until = sess?.startedAt ?? new Date();
   const [events, checks, feedback] = await Promise.all([
@@ -94,7 +111,7 @@ export async function continuity(c: SessionContext, featureRef?: string) {
   const history = await listDecisions(c.orgId, c.projectId);
   for (const d of history) if (d.scopeKind === "repo" && d.scopeRef === repo.gitRemote) ids.add(d.id);
   return {
-    packHash: (await continuityPack(c, featureRef)).packHash,
+    packHash: (await continuityPack(c, featureRef, surfaces)).packHash,
     since: sess?.briefingBaseline?.toISOString() ?? null,
     decisions: rules.slice(0, 30).map((d) => ({ id: d.id, version: d.version, ruleText: d.ruleText, scopeRef: d.scopeRef })),
     overflow: Math.max(0, rules.length - 30),
