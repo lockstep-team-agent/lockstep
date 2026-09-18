@@ -1,0 +1,14 @@
+{
+  "name": "lockstep",
+  "version": "0.2.0",
+  "description": "Shared decision memory for teams building with AI coding agents: captures each decision once and briefs every agent before it acts.",
+  "author": {
+    "name": "Naman Jain",
+    "email": "naman@getlockstep.dev",
+    "url": "https://www.getlockstep.dev"
+  },
+  "homepage": "https://www.getlockstep.dev",
+  "repository": "https://github.com/lockstep-team-agent/lockstep",
+  "license": "Apache-2.0",
+  "keywords": ["decision-memory", "ai-agents", "mcp", "team-coordination", "agent-context"]
+}
