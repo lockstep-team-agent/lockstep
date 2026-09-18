@@ -31,6 +31,17 @@ export async function apiDelete<T = unknown>(path: string): Promise<T | null> {
   return (await res.json()) as T;
 }
 
+/** POST returning the raw Response — for callers that must branch on the status (e.g. 409 CAS). */
+export async function apiPostRaw(path: string, body: unknown): Promise<Response> {
+  const t = token();
+  return fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(t ? { authorization: `Bearer ${t}` } : {}) },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+}
+
 export async function apiPost<T = unknown>(path: string, body: unknown): Promise<T | null> {
   const t = token();
   const res = await fetch(`${API}${path}`, {

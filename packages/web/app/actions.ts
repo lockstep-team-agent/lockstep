@@ -2,7 +2,7 @@
 import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { apiPost, apiDelete } from "./lib/api";
+import { apiPost, apiPostRaw, apiDelete } from "./lib/api";
 
 export async function loginAction(formData: FormData): Promise<void> {
   const token = String(formData.get("token") ?? "");
@@ -311,4 +311,49 @@ export async function updateMemberRoleAction(formData: FormData): Promise<void> 
     role: String(formData.get("role") ?? "member"),
   });
   revalidatePath(`/project/${orgId}/${projectId}/members`);
+}
+
+/* ── Decision detail / Home (web-auth routes, no MCP session) ── */
+
+export async function ackDecisionAction(formData: FormData): Promise<void> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const version = Number(formData.get("version") ?? 0);
+  await apiPost(`/orgs/${orgId}/projects/${projectId}/decisions/${id}/ack`, { version, verdict: "ack" });
+  revalidatePath(`/project/${orgId}/${projectId}`);
+  revalidatePath(`/project/${orgId}/${projectId}/decisions`);
+  revalidatePath(`/project/${orgId}/${projectId}/decisions/${id}`);
+}
+
+export interface ProposeVersionState {
+  error?: string;
+  ok?: boolean;
+}
+
+export async function proposeVersionAction(
+  _prev: ProposeVersionState | undefined,
+  formData: FormData,
+): Promise<ProposeVersionState> {
+  const orgId = String(formData.get("orgId") ?? "");
+  const projectId = String(formData.get("projectId") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const ruleText = String(formData.get("ruleText") ?? "").trim();
+  if (!ruleText) return { error: "Rule text is required." };
+  const res = await apiPostRaw(`/orgs/${orgId}/projects/${projectId}/decisions`, {
+    scopeKind: String(formData.get("scopeKind") ?? ""),
+    scopeRef: String(formData.get("scopeRef") ?? ""),
+    ruleText,
+    baseVersion: Number(formData.get("baseVersion") ?? 0),
+    decisionType: String(formData.get("decisionType") || "rule"),
+    rationale: String(formData.get("rationale") ?? "").trim() || undefined,
+    reviewAt: String(formData.get("reviewAt") ?? "") || undefined,
+    supersedes: id,
+  });
+  if (res.status === 409)
+    return { error: "This decision changed while you were editing. Reload to see the latest version." };
+  if (!res.ok) return { error: `Could not propose the new version (HTTP ${res.status}).` };
+  revalidatePath(`/project/${orgId}/${projectId}/decisions`);
+  revalidatePath(`/project/${orgId}/${projectId}/decisions/${id}`);
+  return { ok: true };
 }
