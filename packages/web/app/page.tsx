@@ -1,3 +1,4 @@
+import { CreatePilotForm } from "@/components/AdoptionForms";
 import { ArrowRight, FolderGit2 } from "lucide-react";
 import { hasToken, apiGet } from "@/lib/api";
 import { loginAction, logoutAction } from "@/actions";
@@ -110,9 +111,16 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
         </div>
       </div>
 
+      <section className="mb-6 rounded-lg border p-4">
+        <h2 className="font-semibold">Keep decisions across Claude sessions</h2>
+        <p className="my-2 text-sm text-muted-foreground">Start in one repo. Preview local documents, confirm a decision, and connect Claude.</p>
+        <RefChip>npx lockstep-cli onboard</RefChip>
+      </section>
+      <CreatePilotForm />
+
       {active.length === 0 ? (
         <EmptyState icon={<FolderGit2 />} title="No workspace yet">
-          Run <RefChip copy={false}>lockstep connect</RefChip> inside a repo to create your workspace and link it.
+          Create a project above, or start from your repo with the onboarding command.
         </EmptyState>
       ) : (
         <Section label="Projects" count={active.length}>

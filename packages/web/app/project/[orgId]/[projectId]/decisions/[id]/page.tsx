@@ -1,3 +1,5 @@
+import { ShareBrief } from "@/components/ShareBrief";
+import { CheckHistory } from "@/components/CheckHistory";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GitFork, Users, FileText, History, AlertTriangle } from "lucide-react";
@@ -328,6 +330,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
           ← All decisions
         </Link>
       </p>
+      <ShareBrief orgId={orgId} projectId={projectId} filters={{ decisionId: id }} />
+      <CheckHistory orgId={orgId} projectId={projectId} filters={{ decisionId: id }} />
     </>
   );
 }

@@ -1,3 +1,5 @@
+import { ShareBrief } from "@/components/ShareBrief";
+import { CheckHistory } from "@/components/CheckHistory";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CheckCircle2, Inbox, GitCommitHorizontal } from "lucide-react";
@@ -279,6 +281,16 @@ export default async function Home({ params }: { params: { orgId: string; projec
           )}
         </Section>
       </div>
+      <Section label="Start with one decision or brief">
+        <div className="grid gap-3 p-4 text-sm">
+          <p>Developers: preview your repo and connect Claude to this project's existing decisions.</p>
+          <RefChip>{`npx lockstep-cli onboard --project-id ${projectId}`}</RefChip>
+          <Link className="underline" href={`${base}/sources`}>Product: paste a brief and review requirements →</Link>
+          <Link className="underline" href={`${base}/members`}>Invite a colleague to this project →</Link>
+        </div>
+      </Section>
+      <ShareBrief orgId={orgId} projectId={projectId} />
+      <CheckHistory orgId={orgId} projectId={projectId} />
     </>
   );
 }

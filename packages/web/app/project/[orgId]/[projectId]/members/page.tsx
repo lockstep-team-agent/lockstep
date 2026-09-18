@@ -55,7 +55,6 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const visibility = o?.visibility ?? "shared";
   const archived = o?.archived ?? false;
   const repos = o?.repos ?? [];
-  const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
   const api = process.env.LOCKSTEP_API_URL ?? "https://your-core";
   const appSlug = process.env.GITHUB_APP_SLUG;
   const installUrl = appSlug
@@ -218,11 +217,10 @@ export default async function Page({ params }: { params: { orgId: string; projec
           <CardContent className="p-4 text-sm">
             <p className="mb-3 text-muted-foreground">Have them run, from inside their repo:</p>
             <pre className="overflow-x-auto rounded-md border bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
-              {`npm i -g lockstep-cli\nlockstep login --api ${api}\nlockstep onboard --project "${projectName}"`}
+              {`npx lockstep-cli login --api ${api}\nnpx lockstep-cli onboard --project-id ${projectId}`}
             </pre>
             <p className="mt-2 text-xs text-muted-foreground">
-              <RefChip copy={false}>onboard</RefChip> wires the repo for their agent (hooks, MCP, skills) and links it
-              to this project in one step.
+              Invite their GitHub handle first. Developers run this command to join this exact project, preview their inputs, and install personal Claude configuration. Product colleagues sign in to the dashboard; no CLI is required. A feature brief includes its feature reference for the developer.
             </p>
           </CardContent>
         </Card>
