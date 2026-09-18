@@ -58,6 +58,7 @@ for (const width of widths) {
     console.log(`${label}/${width}/${name}.png`);
   }
   // One decision detail page, if any decision exists.
+  await page.goto(WEB + base + "/decisions", { waitUntil: "networkidle" });
   const first = await page
     .locator(`a[href^="${base}/decisions/"]`)
     .first()
