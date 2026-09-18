@@ -1,10 +1,12 @@
 import type { ManagedHook, McpServerSpec } from "./merge.js";
+import { readFileSync } from "node:fs";
 
-// Uses the globally-installed `lockstep` bin. (When the package is published to npm,
-// an installer flag can switch these to `npx @lockstep/cli` for zero-install teammates.)
+// Each generated entry works without a global binary and stays on the installing version.
+export const CLI_VERSION = (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+export const PINNED_COMMAND = `npx --yes --package=lockstep-cli@${CLI_VERSION} lockstep`;
 export const mcpSpec = (vendor: string): McpServerSpec => ({
-  command: "lockstep",
-  args: ["mcp"],
+  command: "npx",
+  args: ["--yes", `--package=lockstep-cli@${CLI_VERSION}`, "lockstep", "mcp"],
   env: { LOCKSTEP_VENDOR: vendor },
 });
 
@@ -27,6 +29,9 @@ description: Keep this repo's coding agents in lockstep — read the shared ledg
 # Lockstep
 
 This project uses Lockstep to coordinate multiple developers' coding agents on the same codebase.
+
+Keep accepted engineering and product decisions consistent across sessions. If MCP is unavailable,
+tell the user to run \`npx lockstep-cli onboard\` in this repo, then continue without it.
 
 ## On session start
 - Call \`inbox\` to see what changed, what's newly binding, and what's delegated to you.
@@ -61,6 +66,9 @@ This project uses Lockstep to coordinate multiple developers' coding agents on t
     for a date or omit it — never invent one.
 
 ## After making a change
+- Before completing a coding task, call \`check_decisions\` when the user has enabled hosted checks.
+  It sends a bounded working diff to the configured API. Findings are advisory; unavailable or partial
+  checks do not establish compliance. Never infer that a feature is complete from a check.
 - Summarize the change and call \`notify\` (include a contract delta for interface changes).
 - For any surface you call, record the dependency with \`register_dependency\`.
 

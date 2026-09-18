@@ -171,7 +171,11 @@ test("runScan --apply (connected) resolves consumes against the catalog and sync
   const proposal = JSON.parse(logs.join(""));
   assert.equal(proposal.connected, true);
   assert.deepEqual(proposal.consumes, [{ surface: "http:GET /inventory/:sku", producer: "github.com/acme/inventory" }]);
-  assert.deepEqual(proposal.unmatched, [{ ref: "https://api.stripe.com/pay", via: "fetch" }]);
+  assert.deepEqual(
+    proposal.unmatched,
+    [{ ref: "https://api.stripe.com/pay", via: "fetch", file: "src/client.ts" }],
+    "a scanned unmatched call carries the file it came from — the invite mapping depends on it",
+  );
   assert.deepEqual(posted["/surfaces"], [{ surfaces: ["http:POST /orders"] }], "produces synced to catalog");
   assert.deepEqual(
     posted["/dependencies"],

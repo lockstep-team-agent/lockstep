@@ -22,19 +22,19 @@ interface ConnectResult {
  *  - opens it (if you're already a member), or
  *  - creates the project and connects it.
  */
-export async function runConnect(opts: { org?: string; project?: string }): Promise<void> {
+export async function runConnect(opts: { org?: string; project?: string; projectId?: string; pilot?: boolean }): Promise<void> {
   const remote = gitRemote(process.cwd());
   if (!remote) {
     console.error("No git 'origin' remote here — Lockstep identifies a repo by its remote.");
     process.exit(1);
   }
 
-  const r = await cloud.post<ConnectResult>("/connect", { gitRemote: remote, project: opts.project });
+  const r = await cloud.post<ConnectResult>("/connect", { gitRemote: remote, project: opts.project, projectId: opts.projectId, pilot: opts.pilot });
   const verb =
     r.status === "created" ? "created and connected" : r.status === "joined" ? "joined" : "already connected to";
   console.log(`✓ ${verb} project "${r.projectName}"  (${remote})`);
 
-  if (r.createdOrg) {
+  if (r.createdOrg && !opts.pilot) {
     // The repo landed in a brand-new workspace — likely NOT what you want if a teammate already has
     // this project. Cross-service teammates join via an invite, not by naming the same project.
     console.log(`\n⚠ This created a NEW workspace "${r.projectName}".`);

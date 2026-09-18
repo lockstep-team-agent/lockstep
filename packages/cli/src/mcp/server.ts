@@ -5,7 +5,9 @@ import { registerSession, type Session } from "./session.js";
 import { call } from "./api.js";
 import { gitRemote } from "./git.js";
 import { writeFeatureContext } from "../capture/feature-context.js";
-import { writeDecisionPack, packPath, type PackResp } from "../pack.js";
+import { writeDecisionPack, packPath, decisionPackEndpoint, type PackResp } from "../pack.js";
+import { performCheck } from "../check.js";
+import { readLocalState, saveLocalState } from "../local-state.js";
 
 /**
  * The per-session MCP server (one process per agent session). Registers the session,
@@ -24,7 +26,7 @@ export async function runMcpServer(): Promise<void> {
   const withSession = async <T>(
     fn: (sid: string) => Promise<T>,
   ): Promise<T> => fn((await getSession()).sessionId);
-  let featureCtx: string | null = null; // set via set_feature_context; defaults capabilityRef on notify/propose
+  let featureCtx: string | null = readLocalState().featureRef ?? null;
   const remote = gitRemote(process.cwd());
   const ok = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data) }] });
 
@@ -106,11 +108,17 @@ export async function runMcpServer(): Promise<void> {
   server.tool("set_feature_context", { capabilityRef: z.string() }, async (a) => {
     featureCtx = a.capabilityRef;
     if (remote) writeFeatureContext(remote, a.capabilityRef);
+    saveLocalState({ featureRef: a.capabilityRef });
     return ok({ ok: true, capabilityRef: a.capabilityRef });
   });
+  server.tool("check_decisions", { base: z.string().optional() }, async (a) => {
+    if (!readLocalState().automaticChecks) return ok({ status: "skipped", message: "Hosted diff checks are not enabled. Ask the user to run lockstep checks on, or lockstep check --upload for a single check." });
+    return ok(await performCheck({ base: a.base, session: await getSession(), featureRef: featureCtx ?? undefined }));
+  });
+  server.tool("session_briefing", {}, async () => ok(await withSession((sid) => call("GET", `/continuity${featureCtx ? `?featureRef=${encodeURIComponent(featureCtx)}` : ""}`, sid))));
   // Local FS side effect (like set_feature_context): rewrites the generated decision-pack skill.
   server.tool("refresh_decision_pack", {}, async () => {
-    const p = await withSession((sid) => call<PackResp>("GET", "/decision-pack", sid));
+    const p = await withSession((sid) => call<PackResp>("GET", decisionPackEndpoint(), sid));
     const results = await writeDecisionPack(process.cwd(), p.markdown, false);
     return ok({
       packHash: p.packHash,

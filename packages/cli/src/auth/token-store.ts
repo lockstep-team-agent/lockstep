@@ -54,6 +54,7 @@ export async function setToken(token: string): Promise<void> {
 }
 
 export async function getToken(): Promise<string | null> {
+  if (process.env.LOCKSTEP_TOKEN) return process.env.LOCKSTEP_TOKEN;
   const kc = await keychain();
   if (kc) {
     try {

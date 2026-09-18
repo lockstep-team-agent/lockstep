@@ -7,11 +7,13 @@ export async function call<T = unknown>(
   path: string,
   sessionId: string | undefined,
   body?: unknown,
+  timeoutMs = 15_000,
 ): Promise<T> {
   const API = resolveApiUrl();
   const token = await getToken();
   const res = await fetch(`${API}${path}`, {
     method,
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...(token ? { authorization: `Bearer ${token}` } : {}),

@@ -9,6 +9,9 @@ import { changedFiles } from "./diff.js";
 import { isContractSurface, riskTierFor } from "./classify.js";
 import { extractAllSurfaces } from "./extract.js";
 import { readManifest } from "./manifest.js";
+import { readHookInput } from "./hook-input.js";
+import { readLocalState, saveLocalState } from "../local-state.js";
+import { formatCheck, performCheck } from "../check.js";
 
 /** Sync this repo's declared dependencies (lockstep.yaml `consumes:`) into the usage graph. Idempotent. */
 async function syncManifestDeps(cwd: string, sessionId: string): Promise<void> {
@@ -142,37 +145,51 @@ function formatPeek(peek: PeekResp | null): string | null {
  *  PostToolUse/Stop → diff → classify surface → risk-tiered publish via notify.
  */
 export async function runCapture(event: string): Promise<void> {
-  const vendor = process.env.LOCKSTEP_VENDOR ?? "unknown";
+  const vendor = process.env.LOCKSTEP_VENDOR ?? "claude";
+  const input = await readHookInput();
   const cwd = process.cwd();
 
   let session;
   try {
-    session = await registerSession(vendor);
+    session = await registerSession(vendor, input.session_id);
   } catch {
     process.exit(0); // not a connected repo / not logged in → silent no-op
   }
 
   const remote = gitRemote(cwd);
-  const capabilityRef = remote ? readFeatureContext(remote) : null;
+  const capabilityRef = readLocalState().featureRef ?? (remote ? readFeatureContext(remote) : null);
 
   try {
     if (event === "SessionStart") {
       await syncManifestDeps(cwd, session.sessionId); // keep the usage graph current from lockstep.yaml
       const inbox = await call<InboxResp>("GET", "/inbox", session.sessionId).catch(() => null);
-      const decisions = await call<DecisionsResp>("GET", "/decisions", session.sessionId).catch(() => null);
-      const briefing = await call<BriefingResp>("GET", "/briefing", session.sessionId).catch(() => null);
+      let decisions = await call<DecisionsResp>("GET", "/decisions", session.sessionId).catch(() => null);
+      let briefing = await call<BriefingResp>("GET", "/briefing", session.sessionId).catch(() => null);
+      const continuity = await call<{ packHash: string; decisions: Array<{ id: string; version: number; scopeRef: string; ruleText: string }>; updates: Array<{ action: string; decisionId: string }>; concerns: Array<{ file: string; line: number; decisionId: string }>; nativeSession: boolean }>("GET", `/continuity${capabilityRef ? `?featureRef=${encodeURIComponent(capabilityRef)}` : ""}`, session.sessionId).catch(() => null);
+      if (continuity) {
+        decisions = { decisions: continuity.decisions.map((d) => ({ ...d, status: "binding" })) };
+        briefing = { constraints: [], overflow: 0, pack: { hash: continuity.packHash } };
+      }
       let packState: PackState = null;
       if (briefing?.pack?.hash) {
         const { readLocalPackHash } = await import("../pack.js");
         const local = readLocalPackHash(cwd);
         packState = local === null ? "missing" : local === briefing.pack.hash ? null : "stale";
       }
-      const replay = formatReplay(inbox, decisions, briefing, packState);
+      let replay = formatReplay(inbox, decisions, briefing, packState);
+      if (continuity?.updates.length) replay += `\nSince your previous session:\n${continuity.updates.map((u) => `  • ${u.action}: ${u.decisionId}`).join("\n")}`;
+      if (continuity?.concerns.length) replay += `\nUnresolved advisory concerns:\n${continuity.concerns.map((f) => `  • ${f.file}:${f.line} — review decision ${f.decisionId}`).join("\n")}`;
+      if (!continuity && !decisions && !briefing) replay += "\nLive context unavailable. Any installed decision pack is cached and may be stale.";
       process.stdout.write(
         JSON.stringify({
           hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: replay },
         }),
       );
+      if (continuity?.nativeSession && input.session_id) {
+        await call("POST", "/continuity/receipt", session.sessionId, { decisionIds: continuity.decisions.map((d) => d.id) }).then(() => {
+          saveLocalState({ verifiedAt: new Date().toISOString(), verifiedSession: input.session_id });
+        }).catch(() => {});
+      }
       // Also write to stderr so it's visible in the terminal
       if ((inbox?.unread ?? 0) > 0) {
         process.stderr.write(`\n${replay}\n\n`);
@@ -183,6 +200,12 @@ export async function runCapture(event: string): Promise<void> {
     // PostToolUse / Stop — capture the change
     const files = changedFiles(cwd);
     if (files.length === 0) return;
+    let checkMessage = "";
+    if (event === "Stop" && !input.stop_hook_active && readLocalState().automaticChecks) {
+      const result = await performCheck({ session, automatic: true, featureRef: capabilityRef ?? undefined });
+      checkMessage = formatCheck(result);
+      process.stderr.write(`\n${checkMessage}\n`);
+    }
 
     // Extract CANONICAL surface IDs (e.g. "http:POST /auth/session") — the shared vocabulary that
     // lets a consumer's declared dependency match a producer's change. File paths never matched.
@@ -244,7 +267,9 @@ export async function runCapture(event: string): Promise<void> {
     // Peek at inbox (without marking as read) — notify the agent if there are unread items
     const peek = await call<PeekResp>("GET", "/inbox/peek", session.sessionId).catch(() => null);
     const badge = formatPeek(peek);
-    if (badge) {
+    if (event === "Stop" && (checkMessage || badge)) {
+      process.stdout.write(JSON.stringify({ systemMessage: [checkMessage, badge].filter(Boolean).join("\n") }));
+    } else if (badge) {
       process.stdout.write(
         JSON.stringify({
           hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: badge },

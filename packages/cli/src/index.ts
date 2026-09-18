@@ -13,7 +13,7 @@ const val = (n: string): string | undefined => {
 };
 
 function help(): void {
-  console.log(`lockstep — keep your team's coding agents in sync
+  console.log(`lockstep — keep decisions consistent across Claude sessions
 
 usage: lockstep <command>
 
@@ -22,7 +22,13 @@ usage: lockstep <command>
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
   connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
-  onboard [--project <name>]                        one step: init + connect (for a teammate joining a repo)
+  onboard [--project-id <id>] [--dry-run]            preview → connect → review decisions → configure Claude
+         [--yes --upload-docs] [--no-docs] [--enable-checks|--disable-checks]
+         [--feature feature:name] [--docs path1.md,path2.md] [--decision "rule"]
+  check [--base <revision>] [--upload]                advisory decision check of tracked changes
+  checks on|off                                     enable/revoke automatic hosted diff checks for this checkout
+  brief                                             print a copyable decision brief for this project
+  uninstall [--dry-run] [--scope project|user]        remove managed Claude integration; preserve history
   scan  [--json] [--apply] [--dry-run]              scan the repo → propose lockstep.yaml (produces + graph-resolved consumes)
   sync                                              push lockstep.yaml (produces + consumes) to the graph, no rescan
   pack  [--check] [--dry-run]                       write the compiled decision pack skill (--check: exit 1 if stale)
@@ -32,11 +38,6 @@ usage: lockstep <command>
   mcp                                               run the per-session MCP server (used by agents)
   capture --event <E>                               hook entrypoint (used by hooks)              [P6]
 `);
-}
-
-function notYet(name: string, phase: string): never {
-  console.error(`\`lockstep ${name}\` is not implemented yet (arrives in ${phase}).`);
-  process.exit(2);
 }
 
 async function main(): Promise<void> {
@@ -66,25 +67,54 @@ async function main(): Promise<void> {
         dryRun: has("dry-run"),
       });
     case "connect":
-      return runConnect({ org: val("org"), project: val("project") });
+      return runConnect({ org: val("org"), project: val("project"), projectId: val("project-id") });
     case "onboard": {
-      // One-step teammate onboarding: wire the repo (init) then link it (connect).
-      await runInit({ vendor: val("vendor"), scope: (val("scope") as Scope) ?? "project", dryRun: has("dry-run") });
-      if (has("dry-run")) return;
-      await runConnect({ org: val("org"), project: val("project") });
-      // Best-effort: seed the compiled decision pack now that the repo is connected. Never fatal.
-      try {
-        const { runPack } = await import("./pack.js");
-        await runPack({});
-      } catch {
-        /* pack requires a reachable core with /decision-pack — the session-start nudge covers it */
-      }
-      console.log("\nOnboarded. Run `lockstep scan` to propose this repo's dependencies.");
+      const { runOnboard } = await import("./onboard.js");
+      return runOnboard({ vendor: val("vendor"), scope: (val("scope") as Scope) ?? "project", dryRun: has("dry-run"),
+        api: val("api"), project: val("project"), projectId: val("project-id"), feature: val("feature"), noDocs: has("no-docs"), broadDocs: has("broad-docs"),
+        yes: has("yes"), uploadDocs: has("upload-docs"), enableChecks: has("enable-checks"), disableChecks: has("disable-checks"), docs: val("docs")?.split(","), manualDecision: val("decision") });
+    }
+    case "checks": {
+      if (argv[1] !== "on" && argv[1] !== "off") throw new Error("usage: lockstep checks on|off");
+      const { saveLocalState } = await import("./local-state.js");
+      saveLocalState({ automaticChecks: argv[1] === "on" });
+      console.log(argv[1] === "on" ? "Hosted checks enabled: bounded tracked-code diffs will be sent to your configured API and judgment provider at task completion." : "Hosted code checks disabled. Decision continuity remains available.");
       return;
+    }
+    case "check": {
+      const { readLocalState } = await import("./local-state.js");
+      const { collectDiff, performCheck, formatCheck } = await import("./check.js");
+      let approved = has("upload") || readLocalState().automaticChecks === true;
+      if (!approved) {
+        const preview = collectDiff(process.cwd(), val("base"));
+        console.log(`Preview: ${preview.hunks.length} bounded diff hunk(s) in ${[...new Set(preview.hunks.map((h) => h.file))].join(", ") || "no tracked files"}.`);
+        if (process.stdin.isTTY) {
+          const { createInterface } = await import("node:readline/promises");
+          const rl = createInterface({ input: process.stdin, output: process.stdout });
+          try { approved = /^(y|yes)$/i.test((await rl.question("Send this tracked-code diff to the configured API and judgment provider for this check? [y/N] ")).trim()); }
+          finally { rl.close(); }
+        } else console.log("No upload performed. Use --upload for this invocation, or lockstep checks on for automatic checks.");
+      }
+      console.log(formatCheck(await performCheck({ base: val("base"), uploadApproved: approved })));
+      return;
+    }
+    case "brief": {
+      const { registerSession } = await import("./mcp/session.js");
+      const { cloud } = await import("./cloud.js");
+      const s = await registerSession("cli");
+      const result = await cloud.get<{ markdown: string; hash: string }>(`/orgs/${s.orgId}/projects/${s.projectId}/brief`);
+      console.log(result.markdown);
+      await cloud.post(`/orgs/${s.orgId}/projects/${s.projectId}/brief/exported`, { hash: result.hash });
+      return;
+    }
+    case "uninstall": {
+      const { runUninstall } = await import("./uninstall.js");
+      return runUninstall({ dryRun: has("dry-run"), scope: (val("scope") as Scope) ?? "project" });
     }
     case "scan": {
       const { runScan } = await import("./scan.js");
-      return runScan({ json: has("json"), apply: has("apply"), dryRun: has("dry-run") });
+      await runScan({ json: has("json"), apply: has("apply"), dryRun: has("dry-run") });
+      return;
     }
     case "sync": {
       const { runSync } = await import("./scan.js");

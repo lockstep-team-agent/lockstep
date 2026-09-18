@@ -54,7 +54,7 @@ export function mergeHooks(existing: string | null, managed: ManagedHook[], comm
     const foreign = arr.filter((e) => !isOurs(e));
     const ours: HookEntry[] = ms.map((m) => ({
       matcher: m.matcher,
-      hooks: [{ type: "command", command, args: m.args, timeout: m.timeout }],
+      hooks: [{ type: "command", command: `${command} ${m.args.map(shellQuote).join(" ")}`, timeout: m.timeout }],
     }));
     hooks[event] = [...foreign, ...ours];
   }
@@ -76,7 +76,7 @@ export function mergeStatusLine(existing: string | null, command: string, args: 
   const obj: Json = existing ? (JSON.parse(existing) as Json) : {};
   // Only install if no statusLine is configured yet (don't overwrite user's custom one)
   if (!obj.statusLine) {
-    obj.statusLine = { type: "command", command, args };
+    obj.statusLine = { type: "command", command: `${command} ${args.map(shellQuote).join(" ")}` };
   }
   return JSON.stringify(obj, null, 2) + "\n";
 }
@@ -112,6 +112,14 @@ export function removeManagedStatusLine(existing: string): string {
 
 const START = "<!-- lockstep:start -->";
 const END = "<!-- lockstep:end -->";
+
+function shellQuote(value: string): string {
+  return /^[a-zA-Z0-9_@./:=+-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export function removeManagedBlock(existing: string): string {
+  return existing.replace(new RegExp(`${START}[\\s\\S]*?${END}\\n?`, "g"), "");
+}
 
 /** Replace only the delimited managed block in a markdown file; append if absent. */
 export function upsertManagedBlock(existing: string | null, block: string): string {
