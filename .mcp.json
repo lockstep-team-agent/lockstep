@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "lockstep": {
+      "command": "npx",
+      "args": ["-y", "lockstep-cli", "mcp"],
+      "env": {
+        "LOCKSTEP_VENDOR": "claude-code"
+      }
+    }
+  }
+}
