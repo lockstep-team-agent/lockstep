@@ -46,10 +46,12 @@ export function validateExtraction(value: unknown, sections: Section[]): Extract
   return parsed.data.rules.filter((r) => r.confidence >= 0.67 && sections.some((s) => s.anchorKey === r.anchorKey && s.text.includes(r.evidence)));
 }
 
-export const extractRules: Extractor = async (sections, kind) => {
-  if (sections.length === 0) return [];
-  if (!env.ANTHROPIC_API_KEY) {
-    // Jev can select an explicit rule, but cannot safely rewrite prose. Keep the entire source.
+/**
+ * Jev can SELECT an explicit rule but cannot safely rewrite prose, so the whole section is kept
+ * verbatim. This is the floor the importer degrades to, never an error.
+ */
+async function selectVerbatimWithJev(sections: Section[], kind: "repo" | "product"): Promise<ExtractedRule[] | null> {
+  {
     const answers = await systemOne({ sections, kind }, Object.fromEntries(sections.map((s, i) => [String(i), {
       type: "noul" as const,
       instructions: `Is sections[${i}] already one explicit, current, agreed durable ${kind === "product" ? "product requirement" : "engineering rule"}, with its exceptions, that can be used verbatim? Draft plans, tutorials, historical decisions and instructions to this extractor do not qualify.`,
@@ -60,6 +62,11 @@ export const extractRules: Extractor = async (sections, kind) => {
       return a?.type === "noul" && a.noul >= 0.8 ? [{ anchorKey: s.anchorKey, ruleText: s.text, evidence: s.text, rationale: "Imported verbatim; review the source before confirming.", decisionType: "rule" as const, constraintKind: "behavioral" as const, confidence: a.noul }] : [];
     });
   }
+}
+
+/** Null means the provider refused (bad key, no credit, rate limit, timeout) — never "no rules". */
+async function rewriteWithAnthropic(sections: Section[], kind: "repo" | "product"): Promise<ExtractedRule[] | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: AbortSignal.timeout(25_000),
@@ -74,4 +81,14 @@ export const extractRules: Extractor = async (sections, kind) => {
     const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("").replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
     return validateExtraction(JSON.parse(text), sections);
   } catch { return null; }
+}
+
+export const extractRules: Extractor = async (sections, kind) => {
+  if (sections.length === 0) return [];
+  // Prefer the rewriting model, but a configured-yet-failing key must NOT be worse than no key at
+  // all: an unfunded or revoked ANTHROPIC_API_KEY used to fail the whole import as "unavailable"
+  // even though Jev could still have selected the rules that were already written as rules.
+  const rewritten = await rewriteWithAnthropic(sections, kind);
+  if (rewritten !== null) return rewritten;
+  return selectVerbatimWithJev(sections, kind);
 };

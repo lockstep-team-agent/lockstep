@@ -24,7 +24,10 @@ export function buildApp(adoptionProviders: Parameters<typeof adoptionRoutesWith
     reply.code(err.statusCode ?? 500).send({ error: err.message });
   });
 
-  app.get("/healthz", async () => ({ ok: true, service: "lockstep-core" }));
+  // /healthz is the Railway probe; /health is the conventional name integrators reach for first.
+  const health = async () => ({ ok: true, service: "lockstep-core" });
+  app.get("/healthz", health);
+  app.get("/health", health);
   app.get("/readyz", async () => {
     await queryClient`select 1`;
     return { ok: true, db: "up", deployment: env.LOCKSTEP_DEPLOYMENT };

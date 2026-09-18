@@ -40,7 +40,7 @@ export async function saveNativeBrief(orgId: string, projectId: string, memberId
     if (input.documentId && (!doc || doc.projectId !== projectId || doc.tool !== "native")) throw fail("native document not found", 404);
     if (doc && !(await canManageDocTx(tx, { projectId, memberId, doc }))) throw fail("document edit requires owner, PM or author", 403);
     const prior = (await tx.select().from(nativeDocumentVersions).where(eq(nativeDocumentVersions.documentId, id)).orderBy(desc(nativeDocumentVersions.version)).limit(1))[0];
-    if (prior?.contentHash === contentHash) return prior;
+    if (prior?.contentHash === contentHash) return { ...prior, unchanged: true };
     if (prior && input.baseVersion !== prior.version) throw fail("brief changed; reload before saving", 409);
     if (prior && featureRef !== prior.featureRef) throw fail("feature reference is fixed; create another brief for a different feature");
     if (!doc) await tx.insert(sourceDocuments).values({ id, orgId, projectId, tool: "native", externalId: id, title: input.title, state: "review", stateAuthority: "native", registeredBy: memberId, ownerMemberId: memberId, contentHash });
@@ -55,7 +55,8 @@ export async function saveNativeBrief(orgId: string, projectId: string, memberId
     if (input.manualRules.some((text) => !input.content.includes(text))) throw fail("manual requirements must quote the pasted source");
     rules = input.manualRules.map((text) => ({ anchorKey: sections.find((s) => s.text.includes(text))?.anchorKey ?? "manual", evidence: text, ruleText: text, rationale: "Selected from source by the author; awaiting ratification.", confidence: 1, decisionType: "rule", constraintKind: "behavioral" }));
   } else rules = await extractor(sections, "product");
-  if (rules === null) return { documentId: id, version: saved.version, featureRef, status: "unavailable", partial, proposals: 0 };
+  const unchanged = "unchanged" in saved && saved.unchanged === true;
+  if (rules === null) return { documentId: id, version: saved.version, unchanged, featureRef, status: "unavailable", partial, proposals: 0 };
 
   const items: DocCandidateItem[] = [];
   const counts = new Map<string, number>();
@@ -79,5 +80,5 @@ export async function saveNativeBrief(orgId: string, projectId: string, memberId
     await fileDocCandidates(id, items, contentHash, partial ? [] : [...oldAnchors, ...items.map((it) => it.anchor.blockId)], items.map((it) => ({ anchorKey: it.anchor.blockId, headingPath: it.anchor.headingPath, snippet: it.anchor.snippet })));
   });
   await usage({ orgId, projectId, memberId }, "brief_imported", `${id}:${saved.version}`, { proposals: items.length });
-  return { documentId: id, version: saved.version, featureRef, status: partial ? "partial" : "completed", partial, proposals: items.length };
+  return { documentId: id, version: saved.version, unchanged, featureRef, status: partial ? "partial" : "completed", partial, proposals: items.length };
 }

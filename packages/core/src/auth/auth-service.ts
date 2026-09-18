@@ -202,13 +202,26 @@ export async function invite(
       throw Object.assign(new Error("only owners/PMs can invite"), { statusCode: 403 });
     if ((role === "owner" || role === "pm") && actorRole !== "owner")
       throw Object.assign(new Error("only owners can grant owner/pm"), { statusCode: 403 });
-    const row = one(
+    // Idempotent: re-inviting a handle that is already invited or active is a no-op that reports the
+    // standing invite, not a 500 from the (projectId, invitedGithubLogin) unique index. Doing it as
+    // insert-then-read (rather than read-then-insert) keeps two concurrent invites race-safe, and
+    // never rewrites an existing row — so a re-invite cannot change someone's role or status.
+    const inserted = (
       await tx
         .insert(projectMembers)
         .values({ orgId, projectId, invitedGithubLogin: githubLogin, role, invitedBy: me.id })
-        .returning(),
+        .onConflictDoNothing({ target: [projectMembers.projectId, projectMembers.invitedGithubLogin] })
+        .returning()
+    )[0];
+    if (inserted) return { inviteId: inserted.id, status: inserted.status };
+    const existing = one(
+      await tx
+        .select()
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.invitedGithubLogin, githubLogin)))
+        .limit(1),
     );
-    return { inviteId: row.id, status: row.status };
+    return { inviteId: existing.id, status: existing.status };
   });
 }
 
