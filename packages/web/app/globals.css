@@ -81,8 +81,17 @@
 }
 
 /* React Flow — the one third-party surface we theme by override. */
-.react-flow {
-  --xy-background-color: var(--card);
+/* Doubled selector out-specifies React Flow's own stylesheet, which is injected after ours. */
+.react-flow.react-flow {
+  --xy-background-color-default: var(--card);
+  --xy-background-pattern-dots-color-default: var(--border);
+  --xy-edge-stroke-default: var(--border);
+  --xy-node-boxshadow-default: none;
+  --xy-node-background-color-default: var(--muted);
+  --xy-node-color-default: var(--foreground);
+  --xy-node-border-default: 1px solid var(--border);
+  --xy-handle-background-color-default: var(--muted-foreground);
+  background: var(--card);
 }
 .react-flow__controls {
   @apply rounded-md border bg-card shadow-none;

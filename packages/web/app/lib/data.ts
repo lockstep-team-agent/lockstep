@@ -335,6 +335,3 @@ export const entityHref = (base: string, kind: string | null, id: string | null)
   if (kind === "dependency_edge") return `${base}/dependencies`;
   return undefined;
 };
-
-/** @deprecated legacy pages only — removed once every page uses humanizeAudit. */
-export const humanizeAction = (a: string): string => a.replace(/[._]/g, " ").replace(/^\w/, (c) => c.toUpperCase());

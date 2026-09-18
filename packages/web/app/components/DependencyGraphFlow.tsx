@@ -64,7 +64,8 @@ export function DependencyGraphFlow({
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         type: "input",
-        style: consumerStyle,
+        className:
+          "!rounded-md !border !border-border !bg-muted !px-2.5 !py-1.5 !text-xs !text-foreground !shadow-none !w-[190px]",
       }),
     );
     surfaces.forEach((s, i) =>
@@ -75,7 +76,8 @@ export function DependencyGraphFlow({
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         type: "output",
-        style: surfaceStyle,
+        className:
+          "!rounded-md !border !border-border !bg-card !px-2.5 !py-1.5 !font-mono !text-[11.5px] !text-primary !shadow-none !w-[260px]",
       }),
     );
     const es: Edge[] = deps.map((d, i) => ({
