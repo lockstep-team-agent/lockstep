@@ -8,6 +8,7 @@
   <a href="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml"><img src="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/lockstep-cli"><img src="https://img.shields.io/npm/v/lockstep-cli" alt="npm version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0 License"></a>
+  <a href="https://glama.ai/mcp/servers/lockstep-team-agent/lockstep"><img src="https://glama.ai/mcp/servers/lockstep-team-agent/lockstep/badges/score.svg" alt="Lockstep MCP server quality and maintenance score on Glama"></a>
   <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript strict">
 </p>
 
