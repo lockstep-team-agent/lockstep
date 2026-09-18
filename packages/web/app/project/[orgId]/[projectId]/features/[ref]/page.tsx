@@ -6,11 +6,7 @@ import { confirmGovernsEdgeAction, rejectGovernsEdgeAction } from "@/actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({
-  params,
-}: {
-  params: { orgId: string; projectId: string; ref: string };
-}) {
+export default async function Page({ params }: { params: { orgId: string; projectId: string; ref: string } }) {
   const { orgId, projectId, ref } = params;
   const feature = await getFeature(orgId, projectId, decodeURIComponent(ref));
   const base = `/project/${orgId}/${projectId}`;

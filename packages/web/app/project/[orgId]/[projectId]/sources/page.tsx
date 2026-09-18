@@ -40,7 +40,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
       <form action={registerDocumentAction} className="card animate-in" style={{ padding: 16, marginBottom: 16 }}>
         <input type="hidden" name="orgId" value={orgId} />
         <input type="hidden" name="projectId" value={projectId} />
-        <div className="title" style={{ marginBottom: 8 }}>Register a document</div>
+        <div className="title" style={{ marginBottom: 8 }}>
+          Register a document
+        </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input
             name="url"
@@ -100,7 +102,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <input type="hidden" name="docId" value={d.id} />
                     <select name="state" className="input" defaultValue={d.state} style={{ maxWidth: 120 }}>
                       {NATIVE_STATES.map((s) => (
-                        <option key={s} value={s}>{s}</option>
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
                       ))}
                     </select>
                     <button className="btn">Set</button>

@@ -18,7 +18,9 @@ export default async function Page({ params }: { params: { orgId: string; projec
     const n = nodes.find((x) => x.id === id);
     return n ? `${n.kind}:${n.label ?? n.ref}` : id.slice(0, 8);
   };
-  const byKind = KIND_ORDER.map((k) => ({ kind: k, items: nodes.filter((n) => n.kind === k) })).filter((x) => x.items.length);
+  const byKind = KIND_ORDER.map((k) => ({ kind: k, items: nodes.filter((n) => n.kind === k) })).filter(
+    (x) => x.items.length,
+  );
 
   return (
     <>
@@ -44,15 +46,23 @@ export default async function Page({ params }: { params: { orgId: string; projec
               {byKind.map((grp) => (
                 <div className="row" key={grp.kind}>
                   <div className="body">
-                    <div className="title" style={{ textTransform: "capitalize" }}>{grp.kind}</div>
+                    <div className="title" style={{ textTransform: "capitalize" }}>
+                      {grp.kind}
+                    </div>
                     <div className="meta" style={{ flexWrap: "wrap", gap: 6 }}>
                       {grp.items.map((n) =>
                         n.kind === "capability" ? (
-                          <Link key={n.id} href={`${base}/features/${encodeURIComponent(n.ref)}`} className="pill plain">
+                          <Link
+                            key={n.id}
+                            href={`${base}/features/${encodeURIComponent(n.ref)}`}
+                            className="pill plain"
+                          >
                             {n.label ?? n.ref}
                           </Link>
                         ) : (
-                          <span key={n.id} className="pill plain">{n.label ?? n.ref}</span>
+                          <span key={n.id} className="pill plain">
+                            {n.label ?? n.ref}
+                          </span>
                         ),
                       )}
                     </div>
@@ -86,16 +96,22 @@ export default async function Page({ params }: { params: { orgId: string; projec
           <form action={addGraphEdgeAction} className="card animate-in" style={{ padding: 16 }}>
             <input type="hidden" name="orgId" value={orgId} />
             <input type="hidden" name="projectId" value={projectId} />
-            <div className="title" style={{ marginBottom: 8 }}>Add / correct an edge</div>
+            <div className="title" style={{ marginBottom: 8 }}>
+              Add / correct an edge
+            </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <select name="fromId" className="input" required>
                 {nodes.map((n) => (
-                  <option key={n.id} value={n.id}>{n.kind}: {n.label ?? n.ref}</option>
+                  <option key={n.id} value={n.id}>
+                    {n.kind}: {n.label ?? n.ref}
+                  </option>
                 ))}
               </select>
               <select name="toId" className="input" required>
                 {nodes.map((n) => (
-                  <option key={n.id} value={n.id}>{n.kind}: {n.label ?? n.ref}</option>
+                  <option key={n.id} value={n.id}>
+                    {n.kind}: {n.label ?? n.ref}
+                  </option>
                 ))}
               </select>
               <input name="kind" placeholder="relates" className="input" />

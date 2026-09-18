@@ -1,6 +1,10 @@
+import { GitFork, ArrowRight } from "lucide-react";
 import { getOverview } from "@/lib/data";
-import { PageHead, EmptyState } from "@/components/ui";
-import { IconDependencies, IconArrow } from "@/components/icons";
+import { PageHeader } from "@/components/PageHeader";
+import { ListRow } from "@/components/ListRow";
+import { RefChip } from "@/components/RefChip";
+import { Section } from "@/components/Section";
+import { EmptyState } from "@/components/EmptyState";
 import { DependencyGraphFlow } from "@/components/DependencyGraphFlow";
 
 export const dynamic = "force-dynamic";
@@ -13,40 +17,46 @@ export default async function Page({ params }: { params: { orgId: string; projec
 
   return (
     <>
-      <PageHead
+      <PageHeader
         title="Dependencies"
-        subtitle="Which services consume which surfaces — this is what routes a change to the right teammate."
+        description="Which services consume which surfaces — this is what routes a change to the right teammate."
       />
       {deps.length === 0 ? (
-        <EmptyState icon={<IconDependencies />} title="No dependencies yet">
-          When an agent codes against another service's surface, it records the edge via{" "}
-          <span className="code-ref">register_dependency</span>.
+        <EmptyState icon={<GitFork />} title="No dependencies yet">
+          Declare what a repo consumes in <RefChip copy={false}>lockstep.yaml</RefChip>, or let an agent record the edge
+          via <RefChip copy={false}>register_dependency</RefChip>.
         </EmptyState>
       ) : (
         <>
           <DependencyGraphFlow repos={repos} dependencies={deps} />
-          <div className="section-title">All edges</div>
-          <div className="card animate-in">
-            <div className="rows stagger">
-              {deps.map((d) => (
-                <div className="row" key={d.id}>
-                  <div className="body" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span className="code-ref">{repoName.get(d.consumerRepoId) ?? "consumer"}</span>
-                    <IconArrow style={{ width: 15, height: 15, color: "var(--dim)" }} />
-                    <span className="mono" style={{ color: "var(--violet)" }}>
-                      {d.producedSurface}
-                    </span>
+          <Section label="All edges" count={deps.length}>
+            {deps.map((d) => (
+              <ListRow
+                key={d.id}
+                title={
+                  <span className="inline-flex flex-wrap items-center gap-2">
+                    <RefChip copy={false}>{repoName.get(d.consumerRepoId) ?? "consumer"}</RefChip>
+                    <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                    <RefChip>{d.producedSurface}</RefChip>
+                  </span>
+                }
+                meta={
+                  <>
                     {d.producerProject && (
-                      <span className="tip" data-tip="Produced by a repo in another project (cross-project dependency)">
-                        <span className="pill plain">↗ {d.producerProject.name}</span>
-                      </span>
+                      <RefChip
+                        copy={false}
+                        kind="Produced by a repo in another project"
+                        href={`/project/${params.orgId}/${d.producerProject.id}`}
+                      >
+                        {`↗ ${d.producerProject.name}`}
+                      </RefChip>
                     )}
-                  </div>
-                  <span className="pill plain">{d.source}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+                    <span>via {d.source}</span>
+                  </>
+                }
+              />
+            ))}
+          </Section>
         </>
       )}
     </>

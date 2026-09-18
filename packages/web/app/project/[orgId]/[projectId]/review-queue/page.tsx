@@ -1,4 +1,11 @@
-import { getProposed, getRatifications, getConflicts, getOverview, constraintKindLabel, conflictKindLabel } from "@/lib/data";
+import {
+  getProposed,
+  getRatifications,
+  getConflicts,
+  getOverview,
+  constraintKindLabel,
+  conflictKindLabel,
+} from "@/lib/data";
 import type { RatificationCandidate, ConflictView } from "@/lib/data";
 import { PageHead, EmptyState, StatusPill } from "@/components/ui";
 import { IconQuestions, IconDoc, IconDecisions } from "@/components/icons";
@@ -75,9 +82,7 @@ export default async function Page({
         </ConflictWarning>
         {c.engRuleText && <blockquote className="evidence plain">“{c.engRuleText}”</blockquote>}
 
-        {c.dismissReason && (
-          <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>Dismissed: {c.dismissReason}</p>
-        )}
+        {c.dismissReason && <p style={{ margin: "8px 0 0", color: "var(--muted)" }}>Dismissed: {c.dismissReason}</p>}
 
         {!resolved && (
           <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
@@ -90,7 +95,10 @@ export default async function Page({
             </form>
             <details className="collapse">
               <summary>Dismiss</summary>
-              <form action={resolveConflictAction} style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <form
+                action={resolveConflictAction}
+                style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}
+              >
                 <input type="hidden" name="orgId" value={orgId} />
                 <input type="hidden" name="projectId" value={projectId} />
                 <input type="hidden" name="id" value={c.id} />
@@ -132,11 +140,15 @@ export default async function Page({
             )}
             <StatusPill status={c.doc.state} />
           </div>
-          <div className="title" style={{ fontSize: 16 }}>{c.ruleText}</div>
+          <div className="title" style={{ fontSize: 16 }}>
+            {c.ruleText}
+          </div>
           <div className="meta" style={{ marginTop: 6 }}>
             <span className="code-ref">{c.scopeRef}</span>
             <span className="pill plain">{c.scopeKind}</span>
-            {c.constraintKind && <span className={`pill kind-${c.constraintKind}`}>{constraintKindLabel(c.constraintKind)}</span>}
+            {c.constraintKind && (
+              <span className={`pill kind-${c.constraintKind}`}>{constraintKindLabel(c.constraintKind)}</span>
+            )}
             {conf !== null && <span>confidence {conf}%</span>}
           </div>
 
@@ -151,7 +163,8 @@ export default async function Page({
           {c.conflict && (
             <>
               <ConflictWarning>
-                May conflict with a binding decision on <span className="code-ref">{c.conflict.surface}</span> — review both.
+                May conflict with a binding decision on <span className="code-ref">{c.conflict.surface}</span> — review
+                both.
               </ConflictWarning>
               <blockquote className="evidence">“{c.conflict.engRuleText}”</blockquote>
             </>
@@ -179,7 +192,9 @@ export default async function Page({
                 <button className="btn primary">Ratify</button>
               ) : (
                 <span className="tip" data-tip={c.blockedReason ?? "Ratification unavailable"}>
-                  <button className="btn primary" disabled>Ratify</button>
+                  <button className="btn primary" disabled>
+                    Ratify
+                  </button>
                 </span>
               )}
             </form>
@@ -214,8 +229,8 @@ export default async function Page({
       {tab === "proposed" &&
         (items.length === 0 ? (
           <EmptyState icon={<IconQuestions />} title="Nothing to review">
-            When a sweep distills a decision from an allowlisted Slack channel, it lands here as a draft with
-            the exact quote it came from.
+            When a sweep distills a decision from an allowlisted Slack channel, it lands here as a draft with the exact
+            quote it came from.
           </EmptyState>
         ) : (
           <div className="rows stagger">
@@ -226,11 +241,21 @@ export default async function Page({
               const rows =
                 d.provenances && d.provenances.length > 0
                   ? d.provenances
-                  : [{ source: p.source ?? "source", externalId: null, url: p.url ?? null, evidence: p.evidence ?? [], confidence: null }];
+                  : [
+                      {
+                        source: p.source ?? "source",
+                        externalId: null,
+                        url: p.url ?? null,
+                        evidence: p.evidence ?? [],
+                        confidence: null,
+                      },
+                    ];
               return (
                 <div className="card animate-in" key={d.id} style={{ marginBottom: 14 }}>
                   <div className="body" style={{ padding: "4px 2px" }}>
-                    <div className="title" style={{ fontSize: 16 }}>{d.ruleText}</div>
+                    <div className="title" style={{ fontSize: 16 }}>
+                      {d.ruleText}
+                    </div>
                     <div className="meta" style={{ marginTop: 6 }}>
                       <span className="code-ref">{d.scopeRef}</span>
                       <span className="pill plain">{d.scopeKind}</span>
@@ -238,7 +263,10 @@ export default async function Page({
                       {conf !== null && <span>confidence {conf}%</span>}
                       {rows.length > 1 && <span className="pill plain">{rows.length} sources</span>}
                       {d.stale && (
-                        <span className="pill conflict tip" data-tip="Waiting past the project's review window — agents are working without this rule.">
+                        <span
+                          className="pill conflict tip"
+                          data-tip="Waiting past the project's review window — agents are working without this rule."
+                        >
                           stale · {d.ageDays}d
                         </span>
                       )}
@@ -246,7 +274,8 @@ export default async function Page({
 
                     {p.supersedes && (
                       <ConflictWarning>
-                        May supersede an existing binding decision on <span className="code-ref">{d.scopeRef}</span> — review both.
+                        May supersede an existing binding decision on <span className="code-ref">{d.scopeRef}</span> —
+                        review both.
                       </ConflictWarning>
                     )}
 
@@ -260,7 +289,10 @@ export default async function Page({
                     ) : null}
                     {p.reviewHint && !d.reviewAt && (
                       <div className="meta" style={{ marginTop: 6 }}>
-                        <span className="tip" data-tip="The team said to revisit this, but gave no date — set one below before confirming.">
+                        <span
+                          className="tip"
+                          data-tip="The team said to revisit this, but gave no date — set one below before confirming."
+                        >
                           revisit hint: “{p.reviewHint}”
                         </span>
                       </div>
@@ -322,8 +354,8 @@ export default async function Page({
       {tab === "ratifications" &&
         (candidates.length === 0 ? (
           <EmptyState icon={<IconDoc />} title="No constraints awaiting ratification">
-            When a sweep extracts product constraints from a PRD in Notion, they land here for a PM to
-            ratify — with the exact section they came from.
+            When a sweep extracts product constraints from a PRD in Notion, they land here for a PM to ratify — with the
+            exact section they came from.
           </EmptyState>
         ) : (
           <>
@@ -331,7 +363,9 @@ export default async function Page({
             {low.length > 0 && (
               <details className="collapse animate-in" style={{ marginTop: 10 }}>
                 <summary>Low confidence ({low.length})</summary>
-                <div className="rows" style={{ marginTop: 10 }}>{low.map(renderCandidate)}</div>
+                <div className="rows" style={{ marginTop: 10 }}>
+                  {low.map(renderCandidate)}
+                </div>
               </details>
             )}
           </>
@@ -348,7 +382,9 @@ export default async function Page({
             {recentlyResolved.length > 0 && (
               <details className="collapse animate-in" style={{ marginTop: 10 }}>
                 <summary>Recently resolved ({recentlyResolved.length})</summary>
-                <div className="rows" style={{ marginTop: 10 }}>{recentlyResolved.map((c) => renderConflict(c, true))}</div>
+                <div className="rows" style={{ marginTop: 10 }}>
+                  {recentlyResolved.map((c) => renderConflict(c, true))}
+                </div>
               </details>
             )}
           </>
@@ -357,8 +393,8 @@ export default async function Page({
       {tab === "review-due" &&
         (reviewDue.length === 0 ? (
           <EmptyState icon={<IconDecisions />} title="Nothing due for review">
-            A binding decision with a review date (“revisit in 30 days”) lands here when the date passes.
-            It stays binding — this is a nudge, not an expiry.
+            A binding decision with a review date (“revisit in 30 days”) lands here when the date passes. It stays
+            binding — this is a nudge, not an expiry.
           </EmptyState>
         ) : (
           <div className="rows stagger">
@@ -367,7 +403,9 @@ export default async function Page({
               return (
                 <div className="card animate-in" key={d.id} style={{ marginBottom: 14 }}>
                   <div className="body" style={{ padding: "4px 2px" }}>
-                    <div className="title" style={{ fontSize: 16 }}>{d.ruleText || d.scopeRef}</div>
+                    <div className="title" style={{ fontSize: 16 }}>
+                      {d.ruleText || d.scopeRef}
+                    </div>
                     {d.rationale && <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>{d.rationale}</p>}
                     <div className="meta" style={{ marginTop: 6 }}>
                       <span className="code-ref">{d.scopeRef}</span>
@@ -391,8 +429,8 @@ export default async function Page({
                       </form>
                     </div>
                     <p style={{ margin: "10px 0 0", color: "var(--muted)", fontSize: 13 }}>
-                      No longer right? Have an agent (or a teammate) propose the replacement — confirming it
-                      will supersede this one.
+                      No longer right? Have an agent (or a teammate) propose the replacement — confirming it will
+                      supersede this one.
                     </p>
                   </div>
                 </div>

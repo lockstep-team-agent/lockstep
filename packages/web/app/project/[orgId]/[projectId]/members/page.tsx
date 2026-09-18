@@ -261,7 +261,10 @@ export default async function Page({ params }: { params: { orgId: string; projec
                     <input type="hidden" name="orgId" value={orgId} />
                     <input type="hidden" name="projectId" value={projectId} />
                     <input type="hidden" name="repoId" value={r.id} />
-                    <span className="tip" data-tip="Removes the repo + its contracts from the graph (history retained). Reconnect any time.">
+                    <span
+                      className="tip"
+                      data-tip="Removes the repo + its contracts from the graph (history retained). Reconnect any time."
+                    >
                       <button className="btn ghost">Disconnect</button>
                     </span>
                   </form>
