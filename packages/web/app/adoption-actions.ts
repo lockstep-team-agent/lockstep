@@ -13,6 +13,13 @@ async function post(path: string, body: unknown) {
   return data;
 }
 
+/** PMs type "expense-approvals"; the ledger wants "feature:expense-approvals". Accept both. */
+function featureRef(raw: FormDataEntryValue | null): string | undefined {
+  const v = String(raw ?? "").trim().toLowerCase();
+  if (!v) return undefined;
+  return v.startsWith("feature:") ? v : `feature:${v.replace(/^[^a-z0-9]+/, "")}`;
+}
+
 export async function createPilotAction(_prev: AdoptionState, form: FormData): Promise<AdoptionState> {
   try {
     const result = await post("/pilot/projects", { name: String(form.get("name") ?? "") });
@@ -28,13 +35,14 @@ export async function saveBriefAction(_prev: AdoptionState, form: FormData): Pro
   try {
     const result = await post(`/orgs/${orgId}/projects/${projectId}/native-documents`, {
       title: String(form.get("title") ?? ""), content: String(form.get("content") ?? ""),
-      featureRef: String(form.get("featureRef") || "") || undefined,
+      featureRef: featureRef(form.get("featureRef")),
       documentId: String(form.get("documentId") || "") || undefined,
       baseVersion: form.get("baseVersion") ? Number(form.get("baseVersion")) : undefined,
       manualRules: String(form.get("manualRules") || "").split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean),
     });
     revalidatePath(base, "layout");
-    return { href: `${base}/sources/${result.documentId}`, message: `Saved version ${result.version}. ${result.status === "unavailable" ? "Extraction unavailable. Open the saved brief to select requirements manually." : `${result.proposals} requirements processed. Review their current status below.`}${result.partial ? " Some source content exceeded the extraction limits; review the complete source." : ""}` };
+    const saved = result.unchanged ? `No changes — version ${result.version} is still current.` : `Saved version ${result.version}.`;
+    return { href: `${base}/sources/${result.documentId}`, message: `${saved} ${result.status === "unavailable" ? "Extraction unavailable. Open the saved brief to select requirements manually." : `${result.proposals} requirements processed. Review their current status below.`}${result.partial ? " Some source content exceeded the extraction limits; review the complete source." : ""}` };
   } catch (e) { return { error: e instanceof Error ? e.message : "Could not save brief." }; }
 }
 

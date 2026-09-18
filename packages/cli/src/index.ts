@@ -18,10 +18,11 @@ function help(): void {
 usage: lockstep <command>
 
   login [--api <url>] [--dev --dev-id <n> --dev-login <handle>]
-                                                    authenticate; --api saves your server (once), --dev for testing
+                                                    authenticate; --api saves your server (once).
+                                                    --dev is a LOCAL self-host bypass (needs LOCKSTEP_DEV_LOGIN=1); it 404s on hosted
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
-  connect [--project <name>]                        link this repo to a Lockstep project (creates one if needed)
+  connect [--project <name>] [--project-id <id>]    link this repo to a project (--project-id joins one exact project)
   onboard [--project-id <id>] [--dry-run]            preview → connect → review decisions → configure Claude
          [--yes --upload-docs] [--no-docs] [--enable-checks|--disable-checks]
          [--feature feature:name] [--docs path1.md,path2.md] [--decision "rule"]

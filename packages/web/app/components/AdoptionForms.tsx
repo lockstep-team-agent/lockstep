@@ -33,7 +33,7 @@ export function NativeBriefForm({ orgId, projectId, documentId, version }: { org
     <input type="hidden" name="orgId" value={orgId} /><input type="hidden" name="projectId" value={projectId} />
     {documentId && <input type="hidden" name="documentId" value={documentId} />}{version && <input type="hidden" name="baseVersion" value={version.version} />}
     <label className="grid gap-1 text-sm">Title<Input name="title" required maxLength={200} defaultValue={version?.title} /></label>
-    <label className="grid gap-1 text-sm">Feature reference<Input name="featureRef" placeholder="feature:customer-onboarding" defaultValue={version?.featureRef} readOnly={!!version} pattern="feature:[a-z0-9][a-z0-9-]*" /></label>
+    <label className="grid gap-1 text-sm">Feature reference <span className="text-muted-foreground">— optional, formatted <code>feature:some-slug</code>. A bare slug is accepted and prefixed for you.</span><Input name="featureRef" placeholder="feature:customer-onboarding" defaultValue={version?.featureRef} readOnly={!!version} title="Lowercase letters, digits and hyphens, e.g. feature:expense-approvals" /></label>
     <label className="grid gap-1 text-sm">Source brief<Textarea name="content" required rows={12} defaultValue={version?.content} maxLength={200000} /></label>
     <details><summary className="cursor-pointer text-sm">Select requirements manually (optional)</summary><label className="grid gap-2 text-sm mt-2">Paste exact passages from this brief, separated by blank lines. These become draft requirements for review.<Textarea name="manualRules" rows={5} /></label></details>
     <div><Submit>{version ? "Save revision and review" : "Save and extract requirements"}</Submit></div><Result state={state} />
