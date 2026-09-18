@@ -31,6 +31,10 @@ Railway project
   | `LOCKSTEP_DEPLOYMENT` | `cloud` |
   | `NODE_ENV` | `production` _(see smoke-test note)_ |
   | `GITHUB_APP_ID` / `GITHUB_APP_CLIENT_ID` / `GITHUB_APP_PRIVATE_KEY` / `GITHUB_WEBHOOK_SECRET` | from your GitHub App |
+  | `TYPESAFE_API_KEY` | _recommended_ — Jev. Without it `lockstep onboard` imports no decisions from a repo's own docs and `/checks` returns `unavailable` |
+  | `ANTHROPIC_API_KEY` | _optional_ — rewrites prose sections into rules during import. Without it only sections that are already a single imperative rule are imported, verbatim |
+  | `LOCKSTEP_EXTRACT_MODEL` | _optional_ — extraction model, defaults to `claude-sonnet-4-6` |
+  | `LOCKSTEP_CHECKS_ENABLED` | _optional_ — set `0` to refuse all advisory code checks server-side |
 - Railway injects `PORT`; the server reads it. After deploy, hit `https://<core>/readyz` → `{ ok: true, db: "up" }`.
 
 ## 3. Deploy `web`
@@ -74,8 +78,8 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 | `LOCKSTEP_SLACK_SIGNING_SECRET` | ✓ (interactivity + events webhooks) | — | — |
 | `COMPOSIO_API_KEY` | ✓ (server-side OAuth initiate) | — | ✓ (sweep execution) |
 | `LOCKSTEP_INGEST_TOKEN` | ✓ | — | ✓ (must match) |
-| `ANTHROPIC_API_KEY` | — | — | ✓ |
-| `TYPESAFE_API_KEY` | ✓ (optional — fusion verdicts) | — | ✓ (optional — recall/recheck) |
+| `ANTHROPIC_API_KEY` | ✓ (optional — rule extraction on import) | — | ✓ |
+| `TYPESAFE_API_KEY` | ✓ (recommended — fusion verdicts, doc import, decision checks) | — | ✓ (optional — recall/recheck) |
 | `SLACK_BOT_TOKEN` | — | — | ✓ (optional) |
 | `NANGO_SECRET_KEY` / `NANGO_HOST` | — | — | ✓ (optional) |
 | `LOCKSTEP_API_URL` | — | ✓ | ✓ |
