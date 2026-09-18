@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { previewDocs, sectionize } from "./capture/markdown.js";
-import { parseDiff } from "./check.js";
+import { parseDiff, formatCheck } from "./check.js";
 import { runOptionalSteps } from "./onboard.js";
 import { claudeAdapter } from "./adapters/claude.js";
 import { PINNED_COMMAND } from "./adapters/templates.js";
@@ -56,4 +56,19 @@ test("Claude install is executable, pinned, preserves unrelated MCP/hooks and ne
     assert.equal(mcp.mcpServers.other.command, "other"); assert.equal(mcp.mcpServers.lockstep.command, "npx");
     assert.ok(mcp.mcpServers.lockstep.args.some((s: string) => s.includes("lockstep-cli@")));
   } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("a scratch file in the repo does not make a complete check read as truncated", () => {
+  const base = { status: "completed" as const, checked: 1, total: 1, findings: [] };
+  const clean = formatCheck(base);
+  assert.ok(!/truncated/.test(clean), "nothing truncated, nothing to warn about");
+  assert.match(clean, /No possible contradictions found/);
+
+  const withScratch = formatCheck({ ...base, untracked: 2 });
+  assert.match(withScratch, /2 untracked files were not uploaded and not checked/);
+  assert.ok(!/truncated/.test(withScratch), "untracked files are a note, not a degraded result");
+
+  const truncated = formatCheck({ ...base, status: "partial", partial: true, untracked: 1 });
+  assert.match(truncated, /This check was truncated/);
+  assert.match(truncated, /1 untracked file was not uploaded/);
 });
