@@ -1,5 +1,16 @@
 import { cloud } from "./cloud.js";
-import { setToken } from "./auth/token-store.js";
+import { getToken, setToken } from "./auth/token-store.js";
+
+export async function ensureLoggedIn(): Promise<void> {
+  if (await getToken()) {
+    try {
+      const me = await cloud.get<{ principal: { githubLogin: string } }>("/me");
+      console.log(`Signed in as @${me.principal.githubLogin}`);
+      return;
+    } catch { /* An expired token needs the ordinary device flow. */ }
+  }
+  await runLogin({});
+}
 
 interface LoginResp {
   status?: string;

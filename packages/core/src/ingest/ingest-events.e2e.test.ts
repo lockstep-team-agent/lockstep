@@ -71,7 +71,8 @@ test("claim leases queued rows grouped per connection; done completes them", asy
   const batches = (await claimPendingEvents()).filter((b) => b.connectionId === s.connectionId);
   assert.equal(batches.length, 1);
   assert.equal(batches[0]!.events.length, 2);
-  assert.equal(batches[0]!.events[0]!.threadTs, "10.1");
+  // UPDATE ... RETURNING has no ordering guarantee, even if its selection subquery is ordered.
+  assert.deepEqual(batches[0]!.events.map((e) => e.threadTs).sort(), ["10.1", "20.1"]);
 
   const claimedTwice = (await claimPendingEvents()).filter((b) => b.connectionId === s.connectionId);
   assert.equal(claimedTwice.length, 0, "leased rows are not claimable again");

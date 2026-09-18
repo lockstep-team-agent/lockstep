@@ -1,3 +1,4 @@
+import { NativeBriefForm } from "@/components/AdoptionForms";
 import Link from "next/link";
 import { FileText, ExternalLink, RefreshCw } from "lucide-react";
 import { getDocuments } from "@/lib/data";
@@ -49,8 +50,10 @@ export default async function Page({ params }: { params: { orgId: string; projec
     <>
       <PageHeader
         title="Sources"
-        description="PRDs mirrored from Notion or Google Docs. Constraints extracted here land in the Review queue for ratification."
+        description="Pasted briefs and connected documents. Review extracted requirements against their source before ratifying."
       />
+
+      <NativeBriefForm orgId={orgId} projectId={projectId} />
 
       {pending.length > 0 && (
         <Card className="mb-6 border-warning-edge bg-warning-soft shadow-none">
@@ -111,7 +114,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
                       {d.anchors.total} anchor{d.anchors.total === 1 ? "" : "s"} healthy
                     </span>
                   )}
-                  {d.lastSyncedAt && (
+                  {d.tool === "native" && <span>Manually maintained</span>}
+                  {d.tool !== "native" && d.lastSyncedAt && (
                     <span className="inline-flex items-center gap-1">
                       synced <When at={d.lastSyncedAt} />
                     </span>
@@ -153,12 +157,12 @@ export default async function Page({ params }: { params: { orgId: string; projec
                       </a>
                     </Button>
                   )}
-                  <form action={resyncDocumentAction}>
+                  {d.tool !== "native" && <form action={resyncDocumentAction}>
                     {hidden(d.id)}
                     <Button size="icon" variant="ghost" aria-label="Re-sync" title="Re-sync">
                       <RefreshCw className="h-4 w-4" />
                     </Button>
-                  </form>
+                  </form>}
                   <Dialog>
                     <DialogTrigger asChild>
                       <Button size="sm" variant="ghost">

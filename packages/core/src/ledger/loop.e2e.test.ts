@@ -171,8 +171,15 @@ test("WHO-USES-X: listConsumers answers from the graph and excludes the asker", 
   const fromProducer = await listConsumers(s.orgId, s.projectId, SURFACE, s.producerRepo);
   assert.equal(fromProducer.count, 1);
   assert.equal(fromProducer.consumers[0]!.repoId, s.consumerRepo);
+  assert.equal(fromProducer.coverage.connectedRepos, 2, "both repos in this project are on the graph");
+  assert.equal(fromProducer.hint, undefined, "a real answer needs no coverage caveat");
 
   // The asking repo is excluded from its own "who uses this" answer.
   const fromConsumer = await listConsumers(s.orgId, s.projectId, SURFACE, s.consumerRepo);
   assert.equal(fromConsumer.count, 0);
+  // An empty answer must say whether that means "nobody calls it" or "nobody has onboarded yet",
+  // otherwise the agent reads silence as safety.
+  assert.match(fromConsumer.hint ?? "", /unknown blast radius/);
+  assert.match(fromConsumer.hint ?? "", /only 2 repo\(s\) in this project are connected/);
+  assert.match(fromConsumer.hint ?? "", /lockstep invite/);
 });

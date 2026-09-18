@@ -12,12 +12,14 @@ export function hasToken(): boolean {
 
 export async function apiGet<T = unknown>(path: string): Promise<T | null> {
   const t = token();
-  const res = await fetch(`${API}${path}`, {
-    headers: t ? { authorization: `Bearer ${t}` } : {},
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return (await res.json()) as T;
+  try {
+    const res = await fetch(`${API}${path}`, {
+      headers: t ? { authorization: `Bearer ${t}` } : {},
+      cache: "no-store", signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch { return null; }
 }
 
 export async function apiDelete<T = unknown>(path: string): Promise<T | null> {

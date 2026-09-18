@@ -11,6 +11,12 @@ import { join } from "node:path";
 import { applyFile } from "./adapters/fsutil.js";
 import { registerSession } from "./mcp/session.js";
 import { call } from "./mcp/api.js";
+import { readLocalState } from "./local-state.js";
+
+export function decisionPackEndpoint(): string {
+  const state = readLocalState();
+  return state.configured ? `/continuity/pack${state.featureRef ? `?featureRef=${encodeURIComponent(state.featureRef)}` : ""}` : "/decision-pack";
+}
 
 export const PACK_DIR = [".claude", "skills", "lockstep-decisions"] as const;
 
@@ -46,7 +52,7 @@ export async function writeDecisionPack(cwd: string, markdown: string, dryRun: b
 export async function runPack(opts: { check?: boolean; dryRun?: boolean }): Promise<void> {
   const vendor = process.env.LOCKSTEP_VENDOR ?? "cli";
   const session = await registerSession(vendor);
-  const p = await call<PackResp>("GET", "/decision-pack", session.sessionId);
+  const p = await call<PackResp>("GET", decisionPackEndpoint(), session.sessionId);
   const cwd = process.cwd();
 
   if (opts.check) {

@@ -10,7 +10,7 @@ import {
   removeManagedStatusLine,
   upsertManagedBlock,
 } from "./merge.js";
-import { captureHooks, mcpSpec, SKILL_MD, SETUP_SKILL_MD, CLAUDE_BLOCK } from "./templates.js";
+import { captureHooks, mcpSpec, SKILL_MD, SETUP_SKILL_MD, CLAUDE_BLOCK, PINNED_COMMAND } from "./templates.js";
 import type { Scope, VendorAdapter } from "./types.js";
 
 function paths(cwd: string, scope: Scope) {
@@ -18,7 +18,7 @@ function paths(cwd: string, scope: Scope) {
     const h = homedir();
     const hooks = join(h, ".claude", "settings.json");
     return {
-      mcp: join(h, ".mcp.json"),
+      mcp: join(h, ".claude.json"),
       hooks,
       // ~/.claude is already personal — hooks live in the same file (no shared/local split).
       hooksLocal: hooks,
@@ -30,7 +30,7 @@ function paths(cwd: string, scope: Scope) {
   return {
     mcp: join(cwd, ".mcp.json"),
     hooks: join(cwd, ".claude", "settings.json"),
-    // Hooks + statusline invoke the locally-installed `lockstep` bin — personal/machine state, so
+    // Hooks + statusline use the version-pinned npm runner and personal opt-in state, so
     // they go in settings.local.json (Claude Code's personal scope, auto-gitignored), never in the
     // committed settings.json where they'd leak to teammates on git pull (IMPROVEMENTS #2).
     hooksLocal: join(cwd, ".claude", "settings.local.json"),
@@ -59,8 +59,8 @@ export const claudeAdapter: VendorAdapter = {
       await applyFile(
         p.hooksLocal,
         (cur) => {
-          const withHooks = mergeHooks(cur, captureHooks, "lockstep");
-          return mergeStatusLine(withHooks, "lockstep", ["statusline"]);
+          const withHooks = mergeHooks(cur, captureHooks, PINNED_COMMAND);
+          return mergeStatusLine(removeManagedStatusLine(withHooks), PINNED_COMMAND, ["statusline"]);
         },
         dryRun,
       ),

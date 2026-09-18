@@ -155,7 +155,14 @@ async function main() {
 
   // One upserted comment: backfill suggestions per violating surface (templated, no LLM — the
   // developer's own agent drafts the decision locally) + the conflict section.
-  const comment = buildComment({ violations, conflictLines: commentLines });
+  // staleDependents only carries surfaces that HAVE consumers; everything else counts as zero.
+  const consumers = Object.fromEntries((result.staleDependents ?? []).map((s) => [s.surface, s.consumers.length]));
+  const comment = buildComment({
+    violations,
+    conflictLines: commentLines,
+    consumers,
+    connectedRepos: result.connectedRepos ?? 0,
+  });
   if (comment) await postPrComment(comment);
 
   if (failed) process.exit(1);

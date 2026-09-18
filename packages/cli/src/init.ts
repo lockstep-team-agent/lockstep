@@ -2,6 +2,7 @@ import { getAdapters } from "./adapters/registry.js";
 import type { Scope } from "./adapters/types.js";
 import { cloud } from "./cloud.js";
 import { getToken } from "./auth/token-store.js";
+import { readLocalState } from "./local-state.js";
 
 export async function runInit(opts: { vendor?: string; scope: Scope; dryRun: boolean }): Promise<void> {
   const cwd = process.cwd();
@@ -30,6 +31,10 @@ export async function runStatus(): Promise<void> {
   console.log(`api:   ${cloud.apiUrl}`);
   console.log(`auth:  ${(await getToken()) ? "logged in" : "not logged in (run: lockstep login)"}`);
   const cwd = process.cwd();
+  const state = readLocalState(cwd);
+  console.log(`agent verified: ${state.verifiedAt ?? "pending a real Claude session"}`);
+  console.log(`hosted code checks: ${state.automaticChecks ? "enabled (lockstep checks off to revoke)" : "off"}`);
+  if (state.featureRef) console.log(`feature: ${state.featureRef}`);
   for (const a of await getAdapters()) {
     const v = await a.verify(cwd, "project");
     console.log(`\n[${a.id}] ${v.ok ? "configured" : "not configured"}`);

@@ -402,9 +402,53 @@ export const sessions = pgTable(
     tokenId: uuid("token_id"),
     lastHeartbeat: timestamp("last_heartbeat", { withTimezone: true }).defaultNow().notNull(),
     state: text("state").notNull().default("live"), // live | ended
+    nativeSessionId: text("native_session_id"), // Claude session id; null for legacy/CLI calls
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    briefingBaseline: timestamp("briefing_baseline", { withTimezone: true }),
   },
-  (t) => ({ byRepo: index("ix_session_repo_state").on(t.projectId, t.repoId, t.state) }),
+  (t) => ({
+    byRepo: index("ix_session_repo_state").on(t.projectId, t.repoId, t.state),
+    native: uniqueIndex("uq_session_native").on(t.memberId, t.repoId, t.vendor, t.nativeSessionId),
+  }),
 );
+
+/** Per-person cursor; a session snapshots this once, so concurrent sessions keep their own baseline. */
+export const briefingCursors = pgTable("briefing_cursors", {
+  id: id(), orgId: orgId(), memberId: uuid("member_id").notNull(), repoId: uuid("repo_id").notNull(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
+}, (t) => ({ memberRepo: uniqueIndex("uq_briefing_cursor").on(t.memberId, t.repoId) }));
+
+/** Content-free product usage, deliberately separate from the immutable decision audit. */
+export const usageEvents = pgTable("usage_events", {
+  id: id(), orgId: orgId(), projectId: uuid("project_id").notNull(), memberId: uuid("member_id").notNull(),
+  repoId: uuid("repo_id"), sessionId: uuid("session_id"), event: text("event").notNull(),
+  eventKey: text("event_key").notNull(), counts: jsonb("counts"), createdAt: createdAt(),
+}, (t) => ({ dedupe: uniqueIndex("uq_usage_event").on(t.orgId, t.memberId, t.event, t.eventKey) }));
+
+/** Never stores a raw diff. Findings reference decisions and locations only. */
+export const decisionChecks = pgTable("decision_checks", {
+  id: id(), orgId: orgId(), projectId: uuid("project_id").notNull(), repoId: uuid("repo_id").notNull(),
+  memberId: uuid("member_id").notNull(), sessionId: uuid("session_id").notNull(),
+  fingerprint: text("fingerprint").notNull(), status: text("status").notNull(),
+  featureRef: text("feature_ref"), checked: integer("checked").notNull().default(0),
+  total: integer("total").notNull().default(0), partial: boolean("partial").notNull().default(false),
+  findings: jsonb("findings").notNull().default([]), ruleVersions: jsonb("rule_versions").notNull().default([]),
+  createdAt: createdAt(),
+}, (t) => ({ dedupe: uniqueIndex("uq_decision_check").on(t.memberId, t.repoId, t.fingerprint) }));
+
+export const checkFeedback = pgTable("check_feedback", {
+  id: id(), orgId: orgId(), projectId: uuid("project_id").notNull(), checkId: uuid("check_id").notNull(),
+  decisionId: uuid("decision_id").notNull(), memberId: uuid("member_id").notNull(),
+  verdict: text("verdict").notNull(), createdAt: createdAt(),
+}, (t) => ({ authorFinding: uniqueIndex("uq_check_feedback").on(t.checkId, t.decisionId, t.memberId) }));
+
+/** Explicitly pasted source material, unlike transient code-check inputs. */
+export const nativeDocumentVersions = pgTable("native_document_versions", {
+  id: id(), orgId: orgId(), projectId: uuid("project_id").notNull(), documentId: uuid("document_id").notNull(),
+  version: integer("version").notNull(), title: text("title").notNull(), content: text("content").notNull(),
+  featureRef: text("feature_ref").notNull(), contentHash: text("content_hash").notNull(),
+  createdBy: uuid("created_by").notNull(), createdAt: createdAt(),
+}, (t) => ({ version: uniqueIndex("uq_native_doc_version").on(t.documentId, t.version) }));
 
 /* ───────────────────────────── Auth ───────────────────────────── */
 

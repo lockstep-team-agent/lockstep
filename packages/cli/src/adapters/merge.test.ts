@@ -32,7 +32,7 @@ test("mergeHooks preserves foreign hooks and stays idempotent", () => {
   const cmds = obj.hooks.PostToolUse.map((e) => e.hooks[0]!.command);
   assert.ok(cmds.includes("my-linter"), "foreign hook preserved");
   assert.ok(
-    obj.hooks.PostToolUse.some((e) => (e.hooks[0]!.args ?? []).join(" ").includes("@lockstep/cli")),
+    obj.hooks.PostToolUse.some((e) => e.hooks[0]!.command.includes("@lockstep/cli") && !e.hooks[0]!.args),
     "our hook added",
   );
   assert.equal(mergeHooks(merged, HOOKS), merged, "idempotent with foreign present");

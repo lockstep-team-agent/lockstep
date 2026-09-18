@@ -12,8 +12,9 @@ import { githubWebhookRoutes } from "./routes/github-webhook.js";
 import { slackEventsRoutes } from "./routes/slack-events.js";
 import { queryClient } from "../db/client.js";
 import { env } from "../env.js";
+import { adoptionRoutesWith } from "../adoption/routes.js";
 
-export function buildApp(): FastifyInstance {
+export function buildApp(adoptionProviders: Parameters<typeof adoptionRoutesWith>[0] = {}): FastifyInstance {
   const app = Fastify({ logger: env.NODE_ENV !== "test" });
 
   app.addHook("onRequest", authHook);
@@ -39,6 +40,7 @@ export function buildApp(): FastifyInstance {
   void app.register(slackRoutes);
   void app.register(githubWebhookRoutes);
   void app.register(slackEventsRoutes);
+  void app.register(adoptionRoutesWith(adoptionProviders));
 
   return app;
 }

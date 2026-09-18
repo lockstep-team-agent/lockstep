@@ -28,7 +28,12 @@ interface ReviewItem {
 interface UnmatchedItem {
   ref: string;
   via: string;
+  /** Repo-relative file the call was found in — what maps an unowned surface back to people. */
+  file?: string;
 }
+
+/** An outbound call plus its origin file. */
+export type ScannedRef = OutboundRef & { file?: string };
 
 /**
  * The full onboarding/maintenance proposal `/lockstep-setup` renders. `produces` is deterministic
@@ -46,9 +51,9 @@ export interface ScanProposal {
 }
 
 /** Walk the whole repo → produced surfaces + outbound-call candidates. */
-export function scanCode(cwd: string): { produces: string[]; outbound: OutboundRef[] } {
+export function scanCode(cwd: string): { produces: string[]; outbound: ScannedRef[] } {
   const produces = new Set<string>();
-  const outbound = new Map<string, OutboundRef>();
+  const outbound = new Map<string, ScannedRef>();
   for (const f of trackedFiles(cwd)) {
     let content: string;
     try {
@@ -57,7 +62,7 @@ export function scanCode(cwd: string): { produces: string[]; outbound: OutboundR
       continue; // deleted/binary/unreadable — skip
     }
     for (const s of extractAllSurfaces(f, content)) produces.add(s);
-    for (const o of extractAllOutbound(f, content)) outbound.set(`${o.via} ${o.surface ?? o.hint ?? o.ref}`, o);
+    for (const o of extractAllOutbound(f, content)) outbound.set(`${o.via} ${o.surface ?? o.hint ?? o.ref}`, { ...o, file: f });
   }
   return { produces: [...produces].sort(), outbound: [...outbound.values()] };
 }
@@ -70,7 +75,7 @@ export function scanCode(cwd: string): { produces: string[]; outbound: OutboundR
 const matchKey = (surface: string): string => surface.replace(/\/:[^/\s]+/g, "/:");
 
 export function classify(
-  outbound: OutboundRef[],
+  outbound: ScannedRef[],
   catalog: CatalogEntry[],
   ownRepoId: string | undefined,
 ): { consumes: MatchedConsume[]; unmatched: UnmatchedItem[]; review: ReviewItem[] } {
@@ -101,18 +106,21 @@ export function classify(
         .map((e) => ({ surface: e.surface, producer: e.gitRemote }));
       if (candidates.length > 0) review.push({ ref: ref.ref, via: ref.via, hint: ref.hint, candidates });
     } else if (ref.surface) {
-      unmatched.push({ ref: ref.ref, via: ref.via }); // a real outbound call with no producer in the graph
+      // A real outbound call with no producer in the graph. `file` rides along only when the scanner
+      // supplied it, so callers passing bare refs keep the exact previous shape.
+      unmatched.push(ref.file ? { ref: ref.ref, via: ref.via, file: ref.file } : { ref: ref.ref, via: ref.via });
     }
   }
   return { consumes, unmatched, review };
 }
 
-async function buildProposal(cwd: string): Promise<{ proposal: ScanProposal; session?: Session }> {
+async function buildProposal(cwd: string, given?: Session): Promise<{ proposal: ScanProposal; session?: Session }> {
   const { produces, outbound } = scanCode(cwd);
-  let session: Session | undefined;
+  let session: Session | undefined = given;
   let catalog: CatalogEntry[] = [];
   try {
-    session = await registerSession(process.env.LOCKSTEP_VENDOR ?? "claude");
+    // Reuse the caller's session when it has one (onboard), so scanning never opens a second one.
+    session = session ?? (await registerSession(process.env.LOCKSTEP_VENDOR ?? "claude"));
     const res = await call<{ surfaces: CatalogEntry[] }>("GET", "/surfaces", session.sessionId);
     catalog = res.surfaces ?? [];
   } catch {
@@ -152,7 +160,7 @@ export function report(p: ScanProposal): string {
       ``,
       `unmatched — outbound calls with no producer in the graph (external, or not yet onboarded) (${p.unmatched.length}):`,
     );
-    for (const u of p.unmatched) L.push(`    ${u.ref} (${u.via})`);
+    for (const u of p.unmatched) L.push(`    ${u.ref} (${u.via})${u.file ? ` — ${u.file}` : ""}`);
   }
   return L.join("\n");
 }
@@ -161,9 +169,14 @@ export function report(p: ScanProposal): string {
  * `lockstep scan` — bootstrap/maintenance for `lockstep.yaml`. Default prints a proposal; `--json` emits
  * it for the skill; `--apply` writes the manifest (merge-preserving) and syncs it to the graph.
  */
-export async function runScan(opts: { json?: boolean; apply?: boolean; dryRun?: boolean }): Promise<void> {
+export async function runScan(opts: {
+  json?: boolean;
+  apply?: boolean;
+  dryRun?: boolean;
+  session?: Session;
+}): Promise<ScanProposal> {
   const cwd = process.cwd();
-  const { proposal, session } = await buildProposal(cwd);
+  const { proposal, session } = await buildProposal(cwd, opts.session);
 
   if (opts.json) {
     process.stdout.write(JSON.stringify(proposal, null, 2) + "\n");
@@ -171,7 +184,7 @@ export async function runScan(opts: { json?: boolean; apply?: boolean; dryRun?: 
     process.stdout.write(report(proposal) + "\n");
   }
 
-  if (!opts.apply) return;
+  if (!opts.apply) return proposal;
 
   const status = await writeManifest(
     cwd,
@@ -195,6 +208,7 @@ export async function runScan(opts: { json?: boolean; apply?: boolean; dryRun?: 
       `[lockstep] synced ${merged.produces.length} produce(s) + ${proposal.consumes.length} consume(s) to the graph\n`,
     );
   }
+  return proposal;
 }
 
 /**

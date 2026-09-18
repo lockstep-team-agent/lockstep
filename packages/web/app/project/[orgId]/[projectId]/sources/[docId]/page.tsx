@@ -1,3 +1,6 @@
+import { apiGet } from "@/lib/api";
+import { NativeBriefForm, type NativeVersion } from "@/components/AdoptionForms";
+import { ShareBrief } from "@/components/ShareBrief";
 import { notFound } from "next/navigation";
 import { FileText, ExternalLink, RefreshCw, History, Send } from "lucide-react";
 import { getDocument, constraintKindLabel } from "@/lib/data";
@@ -30,6 +33,7 @@ export default async function Page({ params }: { params: { orgId: string; projec
   const base = `/project/${orgId}/${projectId}`;
   if (!doc) notFound();
 
+  const native = doc.tool === "native" ? await apiGet<{ versions: NativeVersion[] }>(`/orgs/${orgId}/projects/${projectId}/native-documents/${docId}`) : null;
   const constraints = doc.constraints ?? [];
   const history = doc.extractionHistory ?? [];
   const writebacks = doc.writeBackLog ?? [];
@@ -86,7 +90,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
                 {doc.anchors.total} anchor{doc.anchors.total === 1 ? "" : "s"} healthy
               </span>
             )}
-            {doc.lastSyncedAt && (
+            {doc.tool === "native" && <span>Manually maintained</span>}
+            {doc.tool !== "native" && doc.lastSyncedAt && (
               <span className="inline-flex items-center gap-1">
                 synced <When at={doc.lastSyncedAt} />
               </span>
@@ -102,12 +107,12 @@ export default async function Page({ params }: { params: { orgId: string; projec
                 </a>
               </Button>
             )}
-            <form action={resyncDocumentAction}>
+            {doc.tool !== "native" && <form action={resyncDocumentAction}>
               {hidden}
               <Button size="sm" variant="secondary">
                 <RefreshCw className="h-4 w-4" /> Re-sync
               </Button>
-            </form>
+            </form>}
             <Dialog>
               <DialogTrigger asChild>
                 <Button size="sm" variant="destructive">
@@ -132,6 +137,14 @@ export default async function Page({ params }: { params: { orgId: string; projec
           </>
         }
       />
+
+      <ShareBrief orgId={orgId} projectId={projectId} filters={{ documentId: docId }} implementation />
+      {native?.versions[0] && <>
+        <NativeBriefForm key={native.versions[0].version} orgId={orgId} projectId={projectId} documentId={docId} version={native.versions[0]} />
+        <Section label="Source versions" count={native.versions.length}>
+          {native.versions.map((v) => <details key={v.version} className="border-b p-4 text-sm"><summary className="cursor-pointer">Version {v.version} · {v.title} · <When at={v.createdAt} /></summary><pre className="whitespace-pre-wrap mt-3 text-xs">{v.content}</pre></details>)}
+        </Section>
+      </>}
 
       <Section label="Constraints" count={constraints.length}>
         {constraints.length === 0 ? (

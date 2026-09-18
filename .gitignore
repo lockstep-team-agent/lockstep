@@ -35,3 +35,6 @@ packages/website/
 
 # dashboard screenshot suite output
 packages/web/e2e/out/
+
+# Local browser-automation scratch output
+.playwright-cli/

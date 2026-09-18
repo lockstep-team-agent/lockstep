@@ -706,6 +706,7 @@ export async function fileDocCandidates(
     if (existing) {
       // Same anchor as an existing constraint → re-version (or no-op if the rule is unchanged).
       const r = await reproposeDocConstraint(doc.orgId, {
+        reviewRestored: doc.tool === "native",
         projectId: doc.projectId,
         existingDecisionId: existing.decisionId,
         ruleText: it.ruleText,
@@ -725,6 +726,7 @@ export async function fileDocCandidates(
     }
 
     const r = await fileProposedDecision(doc.orgId, {
+      explicitReview: doc.tool === "native",
       projectId: doc.projectId,
       scopeKind: it.scopeKind,
       scopeRef: it.scopeRef,

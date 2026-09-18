@@ -1,3 +1,5 @@
+import { ShareBrief } from "@/components/ShareBrief";
+import { CheckHistory } from "@/components/CheckHistory";
 import { notFound } from "next/navigation";
 import { Target, ExternalLink, FileCode2 } from "lucide-react";
 import { getFeature, constraintKindLabel, type ConstraintKind } from "@/lib/data";
@@ -139,6 +141,8 @@ export default async function Page({ params }: { params: { orgId: string; projec
           ))
         )}
       </Section>
+      <ShareBrief orgId={orgId} projectId={projectId} filters={{ featureRef: feature.ref }} implementation />
+      <CheckHistory orgId={orgId} projectId={projectId} filters={{ featureRef: feature.ref }} />
     </>
   );
 }
