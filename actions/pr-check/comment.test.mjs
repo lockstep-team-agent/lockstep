@@ -1,7 +1,7 @@
 /** The comment builder is pure — assert structure without any GitHub API. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildComment, backfillSuggestion, COMMENT_MARKER } from "./comment.mjs";
+import { buildComment, backfillSuggestion, consumerLine, COMMENT_MARKER } from "./comment.mjs";
 
 test("nothing to say → null (no comment posted)", () => {
   assert.equal(buildComment({ violations: [], conflictLines: [] }), null);
@@ -38,4 +38,25 @@ test("plural headings for multiple items", () => {
 test("backfillSuggestion names the surface twice (scopeRef + prose)", () => {
   const s = backfillSuggestion("proto:auth.v1.Auth/Login");
   assert.equal((s.match(/proto:auth\.v1\.Auth\/Login/g) ?? []).length, 2);
+});
+
+test("each violating surface reports its consumer count and the project's connected-repo coverage", () => {
+  const body = buildComment({
+    violations: ["http:GET /cart/:id", "http:POST /checkout"],
+    consumers: { "http:POST /checkout": 2 },
+    connectedRepos: 3,
+  });
+  assert.ok(body.includes("Known consumers: none registered (3 repos connected in this project)."));
+  assert.ok(body.includes("Known consumers: 2 repos in this project."));
+  assert.match(body, /npx lockstep-cli onboard/, "the reviewer is told how to bring the consumers in");
+});
+
+test("consumerLine is singular-correct and never names a repo", () => {
+  assert.equal(consumerLine("s", { s: 1 }, 5), "Known consumers: 1 repo in this project.");
+  assert.equal(consumerLine("s", {}, 1), "Known consumers: none registered (1 repo connected in this project).");
+});
+
+test("the onboard hint appears only alongside violations, never on a conflict-only comment", () => {
+  const body = buildComment({ conflictLines: ["- **x** — conflict `c1`"] });
+  assert.ok(!body.includes("npx lockstep-cli onboard"));
 });

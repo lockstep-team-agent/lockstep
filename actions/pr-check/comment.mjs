@@ -17,11 +17,25 @@ export function backfillSuggestion(surface) {
 }
 
 /**
+ * How many repos are known to call this surface — and, when none are, how much of the project is
+ * even on the graph. A reviewer reading "none registered (1 repo connected)" learns something very
+ * different from "none registered (40 repos connected)".
+ * Counts only, never repo names: a walled project deliberately hides its consumers by name.
+ */
+export function consumerLine(surface, consumers = {}, connectedRepos = 0) {
+  const n = consumers[surface] ?? 0;
+  if (n > 0) return `Known consumers: ${n} repo${n === 1 ? "" : "s"} in this project.`;
+  return `Known consumers: none registered (${connectedRepos} repo${connectedRepos === 1 ? "" : "s"} connected in this project).`;
+}
+
+/**
  * Build the full PR comment body, or null when there is nothing to say.
  * violations: string[] of surface ids missing a binding decision.
  * conflictLines: pre-rendered markdown bullets for open product-constraint conflicts.
+ * consumers: { [surface]: number } consumer counts from the usage graph.
+ * connectedRepos: how many repos in this project are on Lockstep at all.
  */
-export function buildComment({ violations = [], conflictLines = [] }) {
+export function buildComment({ violations = [], conflictLines = [], consumers = {}, connectedRepos = 0 }) {
   if (violations.length === 0 && conflictLines.length === 0) return null;
   const parts = [COMMENT_MARKER];
 
@@ -33,8 +47,19 @@ export function buildComment({ violations = [], conflictLines = [] }) {
       "",
     );
     for (const surface of violations) {
-      parts.push(`- **\`${surface}\`**`, "", "```", backfillSuggestion(surface), "```", "");
+      parts.push(
+        `- **\`${surface}\`** — ${consumerLine(surface, consumers, connectedRepos)}`,
+        "",
+        "```",
+        backfillSuggestion(surface),
+        "```",
+        "",
+      );
     }
+    parts.push(
+      "Consumers can only be counted for repos that are on Lockstep. To bring the rest in, they run `npx lockstep-cli onboard` in their own repo.",
+      "",
+    );
   }
 
   if (conflictLines.length > 0) {
