@@ -1,36 +1,54 @@
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { keywordPrefilter, recall, keywordPrefilterDoc, recallDoc } from "./recall.js";
+import { recall, recallDoc, jevRecall, JEV_RECALL_FLOOR, keywordPrefilter } from "./recall.js";
 
-test("keywordPrefilter: decision-language markers pass", () => {
-  assert.equal(keywordPrefilter("ok let's lock it: JWT 15 min"), true);
-  assert.equal(keywordPrefilter("going forward every write needs a key"), true);
-  assert.equal(keywordPrefilter("we decided to use Postgres"), true);
+const realFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  delete process.env.TYPESAFE_API_KEY;
 });
 
-test("keywordPrefilter: chatter is dropped", () => {
-  assert.equal(keywordPrefilter("anyone want lunch? the line is huge"), false);
-  assert.equal(keywordPrefilter("deployed the hotfix, watching metrics"), false);
+function jevReturning(noul: number): void {
+  process.env.TYPESAFE_API_KEY = "k";
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ answers: { d: { type: "noul", noul } } }), { status: 200 })) as typeof fetch;
+}
+
+test("jevRecall: floor is recall-tuned (0.3), and null without a key", async () => {
+  assert.equal(JEV_RECALL_FLOOR, 0.3);
+  jevReturning(0.31);
+  assert.equal(await jevRecall("anything"), true);
+  jevReturning(0.29);
+  assert.equal(await jevRecall("anything"), false);
+  delete process.env.TYPESAFE_API_KEY;
+  assert.equal(await jevRecall("anything"), null);
 });
 
-test("recall: prefilter miss short-circuits before any LLM call (no Haiku)", async () => {
-  // If this called Haiku it would throw (no ANTHROPIC_API_KEY in unit tests) — it must not.
-  assert.equal(await recall("just grabbing coffee", true), false);
+test("recall: with Jev, a decision carrying NO marker words survives (the keyword ceiling is gone)", async () => {
+  const noMarkers =
+    "@dev: new fields on the Order response are additive only, nobody removes a field without a v2 path.\n@priya: yep.";
+  assert.equal(keywordPrefilter(noMarkers), false, "sanity: the old prefilter would drop this");
+  jevReturning(0.9);
+  assert.equal(await recall(noMarkers, false), true);
 });
 
-test("recall: useHaiku=false returns the prefilter result", async () => {
-  assert.equal(await recall("we decided on quarterly billing", false), true);
+test("recall: without Jev, the keyword path runs unchanged (useHaiku=false ⇒ prefilter only)", async () => {
+  delete process.env.TYPESAFE_API_KEY;
+  assert.equal(await recall("we decided: JWT", false), true);
+  assert.equal(await recall("lunch?", false), false);
 });
 
-test("keywordPrefilterDoc: obligation language passes, aspiration/narrative drops", () => {
-  assert.equal(keywordPrefilterDoc("Guests must be able to complete checkout"), true);
-  assert.equal(keywordPrefilterDoc("conversion must be at least 92% of baseline"), true);
-  assert.equal(keywordPrefilterDoc("we should ideally support social login later"), false);
-  assert.equal(keywordPrefilterDoc("cart abandonment sits at 61% on mobile"), false);
+test("recall: a Jev outage falls back to the keyword path, never throws", async () => {
+  process.env.TYPESAFE_API_KEY = "k";
+  globalThis.fetch = (async () => new Response("{}", { status: 500 })) as typeof fetch;
+  assert.equal(await recall("we decided: JWT", false), true);
+  assert.equal(await recall("lunch?", false), false);
 });
 
-test("recallDoc: prefilter miss short-circuits (no Haiku); useHaiku=false returns the prefilter", async () => {
-  // If this called Haiku it would throw (no ANTHROPIC_API_KEY in unit tests) — it must not.
-  assert.equal(await recallDoc("competitor shipped it in Q1", true), false);
-  assert.equal(await recallDoc("the flow may not block payment on OTP", false), true);
+test("recallDoc: Jev-first with the same floor and fallback", async () => {
+  jevReturning(0.8);
+  assert.equal(await recallDoc("Guests can pay as guests.", false), true);
+  delete process.env.TYPESAFE_API_KEY;
+  assert.equal(await recallDoc("Guests must be able to check out.", false), true);
+  assert.equal(await recallDoc("Persona: Riya, 28.", false), false);
 });

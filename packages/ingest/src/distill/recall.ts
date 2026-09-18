@@ -1,4 +1,57 @@
 import { anthropic, MODELS } from "./llm.js";
+import { systemOne } from "./jev.js";
+
+/**
+ * Jev recall floor — a STARTING POINT from the 2026-09-18 eval: true decisions scored ≥ 0.67,
+ * non-decisions ≤ 0.25 except two soft cases at 0.45 / 0.63. Tuned for RECALL: junk passing to the
+ * extractor is cheap, a missed decision is not.
+ */
+export const JEV_RECALL_FLOOR = 0.3;
+
+const JEV_STATE_CHARS = 12_000;
+
+/** Jev binary recall. True/false when Jev answered; null when Jev is unavailable (caller falls back). */
+export async function jevRecall(text: string): Promise<boolean | null> {
+  const a = await systemOne(
+    { thread: text.slice(0, JEV_STATE_CHARS) },
+    {
+      d: {
+        type: "noul",
+        instructions:
+          "Does this chat thread contain a durable, agreed engineering decision (a rule or architectural choice that constrains future work, actually concluded by the team)?",
+        criteria: {
+          true: "The team concluded a rule or architectural choice that shapes future work",
+          false:
+            "Chatter, status update, one-off task, open debate, scheduling, a question answered with a fact, or a joke",
+        },
+      },
+    },
+  );
+  const d = a?.d;
+  if (!d || d.type !== "noul") return null;
+  return d.noul >= JEV_RECALL_FLOOR;
+}
+
+/** Jev binary recall for PRD sections. Same contract as jevRecall. */
+export async function jevRecallDoc(text: string): Promise<boolean | null> {
+  const a = await systemOne(
+    { prd_section: text.slice(0, JEV_STATE_CHARS) },
+    {
+      d: {
+        type: "noul",
+        instructions:
+          "Does this PRD section state a binding product constraint: an obligation, prohibition, launch gate, or explicit scope exclusion that an engineer could verify an implementation against?",
+        criteria: {
+          true: "Obligation/prohibition language that constrains what gets built",
+          false: "Background, research, personas, competitor notes, open questions, timelines, or aspiration",
+        },
+      },
+    },
+  );
+  const d = a?.d;
+  if (!d || d.type !== "noul") return null;
+  return d.noul >= JEV_RECALL_FLOOR;
+}
 
 /**
  * Stage 1 — cheap recall filter. Free keyword prefilter first; survivors get a Haiku binary check.
@@ -56,8 +109,14 @@ export async function haikuRecall(text: string): Promise<boolean> {
   return answer.includes("yes");
 }
 
-/** Stage 1 combined: prefilter → Haiku. Returns whether to send the unit to extraction. */
+/**
+ * Stage 1 combined. Jev first (no keyword prefilter — the marker list was the recall ceiling); when
+ * Jev is unavailable, the pre-Jev path: prefilter → Haiku. `useHaiku=false` skips only the Anthropic
+ * call; Jev is the cheap tier and runs whenever configured.
+ */
 export async function recall(text: string, useHaiku = true): Promise<boolean> {
+  const jev = await jevRecall(text);
+  if (jev !== null) return jev;
   if (!keywordPrefilter(text)) return false;
   if (!useHaiku) return true;
   return haikuRecall(text);
@@ -106,8 +165,10 @@ export async function haikuRecallDoc(text: string): Promise<boolean> {
   return answer.includes("yes");
 }
 
-/** Stage 1 combined for docs: prefilter → Haiku. Returns whether to send the section to extraction. */
+/** Stage 1 combined for docs — same Jev-first shape as recall(). */
 export async function recallDoc(text: string, useHaiku = true): Promise<boolean> {
+  const jev = await jevRecallDoc(text);
+  if (jev !== null) return jev;
   if (!keywordPrefilterDoc(text)) return false;
   if (!useHaiku) return true;
   return haikuRecallDoc(text);

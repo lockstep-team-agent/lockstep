@@ -1,4 +1,5 @@
 import { anthropic, MODELS } from "./llm.js";
+import { systemOne } from "./jev.js";
 import { RUBRIC_SYSTEM, EXTRACTION_SCHEMA, type Extraction } from "./rubric.js";
 import { DOC_RUBRIC_SYSTEM, DOC_EXTRACTION_SCHEMA, type DocExtraction } from "./rubric-doc.js";
 
@@ -67,13 +68,60 @@ async function callModel(model: string, externalId: string, text: string): Promi
   return parseJson(res.content, EMPTY);
 }
 
+/** Borderline band that triggers a second opinion — unchanged from the Opus-recheck era. */
+export const RECHECK_LOW = 0.35;
+export const RECHECK_HIGH = 0.6;
+
 /**
- * Stage 2 (synchronous) — structured extraction (Sonnet), Opus re-check on borderline confidence.
+ * Jev second opinion on a borderline Sonnet extraction: two calibrated Nouls on the raw text.
+ * Null when Jev is unavailable (caller falls back to the Opus re-extraction).
+ */
+export async function jevRecheck(text: string): Promise<{ is_decision: number; agreement: number } | null> {
+  const a = await systemOne(
+    { thread: text.slice(0, 12000) },
+    {
+      is_decision: {
+        type: "noul",
+        instructions:
+          "Does this thread contain a durable engineering decision — a rule or architectural choice that constrains future work beyond the task at hand, chosen among alternatives, restatable as one imperative rule?",
+      },
+      agreement: {
+        type: "noul",
+        instructions:
+          "Was the matter actually CONCLUDED by the team, rather than still being debated, deferred, or reverted within the thread?",
+      },
+    },
+  );
+  const d = a?.is_decision;
+  const g = a?.agreement;
+  if (!d || d.type !== "noul" || !g || g.type !== "noul") return null;
+  return { is_decision: d.noul, agreement: g.noul };
+}
+
+/**
+ * Merge Jev's calibrated read into Sonnet's extraction. Pure. Sonnet's rule_text/evidence are kept;
+ * only the fields the gate branches on move: confidence ← p(is_decision); finality ← "proposed" when
+ * not agreed (gate ⇒ question); is_decision ← false when p(is_decision) < 0.5 (gate ⇒ discard).
+ */
+export function applyJevRecheck(first: Extraction, jev: { is_decision: number; agreement: number }): Extraction {
+  return {
+    ...first,
+    confidence: jev.is_decision,
+    is_decision: jev.is_decision >= 0.5 ? first.is_decision : false,
+    finality: jev.agreement < 0.5 ? "proposed" : first.finality,
+  };
+}
+
+/**
+ * Stage 2 (synchronous) — structured extraction (Sonnet). On borderline confidence, a Jev second
+ * opinion (two Nouls, ~400 tokens); when Jev is unavailable, the Opus re-extraction as before.
  * The rubric system block is prompt-cached so repeated threads reuse it at ~0.1x.
  */
 export async function extract(externalId: string, text: string): Promise<Extraction> {
   const first = await callModel(MODELS.extract, externalId, text);
-  if (first.is_decision && first.confidence >= 0.35 && first.confidence < 0.6) {
+  if (first.is_decision && first.confidence >= RECHECK_LOW && first.confidence < RECHECK_HIGH) {
+    const jev = await jevRecheck(text);
+    if (jev) return applyJevRecheck(first, jev);
     const second = await callModel(MODELS.recheck, externalId, text);
     return second.confidence >= first.confidence ? second : first;
   }
