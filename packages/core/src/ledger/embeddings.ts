@@ -94,6 +94,75 @@ export function cosine(a: number[], b: number[]): number {
   return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
+export interface ScopeMate {
+  id: string;
+  version: number;
+  ruleText: string;
+  status: string;
+  origin: string;
+}
+
+/**
+ * Read-only gather shared by the similarity pre-passes (Voyage cosine, Jev relations): dedupe
+ * short-circuit (null ⇒ re-seen unit, spend nothing), live scope-mates with their current ruleText,
+ * and any cached embedding rows. Runs in its own read tx; callers do HTTP OUTSIDE it.
+ */
+export async function gatherScopeMates(
+  orgId: string,
+  input: {
+    projectId: string;
+    scopeRef: string;
+    dedupe?: { connectionId: string; externalId: string; contentHash: string };
+  },
+): Promise<{ mates: ScopeMate[]; cached: (typeof decisionEmbeddings.$inferSelect)[] } | null> {
+  return withOrg(orgId, async (tx) => {
+    if (input.dedupe) {
+      const seen = (
+        await tx
+          .select({ id: ingestArtifacts.id })
+          .from(ingestArtifacts)
+          .where(
+            and(
+              eq(ingestArtifacts.connectionId, input.dedupe.connectionId),
+              eq(ingestArtifacts.externalId, input.dedupe.externalId),
+              eq(ingestArtifacts.contentHash, input.dedupe.contentHash),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (seen) return null;
+    }
+    const live = (
+      await tx
+        .select()
+        .from(decisions)
+        .where(and(eq(decisions.projectId, input.projectId), eq(decisions.scopeRef, input.scopeRef)))
+    ).filter((m) => m.status !== "rejected" && m.status !== "superseded");
+    if (live.length === 0) return { mates: [], cached: [] };
+    const mates: ScopeMate[] = [];
+    for (const m of live) {
+      const v = (
+        await tx
+          .select({ ruleText: decisionVersions.ruleText })
+          .from(decisionVersions)
+          .where(and(eq(decisionVersions.decisionId, m.id), eq(decisionVersions.version, m.currentVersion)))
+          .limit(1)
+      )[0];
+      mates.push({ id: m.id, version: m.currentVersion, ruleText: v?.ruleText ?? "", status: m.status, origin: m.origin });
+    }
+    const cached = await tx
+      .select()
+      .from(decisionEmbeddings)
+      .where(
+        inArray(
+          decisionEmbeddings.decisionId,
+          mates.map((r) => r.id),
+        ),
+      );
+    return { mates, cached };
+  });
+}
+
 /**
  * Pre-pass for fileProposedDecision's scope scan: cosine scores of the incoming ruleText against
  * every live scope-mate. Null ⇒ caller uses Jaccard wholesale. A mate missing from the map (e.g.
@@ -116,52 +185,7 @@ export async function prepareScopeSimilarity(
   if (!env.VOYAGE_API_KEY && embedder === embedTexts) return null; // cheap out — no key, no HTTP, pure Jaccard
 
   // 1) read-only: dedupe short-circuit + scope-mates + their current ruleTexts + cached vectors.
-  const gathered = await withOrg(orgId, async (tx) => {
-    if (input.dedupe) {
-      const seen = (
-        await tx
-          .select({ id: ingestArtifacts.id })
-          .from(ingestArtifacts)
-          .where(
-            and(
-              eq(ingestArtifacts.connectionId, input.dedupe.connectionId),
-              eq(ingestArtifacts.externalId, input.dedupe.externalId),
-              eq(ingestArtifacts.contentHash, input.dedupe.contentHash),
-            ),
-          )
-          .limit(1)
-      )[0];
-      if (seen) return null; // re-seen unit — fileProposedDecision will dedupe, don't spend an embed
-    }
-    const mates = (
-      await tx
-        .select()
-        .from(decisions)
-        .where(and(eq(decisions.projectId, input.projectId), eq(decisions.scopeRef, input.scopeRef)))
-    ).filter((m) => m.status !== "rejected" && m.status !== "superseded");
-    if (mates.length === 0) return { mates: [], cached: [] as (typeof decisionEmbeddings.$inferSelect)[] };
-    const rows: Array<{ id: string; version: number; ruleText: string }> = [];
-    for (const m of mates) {
-      const v = (
-        await tx
-          .select({ ruleText: decisionVersions.ruleText })
-          .from(decisionVersions)
-          .where(and(eq(decisionVersions.decisionId, m.id), eq(decisionVersions.version, m.currentVersion)))
-          .limit(1)
-      )[0];
-      rows.push({ id: m.id, version: m.currentVersion, ruleText: v?.ruleText ?? "" });
-    }
-    const cached = await tx
-      .select()
-      .from(decisionEmbeddings)
-      .where(
-        inArray(
-          decisionEmbeddings.decisionId,
-          rows.map((r) => r.id),
-        ),
-      );
-    return { mates: rows, cached };
-  });
+  const gathered = await gatherScopeMates(orgId, input);
   if (gathered === null) return null; // deduped — no scoring needed
   if (gathered.mates.length === 0) return new Map();
 
