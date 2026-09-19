@@ -1,6 +1,6 @@
 {
   "name": "lockstep",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "Shared decision memory for teams building with AI coding agents: captures each decision once and briefs every agent before it acts.",
   "author": {
     "name": "Naman Jain",
