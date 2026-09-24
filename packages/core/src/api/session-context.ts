@@ -3,6 +3,7 @@ import { withSystem } from "../db/rls.js";
 import { repos, members, sessions, projects, briefingCursors, projectMembers } from "../db/schema.js";
 import { projectArchived, projectVisibility, getProjectRoleTx } from "../auth/permissions.js";
 import type { Principal } from "../auth/tokens.js";
+import { normalizeRemote } from "../auth/remote.js";
 
 export interface SessionContext {
   sessionId: string;
@@ -27,8 +28,9 @@ export async function registerSession(
   principal: Principal,
   input: { gitRemote: string; cwd?: string; vendor?: string; nativeSessionId?: string },
 ): Promise<SessionContext | null> {
+  const gitRemote = normalizeRemote(input.gitRemote);
   return withSystem(async (tx) => {
-    const candidates = await tx.select().from(repos).where(eq(repos.gitRemote, input.gitRemote));
+    const candidates = await tx.select().from(repos).where(eq(repos.gitRemote, gitRemote));
     for (const repo of candidates) {
       // Archived projects are inert — no new sessions (the capture hook degrades silently by design).
       const proj = (await tx.select().from(projects).where(eq(projects.id, repo.projectId)).limit(1))[0];
@@ -63,7 +65,7 @@ export async function registerSession(
               memberId: m.id,
               repoId: repo.id,
               projectId: repo.projectId,
-              gitRemote: input.gitRemote,
+              gitRemote,
               cwd: input.cwd ?? null,
               vendor: input.vendor ?? "unknown",
               state: "live",

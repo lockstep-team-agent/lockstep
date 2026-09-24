@@ -21,6 +21,7 @@ import { env } from "../env.js";
 import { ingestCodeownersFromGitHub } from "../graph/ownership-service.js";
 import { writeAudit } from "../audit/audit-service.js";
 import { getProjectRoleTx, projectArchived } from "./permissions.js";
+import { normalizeRemote } from "./remote.js";
 
 const PROJECT_ROLES = ["member", "pm", "owner"];
 
@@ -229,9 +230,10 @@ export async function connectRepo(
   principal: Principal,
   orgId: string,
   projectId: string,
-  gitRemote: string,
+  rawRemote: string,
   isMonorepo = false,
 ): Promise<{ repoId: string }> {
+  const gitRemote = normalizeRemote(rawRemote);
   await ensureMember(orgId, principal.id);
   const { repoId } = await withOrg(orgId, async (tx) => {
     const proj = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
@@ -381,10 +383,11 @@ export interface ConnectResult {
  */
 export async function connectOrJoin(
   principal: Principal,
-  gitRemote: string,
+  rawRemote: string,
   projectName?: string,
   pilot = false,
 ): Promise<ConnectResult> {
+  const gitRemote = normalizeRemote(rawRemote);
   const candidates = await withSystem((tx) => tx.select().from(repos).where(eq(repos.gitRemote, gitRemote)));
 
   // already a member of a connected org → open it

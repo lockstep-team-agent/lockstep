@@ -5,6 +5,7 @@ import { getProjectRoleTx, projectArchived } from "../auth/permissions.js";
 import { createOrg, createProject, connectRepo } from "../auth/auth-service.js";
 import type { Principal } from "../auth/tokens.js";
 import { fail, usage } from "./service.js";
+import { normalizeRemote } from "../auth/remote.js";
 
 export async function createPilotProject(p: Principal, name: string, orgId?: string) {
   const org = orgId ?? (await createOrg(p, `${p.githubLogin}'s workspace`)).orgId;
@@ -16,7 +17,8 @@ export async function createPilotProject(p: Principal, name: string, orgId?: str
 }
 
 /** Trusted auth resolution: a project ID chooses a destination; it never grants access. */
-export async function connectExactProject(p: Principal, projectId: string, gitRemote: string) {
+export async function connectExactProject(p: Principal, projectId: string, rawRemote: string) {
+  const gitRemote = normalizeRemote(rawRemote);
   const destination = await withSystem(async (tx) => {
     const project = (await tx.select().from(projects).where(eq(projects.id, projectId)).limit(1))[0];
     if (!project || projectArchived(project.settings)) throw fail("project unavailable or access not granted", 403);

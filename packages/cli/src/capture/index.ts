@@ -190,9 +190,21 @@ export async function runCapture(event: string): Promise<void> {
           saveLocalState({ verifiedAt: new Date().toISOString(), verifiedSession: input.session_id });
         }).catch(() => {});
       }
-      // Also write to stderr so it's visible in the terminal
+      // additionalContext reaches the model and nothing else, so a developer whose ledger just told
+      // their agent something sees an ordinary prompt and concludes Lockstep did nothing. Unread
+      // inbox items still print in full because they need action; everything else gets one compact
+      // line, so the briefing is visible without burying the terminal on every session start.
       if ((inbox?.unread ?? 0) > 0) {
         process.stderr.write(`\n${replay}\n\n`);
+      } else {
+        const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding").length;
+        const parts = [
+          binding > 0 ? `${binding} binding decision${binding === 1 ? "" : "s"} in scope` : null,
+          continuity?.updates.length ? `${continuity.updates.length} update${continuity.updates.length === 1 ? "" : "s"} since your last session` : null,
+          continuity?.concerns.length ? `${continuity.concerns.length} open concern${continuity.concerns.length === 1 ? "" : "s"}` : null,
+          packState === "stale" ? "decision pack is stale" : packState === "missing" ? "no decision pack" : null,
+        ].filter(Boolean);
+        if (parts.length > 0) process.stderr.write(`[lockstep] ${parts.join(" · ")}\n`);
       }
       return;
     }

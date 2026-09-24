@@ -48,14 +48,16 @@ test("a second dev with a DIFFERENT repo only joins after an invite", async () =
 
 test("orgOverview exposes each project's repo remotes (so `lockstep invite` can resolve the project)", async () => {
   const dev = await login("dev");
-  const remote = `github.com/co/over-${uid()}.git`;
-  const r = await connectOrJoin(dev, remote, `ovproj-${uid()}`);
+  const slug = `github.com/co/over-${uid()}`;
+  // Connect with a non-canonical spelling: core must store the canonical key, otherwise the same
+  // repository connected from the dashboard and from the CLI becomes two rows and splits the graph.
+  const r = await connectOrJoin(dev, `https://${slug}.git`, `ovproj-${uid()}`);
   const ov = await orgOverview(r.orgId);
   const proj = ov.projects.find((p) => p.id === r.projectId);
   assert.ok(proj, "project present in overview");
   assert.ok(
-    proj!.repos.some((rp) => rp.gitRemote === remote),
-    "the connected repo's remote is listed under its project",
+    proj!.repos.some((rp) => rp.gitRemote === slug),
+    "the remote is stored and listed in canonical host/org/repo form",
   );
 });
 
