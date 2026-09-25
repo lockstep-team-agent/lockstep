@@ -6,6 +6,7 @@ import { trackedFiles } from "./capture/diff.js";
 import { extractAllSurfaces, extractAllOutbound } from "./capture/extract.js";
 import type { OutboundRef } from "./capture/outbound.js";
 import { readManifest, writeManifest } from "./capture/manifest.js";
+import { resolveGraphqlMeta, type GqlFieldMeta } from "./capture/graphql-meta.js";
 
 export interface CatalogEntry {
   surface: string;
@@ -50,10 +51,15 @@ export interface ScanProposal {
   newConsumes: string[];
 }
 
-/** Walk the whole repo → produced surfaces + outbound-call candidates. */
-export function scanCode(cwd: string): { produces: string[]; outbound: ScannedRef[] } {
+/** Walk the whole repo → produced surfaces + outbound-call candidates (+ GraphQL return types). */
+export function scanCode(cwd: string): {
+  produces: string[];
+  outbound: ScannedRef[];
+  gqlMeta: Map<string, GqlFieldMeta>;
+} {
   const produces = new Set<string>();
   const outbound = new Map<string, ScannedRef>();
+  const graphqlDocs: string[] = [];
   for (const f of trackedFiles(cwd)) {
     let content: string;
     try {
@@ -61,10 +67,22 @@ export function scanCode(cwd: string): { produces: string[]; outbound: ScannedRe
     } catch {
       continue; // deleted/binary/unreadable — skip
     }
+    if (/\.(graphql|gql)$/i.test(f)) graphqlDocs.push(content);
     for (const s of extractAllSurfaces(f, content)) produces.add(s);
     for (const o of extractAllOutbound(f, content)) outbound.set(`${o.via} ${o.surface ?? o.hint ?? o.ref}`, { ...o, file: f });
   }
-  return { produces: [...produces].sort(), outbound: [...outbound.values()] };
+  return { produces: [...produces].sort(), outbound: [...outbound.values()], gqlMeta: resolveGraphqlMeta(graphqlDocs) };
+}
+
+/** Sync payload: GraphQL surfaces carry their return type; everything else stays a plain string. */
+export function producesPayload(
+  produces: string[],
+  gqlMeta: Map<string, GqlFieldMeta>,
+): Array<string | ({ surface: string } & GqlFieldMeta)> {
+  return produces.map((s) => {
+    const m = gqlMeta.get(s);
+    return m ? { surface: s, ...m } : s;
+  });
 }
 
 /**
@@ -114,8 +132,11 @@ export function classify(
   return { consumes, unmatched, review };
 }
 
-async function buildProposal(cwd: string, given?: Session): Promise<{ proposal: ScanProposal; session?: Session }> {
-  const { produces, outbound } = scanCode(cwd);
+async function buildProposal(
+  cwd: string,
+  given?: Session,
+): Promise<{ proposal: ScanProposal; session?: Session; gqlMeta: Map<string, GqlFieldMeta> }> {
+  const { produces, outbound, gqlMeta } = scanCode(cwd);
   let session: Session | undefined = given;
   let catalog: CatalogEntry[] = [];
   try {
@@ -137,7 +158,7 @@ async function buildProposal(cwd: string, given?: Session): Promise<{ proposal: 
     newProduces: produces.filter((s) => !manifest.produces.includes(s)),
     newConsumes: consumes.map((c) => c.surface).filter((s) => !manifest.consumes.includes(s)),
   };
-  return { proposal, session };
+  return { proposal, session, gqlMeta };
 }
 
 export function report(p: ScanProposal): string {
@@ -176,7 +197,7 @@ export async function runScan(opts: {
   session?: Session;
 }): Promise<ScanProposal> {
   const cwd = process.cwd();
-  const { proposal, session } = await buildProposal(cwd, opts.session);
+  const { proposal, session, gqlMeta } = await buildProposal(cwd, opts.session);
 
   if (opts.json) {
     process.stdout.write(JSON.stringify(proposal, null, 2) + "\n");
@@ -198,7 +219,9 @@ export async function runScan(opts: {
   // `produces:` entry the extractor can't see heals into the catalog on any scan (E2E finding).
   if (session && !opts.dryRun) {
     const merged = readManifest(cwd);
-    await call("POST", "/surfaces", session.sessionId, { surfaces: merged.produces }).catch(() => {});
+    await call("POST", "/surfaces", session.sessionId, { surfaces: producesPayload(merged.produces, gqlMeta) }).catch(
+      () => {},
+    );
     for (const c of proposal.consumes) {
       await call("POST", "/dependencies", session.sessionId, { producedSurface: c.surface, source: "manifest" }).catch(
         () => {},

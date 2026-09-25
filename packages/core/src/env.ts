@@ -40,6 +40,8 @@ const schema = z.object({
   // Optional — unset means the embedding/Jaccard path runs exactly as before.
   TYPESAFE_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Dashboard base URL — used for "details" links in comments posted back to PRDs / Slack threads.
+  LOCKSTEP_WEB_URL: z.string().optional(),
   LOCKSTEP_EXTRACT_MODEL: z.string().default("claude-sonnet-4-6"),
   LOCKSTEP_CHECKS_ENABLED: z.string().default("1").transform((v) => v !== "0"),
 

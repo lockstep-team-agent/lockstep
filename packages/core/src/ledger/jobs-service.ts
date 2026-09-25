@@ -5,7 +5,8 @@
  *
  * Claim protocol: FOR UPDATE SKIP LOCKED + a lease (locked_until) — two workers never double-run a
  * job; a crashed worker's lease expires and the job is claimable again. Completion reschedules
- * run_at by interval_seconds (null = one-shot). Executors live in the WORKER (it claims via
+ * run_at by interval_seconds; a one-shot (null interval) is deleted on success and stays claimable
+ * after a failure (its retry story). Executors live in the WORKER (it claims via
  * /internal/jobs/claim and calls the existing /internal/* endpoints per kind).
  */
 import { eq, sql } from "drizzle-orm";
@@ -37,6 +38,12 @@ export async function completeJob(id: string, ok: boolean, error?: string): Prom
   return withSystem(async (tx) => {
     const job = (await tx.select().from(scheduledJobs).where(eq(scheduledJobs.id, id)).limit(1))[0];
     if (!job) return { rescheduledFor: null };
+    // A successful one-shot is done for good. Leaving the row (past run_at, lease cleared) made it
+    // claimable again on every tick, since the claim never looks at last_status.
+    if (ok && job.intervalSeconds == null) {
+      await tx.delete(scheduledJobs).where(eq(scheduledJobs.id, id));
+      return { rescheduledFor: null };
+    }
     const now = new Date();
     const next = job.intervalSeconds != null ? new Date(now.getTime() + job.intervalSeconds * 1000) : null;
     await tx
@@ -46,7 +53,7 @@ export async function completeJob(id: string, ok: boolean, error?: string): Prom
         lastStatus: ok ? "ok" : "error",
         lastError: ok ? null : (error ?? "unknown"),
         lastRunAt: now,
-        // One-shots stay put (their run_at is in the past and the lease is gone — inert); recurring
+        // A failed one-shot keeps its past run_at, so it is retried on the next claim; recurring
         // jobs march forward from NOW, not from run_at, so a backlog never causes a run-storm.
         ...(next ? { runAt: next } : {}),
       })

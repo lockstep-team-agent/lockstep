@@ -1,3 +1,4 @@
+import { enqueueVerdictWriteback } from "../../documents/verdict-writeback.js";
 import type { FastifyInstance } from "fastify";
 import { workerAuthed, ensureMember, ensureProjectVisible, canReadProject, requireProjectRole } from "../guards.js";
 import {
@@ -241,7 +242,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
       if (reviewAt && Number.isNaN(reviewAt.getTime()))
         return reply.code(400).send({ error: "reviewAt must be an ISO date or null" });
     }
-    return confirmDecision(orgId, id, memberId, b ? { ...b, reviewAt } : undefined);
+    const out = await confirmDecision(orgId, id, memberId, b ? { ...b, reviewAt } : undefined);
+    await enqueueVerdictWriteback(orgId, id, "confirmed", memberId, (b as { note?: string } | undefined)?.note);
+    return out;
   });
 
   // Phase J review tripwire: set (or snooze) / clear a binding decision's reviewAt. "Due" itself is
@@ -289,7 +292,9 @@ export async function ingestRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, id } = req.params as { orgId: string; id: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
-    return rejectDecision(orgId, id, memberId);
+    const out = await rejectDecision(orgId, id, memberId);
+    await enqueueVerdictWriteback(orgId, id, "rejected", memberId, (req.body as { note?: string } | undefined)?.note);
+    return out;
   });
 
   /* ─── Org graph ─── */

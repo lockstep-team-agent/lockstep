@@ -18,6 +18,7 @@ import {
   integer,
   bigint,
   jsonb,
+  real,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -265,6 +266,7 @@ export const contracts = pgTable(
     verificationStatus: text("verification_status").notNull().default("asserted_unverified"),
     version: integer("version").notNull().default(1),
     decisionId: uuid("decision_id"),
+    surfaceId: uuid("surface_id"), // the stable `surfaces` row this change belongs to
     createdAt: createdAt(),
     createdBy: uuid("created_by"),
   },
@@ -831,7 +833,7 @@ export const scheduledJobs = pgTable(
   "scheduled_jobs",
   {
     id: id(),
-    kind: text("kind").notNull(), // expiry | weekly_digest | writeback_drain
+    kind: text("kind").notNull(), // expiry | weekly_digest | writeback_drain | concept_drain
     singletonKey: text("singleton_key").notNull(),
     runAt: timestamp("run_at", { withTimezone: true }).defaultNow().notNull(),
     intervalSeconds: integer("interval_seconds"), // null = one-shot
@@ -845,4 +847,203 @@ export const scheduledJobs = pgTable(
   (t) => ({
     uqSingleton: uniqueIndex("uq_scheduled_job_singleton").on(t.singletonKey),
   }),
+);
+
+/* ───────────────────────────── Concept ledger (navigation layer) ───────────────────────────── */
+
+/**
+ * Stable identity of a produced surface: one row per (repo, surface). `contracts` keeps one row per
+ * change underneath (contracts.surface_id). GraphQL return-type metadata travels as a pair.
+ */
+export const surfaces = pgTable(
+  "surfaces",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    repoId: uuid("repo_id").notNull(),
+    surface: text("surface").notNull(),
+    kind: text("kind").notNull(), // http | gql | proto | event | ws | <other>
+    returnType: text("return_type"),
+    returnTypeKind: text("return_type_kind"), // object | interface | enum | scalar | union | input | unknown
+    firstSeen: timestamp("first_seen", { withTimezone: true }).defaultNow().notNull(),
+    lastSeen: timestamp("last_seen", { withTimezone: true }).defaultNow().notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => ({ uqRepoSurface: uniqueIndex("uq_surface_repo").on(t.repoId, t.surface) }),
+);
+
+/** Per-project concept state: rebuild generation + HTTP rules. Also the sync-vs-rebuild lock row. */
+export const conceptProjects = pgTable("concept_projects", {
+  projectId: uuid("project_id").primaryKey(),
+  orgId: orgId(),
+  generation: integer("generation").notNull().default(0),
+  httpRules: jsonb("http_rules").$type<{ skip?: string[] } | null>(),
+  ruleVersion: integer("rule_version").notNull().default(1),
+});
+
+export const domains = pgTable(
+  "domains",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqKey: uniqueIndex("uq_domain_key").on(t.projectId, t.key) }),
+);
+
+/** A navigation grouping. Never governs anything: decision scope stays authoritative. */
+export const concepts = pgTable(
+  "concepts",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    key: text("key").notNull(), // immutable, kind-namespaced (http:users, gql:Order, proto:a.v1.XService)
+    label: text("label").notNull(),
+    ruleVersion: integer("rule_version").notNull().default(1),
+    domainId: uuid("domain_id"),
+    domainState: text("domain_state").notNull().default("pending"), // pending | suggested | confirmed | failed
+    domainClassifier: text("domain_classifier"), // jev | claude | human
+    domainConfidence: real("domain_confidence"),
+    domainRevision: integer("domain_revision").notNull().default(0),
+    inputVersion: integer("input_version").notNull().default(1),
+    generation: integer("generation").notNull().default(0),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqKey: uniqueIndex("uq_concept_key").on(t.projectId, t.key) }),
+);
+
+export const conceptAliases = pgTable(
+  "concept_aliases",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    aliasKey: text("alias_key").notNull(),
+    conceptId: uuid("concept_id").notNull(),
+  },
+  (t) => ({ uqAlias: uniqueIndex("uq_concept_alias").on(t.projectId, t.aliasKey) }),
+);
+
+/** An item's single primary location: a concept, or the Project-wide / Needs-placement groups. */
+export const conceptPlacements = pgTable(
+  "concept_placements",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    itemKind: text("item_kind").notNull(), // surface | decision
+    itemId: uuid("item_id").notNull(),
+    location: text("location").notNull().default("unplaced"), // concept | project_wide | unplaced
+    conceptId: uuid("concept_id"),
+    state: text("state").notNull().default("pending"), // pending | suggested | confirmed | failed
+    classifier: text("classifier"), // rule | jev | claude | human
+    confidence: real("confidence"),
+    revision: integer("revision").notNull().default(0),
+    inputVersion: integer("input_version").notNull().default(1),
+    generation: integer("generation").notNull().default(0),
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ uqItem: uniqueIndex("uq_concept_placement").on(t.projectId, t.itemKind, t.itemId) }),
+);
+
+/** Cross-concept references (an item also relevant elsewhere). Human refs survive rebuilds. */
+export const conceptRefs = pgTable(
+  "concept_refs",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    itemKind: text("item_kind").notNull(),
+    itemId: uuid("item_id").notNull(),
+    conceptId: uuid("concept_id").notNull(),
+    source: text("source").notNull(), // scope | capability | human
+    generation: integer("generation").notNull().default(0),
+  },
+  (t) => ({ uqRef: uniqueIndex("uq_concept_ref").on(t.itemKind, t.itemId, t.conceptId) }),
+);
+
+/** Sticky, field-scoped human edits: they pin exactly one field against derived writes. */
+export const conceptOverrides = pgTable(
+  "concept_overrides",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    targetKind: text("target_kind").notNull(), // concept | placement
+    targetId: uuid("target_id").notNull(), // concept id | item id
+    field: text("field").notNull(), // label | domain | location
+    payload: jsonb("payload"),
+    byMemberId: uuid("by_member_id"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqField: uniqueIndex("uq_concept_override").on(t.targetKind, t.targetId, t.field) }),
+);
+
+/** Org-scoped classification queue, drained by the `concept_drain` scheduled job. */
+export const conceptTasks = pgTable("concept_tasks", {
+  id: id(),
+  orgId: orgId(),
+  projectId: uuid("project_id").notNull(),
+  kind: text("kind").notNull(), // place_item | place_concept | rebuild
+  dedupeKey: text("dedupe_key").notNull(), // live uniqueness: uq_concept_task_live (partial index)
+  payload: jsonb("payload"),
+  state: text("state").notNull().default("queued"), // queued | running | done | failed
+  dirty: boolean("dirty").notNull().default(false),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+  leaseToken: uuid("lease_token"),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  claimedInputVersion: integer("claimed_input_version"),
+  lastError: text("last_error"),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const conceptRebuilds = pgTable("concept_rebuilds", {
+  id: id(),
+  orgId: orgId(),
+  projectId: uuid("project_id").notNull(),
+  generation: integer("generation").notNull(),
+  phase: text("phase").notNull().default("deriving"), // deriving | classifying | reconciling | done
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+/** The classification work a rebuild waits on: each target counted once. */
+export const conceptRebuildItems = pgTable(
+  "concept_rebuild_items",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    rebuildId: uuid("rebuild_id").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    requiredInputVersion: integer("required_input_version").notNull(),
+    satisfiedAt: timestamp("satisfied_at", { withTimezone: true }),
+  },
+  (t) => ({ uqItem: uniqueIndex("uq_rebuild_item").on(t.rebuildId, t.dedupeKey) }),
+);
+
+/** Cached approver-facing "why was this raised" summary, one per decision version. */
+export const decisionSummaries = pgTable(
+  "decision_summaries",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    decisionId: uuid("decision_id").notNull(),
+    version: integer("version").notNull(),
+    summary: text("summary").notNull(),
+    model: text("model").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqVersion: uniqueIndex("uq_decision_summary").on(t.decisionId, t.version) }),
 );

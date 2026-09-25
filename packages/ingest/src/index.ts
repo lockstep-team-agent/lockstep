@@ -309,6 +309,11 @@ async function fastTick(ls: LockstepClient, useStub: boolean, useHaiku: boolean)
         case "writeback_drain":
           await runWritebackDrain(ls, useStub);
           break;
+        case "concept_drain": {
+          const cd = await ls.runConceptDrain();
+          if (cd.claimed > 0) console.log(`[concepts] claimed=${cd.claimed} done=${cd.done} requeued=${cd.requeued} failed=${cd.failed}`);
+          break;
+        }
         default:
           console.log(`[jobs] unknown kind ${job.kind} — completing as error`);
           await ls.completeJob(job.id, false, `unknown kind ${job.kind}`);

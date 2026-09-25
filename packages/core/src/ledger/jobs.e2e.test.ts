@@ -52,7 +52,7 @@ test("due jobs claim once (lease), reschedule from now on completion", async () 
   assert.equal(notDue.length, 0, "rescheduled job is no longer due");
 });
 
-test("one-shot completes inert; failures record last_error", async () => {
+test("a failed one-shot records last_error and stays claimable", async () => {
   const job = await insertJob("test-oneshot", { intervalSeconds: null });
   assert.equal((await claimDueJobs()).filter((j) => j.id === job.id).length, 1);
   const done = await completeJob(job.id, false, "boom");
@@ -63,6 +63,16 @@ test("one-shot completes inert; failures record last_error", async () => {
   // run_at unchanged (past) but the lease is cleared — a one-shot IS claimable again after failure,
   // which is the retry story for one-shots; recurring jobs retry on their next interval instead.
   assert.equal((await claimDueJobs()).filter((j) => j.id === job.id).length, 1);
+});
+
+test("a successful one-shot is never claimed again", async () => {
+  const job = await insertJob("test-oneshot-ok", { intervalSeconds: null });
+  assert.equal((await claimDueJobs()).filter((j) => j.id === job.id).length, 1);
+  const done = await completeJob(job.id, true);
+  assert.equal(done.rescheduledFor, null);
+  assert.equal((await claimDueJobs()).filter((j) => j.id === job.id).length, 0, "not re-claimed");
+  const rows = await withSystem((tx) => tx.select().from(scheduledJobs).where(eq(scheduledJobs.id, job.id)));
+  assert.equal(rows.length, 0, "row removed");
 });
 
 test("expired lease is claimable again (crashed-worker recovery)", async () => {

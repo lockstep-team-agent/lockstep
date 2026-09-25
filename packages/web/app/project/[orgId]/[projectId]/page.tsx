@@ -17,6 +17,8 @@ import { StatGrid, Stat } from "@/components/StatGrid";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { ackDecisionAction } from "@/actions";
+import { redirect } from "next/navigation";
+import { newUiEnabled } from "@/lib/next-data";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +27,7 @@ type Need = { key: string; impact: number; at: string; node: ReactNode };
 export default async function Home({ params }: { params: { orgId: string; projectId: string } }) {
   const { orgId, projectId } = params;
   const base = `/project/${orgId}/${projectId}`;
+  if (newUiEnabled()) redirect(`${base}/inbox`);
   const [o, me] = await Promise.all([getOverview(orgId, projectId), apiGet<Me>("/me")]);
   if (!o) return <EmptyState icon={<Inbox />} title="Couldn't load this project" />;
   const login = me?.principal.githubLogin ?? "";

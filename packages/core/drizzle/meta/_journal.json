@@ -71,6 +71,20 @@
       "when": 1794900000000,
       "tag": "0009_individual_adoption",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795000000000,
+      "tag": "0010_concepts",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795100000000,
+      "tag": "0011_decision_summaries",
+      "breakpoints": true
     }
   ]
 }

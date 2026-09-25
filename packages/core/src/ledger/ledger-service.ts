@@ -40,6 +40,7 @@ import { sourceDocuments, conflicts, writebacks } from "../db/schema.js";
 import { notifyConflictTx } from "../routing/routing-engine.js";
 import { inArray } from "drizzle-orm";
 import { confidenceFraction } from "./confidence.js";
+import { normalizeSurfaceEntries, placeDecisionTx, syncSurfacesTx } from "../concepts/concept-service.js";
 
 function one<T>(rows: T[]): T {
   const r = rows[0];
@@ -409,6 +410,7 @@ export async function proposeDecision(
         reason: { scopeRef: input.scopeRef, ruleText: input.ruleText, impact },
       });
     }
+    await placeDecisionTx(tx, orgId, decisionId, { inputChanged: true });
     return { decisionId, version, status, impact };
   });
 }
@@ -874,6 +876,7 @@ export async function fileProposedDecision(
         oldDecisionId: supersedes,
       });
     }
+    await placeDecisionTx(tx, orgId, d.id, { inputChanged: true });
     return { decisionId: d.id, deduped: false, fused: false, supersedes };
   });
 }
@@ -988,6 +991,7 @@ export async function reproposeDocConstraint(
         reversioned: true,
       },
     });
+    await placeDecisionTx(tx, orgId, d.id, { inputChanged: true });
     return { decisionId: d.id, reversioned: true, deduped: false };
   });
 }
@@ -1614,11 +1618,13 @@ export async function listProjectSurfaces(orgId: string, projectId: string): Pro
  */
 export async function syncProducedSurfaces(
   orgId: string,
-  input: { projectId: string; repoId: string; memberId?: string; surfaces: string[] },
+  input: { projectId: string; repoId: string; memberId?: string; surfaces: unknown[] },
 ): Promise<{ added: number; total: number }> {
+  // Entries are plain strings (older CLIs) or {surface, returnType?, returnTypeKind?} (GraphQL metadata).
+  const entries = normalizeSurfaceEntries(input.surfaces);
   return withOrg(orgId, async (tx) => {
     let added = 0;
-    for (const surface of [...new Set(input.surfaces)]) {
+    for (const surface of entries.map((e) => e.surface)) {
       const existing = (
         await tx
           .select({ id: contracts.id })
@@ -1641,6 +1647,7 @@ export async function syncProducedSurfaces(
     }
     const total = (await tx.select({ id: contracts.id }).from(contracts).where(eq(contracts.repoId, input.repoId)))
       .length;
+    await syncSurfacesTx(tx, orgId, input.projectId, input.repoId, entries);
     return { added, total };
   });
 }
@@ -1685,6 +1692,7 @@ export async function recordChange(
           .returning(),
       );
       contractId = c.id;
+      await syncSurfacesTx(tx, orgId, input.projectId, input.repoId, [{ surface: input.surface }]);
     }
     // Impact = blast radius: how many repos consume the changed surface (the precise fan-out target).
     const impact = input.surface ? await consumerCountTx(tx, input.projectId, input.surface) : 0;

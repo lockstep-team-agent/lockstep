@@ -208,7 +208,8 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   app.post("/surfaces", async (req, reply) => {
     const c = await ctx(req, reply);
     if (!c) return;
-    const b = req.body as { surfaces?: string[] };
+    // plain strings, or {surface, returnType?, returnTypeKind?} entries (GraphQL metadata)
+    const b = req.body as { surfaces?: unknown[] };
     if (!Array.isArray(b?.surfaces)) return reply.code(400).send({ error: "surfaces array required" });
     return syncProducedSurfaces(c.orgId, {
       projectId: c.projectId,

@@ -42,6 +42,11 @@ Railway project
 - **Add → GitHub Repo → same repo.** In the service settings set **Build → Dockerfile Path**
   to `packages/web/Dockerfile`.
 - **Variables:** `LOCKSTEP_API_URL = https://<core-public-url>`
+- _Optional:_ `LOCKSTEP_NEW_UI = 1` switches every user to the concept-ledger dashboard (Inbox / Map /
+  Ledger / Settings). Unset, the current dashboard renders exactly as before. Concept domains and
+  non-surface placements are suggested by core's `TYPESAFE_API_KEY` (or `ANTHROPIC_API_KEY`); without
+  either, surfaces are still grouped by rule and Settings shows a banner. The `ingest` worker must run:
+  it drains the classification queue (`concept_drain` job, every 60s).
 - Open the web service URL → sign in with a Lockstep token (`lockstep login` locally prints one).
 
 ## 4. Deploy `ingest` (the sweep worker)
@@ -78,12 +83,13 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 | `LOCKSTEP_SLACK_SIGNING_SECRET` | ✓ (interactivity + events webhooks) | — | — |
 | `COMPOSIO_API_KEY` | ✓ (server-side OAuth initiate) | — | ✓ (sweep execution) |
 | `LOCKSTEP_INGEST_TOKEN` | ✓ | — | ✓ (must match) |
-| `ANTHROPIC_API_KEY` | ✓ (optional — rule extraction on import) | — | ✓ |
-| `TYPESAFE_API_KEY` | ✓ (recommended — fusion verdicts, doc import, decision checks) | — | ✓ (optional — recall/recheck) |
+| `ANTHROPIC_API_KEY` | ✓ (optional — rule extraction on import; concept classification fallback) | — | ✓ |
+| `TYPESAFE_API_KEY` | ✓ (recommended — fusion verdicts, doc import, decision checks, concept classification) | — | ✓ (optional — recall/recheck) |
 | `SLACK_BOT_TOKEN` | — | — | ✓ (optional) |
 | `NANGO_SECRET_KEY` / `NANGO_HOST` | — | — | ✓ (optional) |
 | `LOCKSTEP_API_URL` | — | ✓ | ✓ |
 | `LOCKSTEP_WEB_URL` | — | ✓ (canonical URL; don't rely on x-forwarded-host) | ✓ (digest links) |
+| `LOCKSTEP_NEW_UI` | — | ✓ (optional — `1` = concept-ledger dashboard) | — |
 
 ## 5. Wire the live event ingress (gateway webhooks — both land on `core`)
 

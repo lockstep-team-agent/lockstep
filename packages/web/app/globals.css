@@ -44,6 +44,144 @@ html.light {
   --ring: #6d5ce6;
 }
 
+/*
+ * New shell (LOCKSTEP_NEW_UI=1). Every token is re-declared under .ui-next on the shell root only,
+ * so flag-off rendering is unchanged. Signal lime is the single accent: it means "binding" and the
+ * primary action, nothing else. Greys carry structure; red/amber carry conflict/drift.
+ */
+.ui-next {
+  --background: #0a0b0d;
+  --card: #111317;
+  --muted: #16191e;
+  --raised: #1b1f25;
+  --border: rgb(255 255 255 / 0.08);
+  --border-strong: rgb(255 255 255 / 0.14);
+  --foreground: #e8eaed;
+  --muted-foreground: #8a9099;
+  --faint: #5c626b;
+  --primary: #b4f05a;
+  --primary-foreground: #0a0b0d;
+  --primary-ink: #b4f05a;
+  --primary-soft: rgb(180 240 90 / 0.1);
+  --primary-edge: rgb(180 240 90 / 0.32);
+  --success: #b4f05a;
+  --success-soft: rgb(180 240 90 / 0.1);
+  --success-edge: rgb(180 240 90 / 0.32);
+  --warning: #f2b84b;
+  --warning-soft: rgb(242 184 75 / 0.1);
+  --warning-edge: rgb(242 184 75 / 0.32);
+  --destructive: #f2555a;
+  --destructive-soft: rgb(242 85 90 / 0.1);
+  --destructive-edge: rgb(242 85 90 / 0.32);
+  --info: #9aa4b2;
+  --info-soft: rgb(154 164 178 / 0.1);
+  --info-edge: rgb(154 164 178 / 0.3);
+  --ring: #b4f05a;
+  --radius: 6px;
+  --row-h: 32px;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+  background: var(--background);
+  color: var(--foreground);
+}
+html.light .ui-next {
+  --background: #fafaf9;
+  --card: #ffffff;
+  --muted: #f3f4f1;
+  --raised: #ffffff;
+  --border: rgb(10 11 13 / 0.08);
+  --border-strong: rgb(10 11 13 / 0.16);
+  --foreground: #111317;
+  --muted-foreground: #5b616b;
+  --faint: #9096a0;
+  /* lime can't carry text on white: light mode uses a deep lime for fills and ink alike */
+  --primary: #4d7c0f;
+  --primary-foreground: #ffffff;
+  --primary-ink: #3f6212;
+  --primary-soft: rgb(101 163 13 / 0.12);
+  --primary-edge: rgb(101 163 13 / 0.4);
+  --success: #4d7c0f;
+  --success-soft: rgb(101 163 13 / 0.12);
+  --success-edge: rgb(101 163 13 / 0.4);
+  --warning: #b45309;
+  --warning-soft: rgb(217 119 6 / 0.12);
+  --warning-edge: rgb(217 119 6 / 0.4);
+  --destructive: #dc2626;
+  --destructive-soft: rgb(220 38 38 / 0.1);
+  --destructive-edge: rgb(220 38 38 / 0.35);
+  --ring: #4d7c0f;
+}
+.ui-next .tnum {
+  font-variant-numeric: tabular-nums;
+}
+/* New pages fill the canvas (data-full); pages from the old shell keep their centered, padded frame. */
+.ui-next .shell-page:has(> [data-full]) {
+  height: 100%;
+}
+.ui-next .shell-page:not(:has(> [data-full])) {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.ui-next .concept-graph .react-flow__handle {
+  opacity: 0;
+}
+.ui-next .concept-graph .react-flow__node {
+  cursor: pointer;
+}
+.ui-next .react-flow {
+  --xy-controls-button-background-color-default: var(--card);
+  --xy-controls-button-background-color-hover-default: var(--muted);
+  --xy-controls-button-color-default: var(--muted-foreground);
+  --xy-controls-button-color-hover-default: var(--foreground);
+  --xy-controls-button-border-color-default: var(--border);
+  --xy-controls-box-shadow-default: none;
+}
+.ui-next .react-flow__controls-button svg {
+  fill: currentColor;
+}
+/* The binding rail — the signature: a 2px state stripe on every decision-bearing row. */
+.ui-next .rail {
+  position: relative;
+}
+.ui-next .rail::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--faint);
+}
+.ui-next .rail-binding::before {
+  background: var(--primary);
+}
+.ui-next .rail-proposed::before {
+  background: repeating-linear-gradient(to bottom, var(--muted-foreground) 0 3px, transparent 3px 6px);
+}
+.ui-next .rail-superseded::before {
+  background: var(--faint);
+  opacity: 0.5;
+}
+.ui-next .rail-conflict::before {
+  background: var(--destructive);
+}
+.ui-next .rail-drift::before {
+  background: var(--warning);
+}
+.ui-next .rail-none::before {
+  background: transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ui-next .press:active {
+    transform: scale(0.97);
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

@@ -22,3 +22,23 @@ export async function sendDigest(
   const body = (await res.json()) as { ok?: boolean; ts?: string };
   return { ok: Boolean(body.ok), ts: body.ts };
 }
+
+/** Reply inside an existing thread (verdict write-backs): `thread_ts` keeps it out of the channel. */
+export async function sendThreadReply(
+  botToken: string,
+  channel: string,
+  threadTs: string,
+  text: string,
+): Promise<{ ok: boolean; ts?: string }> {
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      authorization: `Bearer ${botToken}`,
+    },
+    body: JSON.stringify({ channel, thread_ts: threadTs, text }),
+  });
+  if (!res.ok) return { ok: false };
+  const body = (await res.json()) as { ok?: boolean; ts?: string };
+  return { ok: Boolean(body.ok), ts: body.ts };
+}

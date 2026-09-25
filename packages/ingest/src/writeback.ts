@@ -11,7 +11,7 @@ import {
   type SlackDigestPayload,
   type WeeklyDigestPayload,
 } from "./slack/digest.js";
-import { sendDigest as defaultSendDigest } from "./slack/send.js";
+import { sendDigest as defaultSendDigest, sendThreadReply as defaultSendThreadReply } from "./slack/send.js";
 
 /** Payload core composes for a conflict_comment write-back (reconcile-service). */
 interface ConflictCommentPayload {
@@ -27,12 +27,14 @@ export interface DrainOpts {
   /** Resolve the DocumentConnector for a row (null ⇒ can't post, report failure to core). */
   connectorFor: (row: PendingWriteback) => DocumentConnector | null;
   sendDigestFn?: typeof defaultSendDigest;
+  sendThreadReplyFn?: typeof defaultSendThreadReply;
   slackBotToken?: string;
   log?: (m: string) => void;
 }
 
 /**
- * Drain core's write-back queue: conflict_comment → Notion page comment via the row's connector,
+ * Drain core's write-back queue: conflict_comment / decision_comment → page comment on the source
+ * document via the row's connector, slack_thread_reply → verdict reply in the originating thread,
  * slack_digest → ratification DM via the bot token, drift_alert → informational conflict DM (also
  * via the bot token). Every row is acked with markWritebackDone — ok:false leaves it queued for
  * retry (core fails it after three attempts). Per-row errors never abort the drain.
@@ -43,12 +45,15 @@ export async function drainWritebacks(
 ): Promise<{ posted: number; failed: number }> {
   const log = opts.log ?? (() => {});
   const send = opts.sendDigestFn ?? defaultSendDigest;
+  const reply = opts.sendThreadReplyFn ?? defaultSendThreadReply;
   const rows = await client.getPendingWritebacks();
   let posted = 0;
   let failed = 0;
   for (const row of rows) {
     try {
       switch (row.kind) {
+        // decision_comment: a ratify/confirm/reject verdict posted back on the source PRD (same path)
+        case "decision_comment":
         case "conflict_comment": {
           const connector = opts.connectorFor(row);
           if (!connector) {
@@ -61,6 +66,21 @@ export async function drainWritebacks(
           const { commentRef } = await connector.writeComment(row.targetRef, p.body, p.anchorBlockId);
           await client.markWritebackDone(row.id, true, commentRef);
           posted++;
+          break;
+        }
+        case "slack_thread_reply": {
+          // a verdict posted back in the Slack thread the decision was distilled from
+          if (!opts.slackBotToken) {
+            log(`[writeback] ${row.id}: SLACK_BOT_TOKEN not set — cannot reply in thread`);
+            await client.markWritebackDone(row.id, false);
+            failed++;
+            continue;
+          }
+          const p = row.payload as { channel: string; threadTs: string; text: string };
+          const r = await reply(opts.slackBotToken, p.channel, p.threadTs, p.text);
+          await client.markWritebackDone(row.id, r.ok, r.ts);
+          if (r.ok) posted++;
+          else failed++;
           break;
         }
         case "slack_digest": {

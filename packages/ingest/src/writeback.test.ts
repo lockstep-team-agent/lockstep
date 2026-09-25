@@ -80,7 +80,9 @@ test("drainWritebacks: conflict_comment posts via the connector and acks with th
   const stub = new StubConnector();
   const res = await drainWritebacks(client, { connectorFor: () => stub });
   assert.deepEqual(res, { posted: 1, failed: 0 });
-  assert.deepEqual(stub.comments, [{ pageId: "prd-142", body: "⚠ This constraint may conflict…", anchorBlockId: "block-7" }]);
+  assert.deepEqual(stub.comments, [
+    { pageId: "prd-142", body: "⚠ This constraint may conflict…", anchorBlockId: "block-7" },
+  ]);
   assert.deepEqual(client.done, [{ id: "wb-1", ok: true, resultRef: "stub-comment-1" }]);
 });
 
@@ -205,4 +207,75 @@ test("drainWritebacks: even the failure ack failing doesn't abort the drain", as
   const res = await drainWritebacks(client, { connectorFor: () => throwing, log: (m) => logs.push(m) });
   assert.deepEqual(res, { posted: 0, failed: 2 });
   assert.equal(logs.filter((m) => m.includes("failed: notion 503")).length, 2);
+});
+
+test("decision_comment posts the verdict on the source document; slack_thread_reply replies in-thread", async () => {
+  const done: Array<[string, boolean, string | undefined]> = [];
+  const client = {
+    getPendingWritebacks: async () => [
+      conflictRow({
+        id: "wb-d",
+        kind: "decision_comment",
+        tool: "confluence",
+        payload: { decisionId: "d1", verdict: "ratified", anchorBlockId: null, body: "Ratified in Lockstep by @ana" },
+      }),
+      conflictRow({
+        id: "wb-s",
+        tool: "slack",
+        kind: "slack_thread_reply",
+        targetRef: "C1/1726000000.1",
+        payload: { channel: "C1", threadTs: "1726000000.1", text: "Rejected in Lockstep by @ana" },
+        connection: null,
+      }),
+    ],
+    markWritebackDone: async (id: string, ok: boolean, ref?: string) => {
+      done.push([id, ok, ref]);
+    },
+  };
+  const comments: Array<[string, string]> = [];
+  const connector = new StubConnector();
+  connector.writeComment = async (page: string, body: string) => {
+    comments.push([page, body]);
+    return { commentRef: "c-1" };
+  };
+  const replies: Array<[string, string, string]> = [];
+  const r = await drainWritebacks(client, {
+    connectorFor: () => connector,
+    slackBotToken: "xoxb",
+    sendThreadReplyFn: async (_t, channel, ts, text) => {
+      replies.push([channel, ts, text]);
+      return { ok: true, ts: "1726000001.2" };
+    },
+  });
+  assert.deepEqual(r, { posted: 2, failed: 0 });
+  assert.deepEqual(comments, [["prd-142", "Ratified in Lockstep by @ana"]]);
+  assert.deepEqual(replies, [["C1", "1726000000.1", "Rejected in Lockstep by @ana"]]);
+  assert.deepEqual(done, [
+    ["wb-d", true, "c-1"],
+    ["wb-s", true, "1726000001.2"],
+  ]);
+});
+
+test("slack_thread_reply without a bot token fails the row (stays retryable), never throws", async () => {
+  const done: Array<[string, boolean]> = [];
+  const r = await drainWritebacks(
+    {
+      getPendingWritebacks: async () => [
+        conflictRow({
+          id: "wb-s",
+          tool: "slack",
+          kind: "slack_thread_reply",
+          targetRef: "C1/1.1",
+          payload: { channel: "C1", threadTs: "1.1", text: "x" },
+          connection: null,
+        }),
+      ],
+      markWritebackDone: async (id: string, ok: boolean) => {
+        done.push([id, ok]);
+      },
+    },
+    { connectorFor: () => null },
+  );
+  assert.deepEqual(r, { posted: 0, failed: 1 });
+  assert.deepEqual(done, [["wb-s", false]]);
 });

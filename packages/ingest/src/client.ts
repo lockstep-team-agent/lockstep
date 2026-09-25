@@ -76,9 +76,11 @@ export interface SweepDirective {
 export interface PendingWriteback {
   id: string;
   orgId: string;
-  tool: "notion" | "slack";
-  kind: "conflict_comment" | "slack_digest" | "drift_alert" | "weekly_digest";
-  targetRef: string; // notion page id (conflict_comment) or Slack user id (slack_digest / drift_alert)
+  // document comments go to the PRD's own tool (notion | confluence | gdocs); the rest are Slack
+  tool: "notion" | "confluence" | "gdocs" | "slack";
+  kind: "conflict_comment" | "decision_comment" | "slack_thread_reply" | "slack_digest" | "drift_alert" | "weekly_digest";
+  // document page id (conflict/decision comments), Slack user id (digests/alerts), or `${channel}/${threadTs}`
+  targetRef: string;
   payload: unknown;
   connection: { entity: string; connectedAccountId: string | null; tool: string } | null;
 }
@@ -180,6 +182,11 @@ export class LockstepClient {
   /** Enqueue weekly operator digests (idempotent per ISO week) — via the `weekly_digest` job. */
   async runWeeklyDigests(): Promise<{ enqueued: number }> {
     return this.req("POST", "/internal/digests/weekly/run");
+  }
+
+  /** Drain the concept classification queue — via the `concept_drain` scheduled job. */
+  async runConceptDrain(): Promise<{ claimed: number; done: number; requeued: number; failed: number }> {
+    return this.req("POST", "/internal/concepts/drain");
   }
 
   /* ── gateway: Slack event drain + scheduled jobs (the fast loop) ── */

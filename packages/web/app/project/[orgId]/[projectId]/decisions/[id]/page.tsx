@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/dialog";
 import { ackDecisionAction, confirmDecisionAction, rejectDecisionAction, ratifyDecisionAction } from "@/actions";
 import { ProposeVersionSheet } from "./ProposeVersionSheet";
+import { newUiEnabled } from "@/lib/next-data";
+import { ApprovalBrief } from "@/components/next/ApprovalBrief";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,18 @@ const shortRepo = (remote: string | null) => (remote ? remote.split("/").slice(-
 export default async function Page({ params }: { params: { orgId: string; projectId: string; id: string } }) {
   const { orgId, projectId, id } = params;
   const base = `/project/${orgId}/${projectId}`;
+  if (newUiEnabled()) {
+    return (
+      <div data-full className="h-full">
+        <div className="mx-auto max-w-4xl py-4">
+          <Link href={`${base}/ledger`} className="px-5 text-[12px] text-faint hover:text-foreground">
+            ← Ledger
+          </Link>
+          <ApprovalBrief orgId={orgId} projectId={projectId} decisionId={id} mode="page" />
+        </div>
+      </div>
+    );
+  }
   const [d, o] = await Promise.all([getDecisionDetail(orgId, projectId, id), getOverview(orgId, projectId)]);
   if (!d) notFound();
 

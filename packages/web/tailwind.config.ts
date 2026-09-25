@@ -21,6 +21,9 @@ export default {
         accent: { DEFAULT: "var(--muted)", foreground: "var(--foreground)" },
         secondary: { DEFAULT: "var(--muted)", foreground: "var(--foreground)" },
         border: "var(--border)",
+        "border-strong": "var(--border-strong)",
+        faint: "var(--faint)",
+        raised: "var(--raised)",
         input: "var(--border)",
         ring: "var(--ring)",
         primary: {
@@ -28,6 +31,7 @@ export default {
           foreground: "var(--primary-foreground)",
           soft: "var(--primary-soft)",
           edge: "var(--primary-edge)",
+          ink: "var(--primary-ink)",
         },
         success: { DEFAULT: "var(--success)", soft: "var(--success-soft)", edge: "var(--success-edge)" },
         warning: { DEFAULT: "var(--warning)", soft: "var(--warning-soft)", edge: "var(--warning-edge)" },

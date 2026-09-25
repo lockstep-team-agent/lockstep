@@ -1,3 +1,4 @@
+import { enqueueVerdictWriteback } from "../../documents/verdict-writeback.js";
 import type { FastifyInstance } from "fastify";
 import { and, eq } from "drizzle-orm";
 import { withOrg } from "../../db/rls.js";
@@ -169,8 +170,10 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const { orgId, id } = req.params as { orgId: string; id: string };
     const memberId = await ensureMember(req, reply, orgId);
     if (!memberId) return;
-    const b = req.body as { ruleText?: string } | undefined;
-    return ratifyDecision(orgId, id, memberId, b);
+    const b = req.body as { ruleText?: string; note?: string } | undefined;
+    const out = await ratifyDecision(orgId, id, memberId, b?.ruleText ? { ruleText: b.ruleText } : undefined);
+    await enqueueVerdictWriteback(orgId, id, "ratified", memberId, b?.note);
+    return out;
   });
 
   /* ─── State mappings (admin) ─── */
