@@ -5,7 +5,13 @@ import { realpathSync } from "node:fs";
 import { call } from "../mcp/api.js";
 import { registerSession, type Session } from "../mcp/session.js";
 import { getToken } from "../auth/token-store.js";
-import { resolveApiUrl } from "../config.js";
+import { getConfig, resolveApiUrl, setOrgSkills } from "../config.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { applyFile, readIfExists } from "../adapters/fsutil.js";
+import { mergeHooks } from "../adapters/merge.js";
+import { orgSkillsHook, PINNED_COMMAND } from "../adapters/templates.js";
 import { readLocalState, saveLocalState } from "../local-state.js";
 import { CLI_VERSION } from "../adapters/templates.js";
 import { formatSync, readState, SyncBusy, syncSkills, type SyncApi, type SyncPayload, type SyncResult } from "./sync.js";
@@ -91,16 +97,22 @@ export async function runEnroll(opts: { yes?: boolean }): Promise<void> {
       rl.close();
     }
   }
-  const { environmentId } = await call<{ environmentId: string }>("POST", "/environments/enroll", session.sessionId, {
-    adapter: "claude",
-    adapterVersion: CLI_VERSION,
-    hostKey: hostKey(cwd),
-    capabilities: CLAUDE_CAPABILITIES,
-  });
-  saveLocalState({ environmentId, skillsBackoffUntil: undefined, skillsFailures: 0 });
+  const environmentId = await enrollHere(session);
   console.log("✓ Enrolled. Syncing org skills…");
   const r = await syncSkills(cwd, httpApi(environmentId, session.sessionId));
   console.log(formatSync(r, "command") || "No org skills are assigned to this checkout yet.");
+}
+
+/** Enroll the current checkout (idempotent server-side: same machine + checkout = same environment). */
+export async function enrollHere(session: Session): Promise<string> {
+  const { environmentId } = await call<{ environmentId: string }>("POST", "/environments/enroll", session.sessionId, {
+    adapter: "claude",
+    adapterVersion: CLI_VERSION,
+    hostKey: hostKey(process.cwd()),
+    capabilities: CLAUDE_CAPABILITIES,
+  });
+  saveLocalState({ environmentId, skillsBackoffUntil: undefined, skillsFailures: 0 });
+  return environmentId;
 }
 
 /**
@@ -108,7 +120,16 @@ export async function runEnroll(opts: { yes?: boolean }): Promise<void> {
  * files stay and we back off (30s doubling, capped at 30 min) so a flaky network can't slow every start.
  */
 export async function sessionStartSync(session: Session): Promise<{ text: string; result: SyncResult | null }> {
-  const st = readLocalState();
+  let st = readLocalState();
+  // Consented to org-wide skills: a checkout of any connected org repo enrolls itself on first use.
+  if (!st.environmentId && getConfig().orgSkills?.enabled && (await standardsOn())) {
+    try {
+      await enrollHere(session);
+      st = readLocalState();
+    } catch {
+      return { text: "", result: null };
+    }
+  }
   if (!st.environmentId) return { text: "", result: null };
   if (st.skillsBackoffUntil && Date.parse(st.skillsBackoffUntil) > Date.now()) return { text: "", result: null };
   const api = httpApi(st.environmentId, session.sessionId, Date.now() + 8_000);
@@ -192,4 +213,75 @@ export async function runSkills(argv: string[]): Promise<void> {
 
 function print(r: SyncResult): void {
   console.log(formatSync(r, "command") || `✓ Org skills are up to date (${r.unchanged.length} installed).`);
+}
+
+/* ── org-wide skills: one user-level hook for every checkout ── */
+
+const userSettings = () => join(homedir(), ".claude", "settings.json");
+const hasProjectHook = (cwd: string) =>
+  [".claude/settings.local.json", ".claude/settings.json"].some((f) => {
+    try {
+      return readFileSync(join(cwd, f), "utf8").includes("capture --event SessionStart");
+    } catch {
+      return false;
+    }
+  });
+
+/** Install the user-level SessionStart hook (skipped when a full user-scope install already syncs). */
+export async function installOrgSkillsHook(dryRun = false): Promise<string> {
+  const cur = await readIfExists(userSettings());
+  if (cur?.includes("capture --event SessionStart")) return `unchanged  ${userSettings()} (user-level Lockstep hooks already sync skills)`;
+  return applyFile(userSettings(), (c) => mergeHooks(c, [orgSkillsHook], PINNED_COMMAND), dryRun);
+}
+
+export async function removeOrgSkillsHook(): Promise<string> {
+  return applyFile(
+    userSettings(),
+    (cur) => {
+      if (!cur) return "";
+      const obj = JSON.parse(cur) as { hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>> };
+      const list = obj.hooks?.SessionStart;
+      if (list) {
+        const kept = list.filter((e) => !(e.hooks ?? []).some((h) => (h.command ?? "").includes("skills auto")));
+        if (kept.length) obj.hooks!.SessionStart = kept;
+        else delete obj.hooks!.SessionStart;
+        if (obj.hooks && !Object.keys(obj.hooks).length) delete obj.hooks;
+      }
+      return JSON.stringify(obj, null, 2) + "\n";
+    },
+    false,
+  );
+}
+
+/**
+ * `lockstep skills auto` — the user-level hook. Never breaks a session: anything unexpected is a
+ * silent no-op. Repos without a Lockstep project (or where the repo's own hooks already sync) exit
+ * at once; connected org repos are enrolled on first use and synced.
+ */
+export async function runAutoSync(): Promise<void> {
+  try {
+    if (!getConfig().orgSkills?.enabled) return;
+    const cwd = process.cwd();
+    const { gitRemote } = await import("../mcp/git.js");
+    if (!gitRemote(cwd)) return; // not a git checkout
+    if (hasProjectHook(cwd)) return; // this repo's own SessionStart hook syncs (and briefs)
+    const session = await registerSession("claude", undefined, 4_000).catch(() => null);
+    if (!session) return; // not a repo of a Lockstep project you're in
+    const r = await sessionStartSync(session);
+    if (r.text) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: `Lockstep:\n${r.text}` } }));
+  } catch {
+    /* never break the agent */
+  }
+}
+
+/** `lockstep skills everywhere on|off`. */
+export async function setOrgSkillsEverywhere(on: boolean): Promise<void> {
+  setOrgSkills(on);
+  if (on) {
+    console.log(await installOrgSkillsHook());
+    console.log("Org skills will install in every checkout of your organization's connected repos, at Claude Code session start.");
+  } else {
+    console.log(await removeOrgSkillsHook());
+    console.log("Stopped installing org skills in new checkouts. Already enrolled checkouts keep syncing until you run `lockstep skills unenroll` there.");
+  }
 }

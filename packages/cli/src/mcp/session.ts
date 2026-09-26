@@ -10,11 +10,11 @@ export interface Session {
 }
 
 /** Register this agent session: cwd + git remote → (user, repo, project). */
-export async function registerSession(vendor: string, nativeSessionId?: string): Promise<Session> {
+export async function registerSession(vendor: string, nativeSessionId?: string, timeoutMs?: number): Promise<Session> {
   const cwd = process.cwd();
   const remote = gitRemote(cwd);
   if (!remote) {
     throw new Error("no git 'origin' remote found — Lockstep identifies the repo by its remote");
   }
-  return call<Session>("POST", "/sessions/register", undefined, { gitRemote: remote, cwd, vendor, nativeSessionId });
+  return call<Session>("POST", "/sessions/register", undefined, { gitRemote: remote, cwd, vendor, nativeSessionId }, timeoutMs);
 }

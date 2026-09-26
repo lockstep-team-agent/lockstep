@@ -11,6 +11,20 @@ package is the only one published to npm; its npm version tracks the repo versio
 
 ## [Unreleased]
 
+## [0.4.0] — lockstep-cli
+
+### Added
+
+- **Organization skills (Claude Code pilot).** `onboard` now also sets up your organization's
+  managed skills under the same confirmation (`--no-skills` to leave them out): a user-level
+  SessionStart hook enrolls and syncs every checkout of your org's connected repos. Skills land in
+  `.claude/skills/lockstep-org-*/`, kept out of git, hash-verified, never executed, never
+  overwritten when edited locally.
+- `lockstep enroll`, `lockstep skills status|sync|restore|keep|accept|decline|unenroll`,
+  `lockstep skills everywhere on|off`, and the `sync_skills` MCP tool.
+- Session briefings list the organization standards that apply, with exact versions, and point
+  to the relevant skills; `lockstep check` also reports applicable org code checks.
+
 ### Added
 
 - **Dashboard redesign** — Tailwind + shadcn design system with one token layer, one row grammar

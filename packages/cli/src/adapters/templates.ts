@@ -21,6 +21,13 @@ export const captureHooks: ManagedHook[] = [
   { event: "Stop", matcher: "*", args: ["capture", "--event", "Stop"], timeout: 45 },
 ];
 
+/**
+ * User-level (~/.claude/settings.json) hook for org-wide skills: at every Claude Code session start,
+ * in any directory, enroll + sync the checkout if its repo belongs to a Lockstep project the user
+ * is in. Exits immediately elsewhere. Installed only with the user's consent during onboarding.
+ */
+export const orgSkillsHook: ManagedHook = { event: "SessionStart", matcher: "*", args: ["skills", "auto"], timeout: 15 };
+
 export const SKILL_MD = `---
 name: lockstep
 description: Keep this repo's coding agents in lockstep — read the shared ledger before coding, publish changes after.

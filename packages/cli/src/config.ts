@@ -10,6 +10,11 @@ const path = join(dir, "config.json");
 interface Config {
   apiUrl?: string;
   dashboardUrl?: string;
+  /**
+   * Consent to receive the organization's managed skills in EVERY checkout of its connected repos
+   * (given once during onboarding). The user-level SessionStart hook enrolls and syncs checkouts.
+   */
+  orgSkills?: { enabled: boolean; at: string };
 }
 
 export const HOSTED_API = "https://lockstep-production.up.railway.app";
@@ -27,6 +32,13 @@ export function setApiUrl(apiUrl: string): void {
   mkdirSync(dir, { recursive: true });
   const c = getConfig();
   c.apiUrl = apiUrl.replace(/\/+$/, "");
+  writeFileSync(path, JSON.stringify(c, null, 2), { mode: 0o600 });
+}
+
+export function setOrgSkills(enabled: boolean): void {
+  mkdirSync(dir, { recursive: true });
+  const c = getConfig();
+  c.orgSkills = { enabled, at: new Date().toISOString() };
   writeFileSync(path, JSON.stringify(c, null, 2), { mode: 0o600 });
 }
 

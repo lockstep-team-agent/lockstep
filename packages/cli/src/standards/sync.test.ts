@@ -304,3 +304,25 @@ test("a failed removal receipt is re-sent until acknowledged (verification F3)",
   assert.deepEqual(kinds(f), ["synced"], "and not again once acknowledged");
   // response lost after the server committed: resent once, harmless (receipts are append-only evidence)
 });
+
+test("the org-wide user hook installs once, keeps foreign hooks, and removes cleanly", async () => {
+  const home = mkdtempSync(join(tmpdir(), "lockstep-home-"));
+  const prev = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const { installOrgSkillsHook, removeOrgSkillsHook } = await import("./client.js");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    const settings = join(home, ".claude", "settings.json");
+    writeFileSync(settings, JSON.stringify({ hooks: { SessionStart: [{ matcher: "*", hooks: [{ type: "command", command: "other-tool start" }] }] } }));
+    await installOrgSkillsHook();
+    await installOrgSkillsHook();
+    const hooks = (JSON.parse(readFileSync(settings, "utf8")) as { hooks: { SessionStart: Array<{ hooks: Array<{ command: string }> }> } }).hooks.SessionStart;
+    assert.equal(hooks.filter((h) => h.hooks[0]!.command.includes("skills auto")).length, 1, "installed once");
+    assert.ok(hooks.some((h) => h.hooks[0]!.command === "other-tool start"), "foreign hook kept");
+    await removeOrgSkillsHook();
+    const after = (JSON.parse(readFileSync(settings, "utf8")) as { hooks: { SessionStart: Array<{ hooks: Array<{ command: string }> }> } }).hooks.SessionStart;
+    assert.deepEqual(after.map((h) => h.hooks[0]!.command), ["other-tool start"]);
+  } finally {
+    process.env.HOME = prev;
+  }
+});

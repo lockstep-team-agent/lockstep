@@ -23,7 +23,8 @@ usage: lockstep <command>
   init  [--vendor claude|all] [--scope project|user] [--dry-run]
                                                     wire up hooks + MCP + skill for the detected agent(s)
   connect [--project <name>] [--project-id <id>]    link this repo to a project (--project-id joins one exact project)
-  onboard [--project-id <id>] [--dry-run]            preview → connect → review decisions → configure Claude
+  onboard [--project-id <id>] [--dry-run]            preview → connect → review decisions → configure Claude → org skills
+         [--no-skills]                              leave out your organization's managed skills
          [--yes --upload-docs] [--no-docs] [--enable-checks|--disable-checks]
          [--feature feature:name] [--docs path1.md,path2.md] [--decision "rule"]
   check [--base <revision>] [--upload]                advisory decision check of tracked changes
@@ -36,6 +37,7 @@ usage: lockstep <command>
   enroll [--yes]                                    receive your organization's skills in this checkout
   skills [status|sync|restore <slug>|keep <slug>|accept <slug>|decline <slug>|unenroll]
                                                     manage org skills (sync runs at every session start)
+  skills everywhere on|off                          receive org skills in every checkout of your org's connected repos
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
   --version                                         print the CLI version
@@ -77,7 +79,7 @@ async function main(): Promise<void> {
       const { runOnboard } = await import("./onboard.js");
       return runOnboard({ vendor: val("vendor"), scope: (val("scope") as Scope) ?? "project", dryRun: has("dry-run"),
         api: val("api"), project: val("project"), projectId: val("project-id"), feature: val("feature"), noDocs: has("no-docs"), broadDocs: has("broad-docs"),
-        yes: has("yes"), uploadDocs: has("upload-docs"), enableChecks: has("enable-checks"), disableChecks: has("disable-checks"), docs: val("docs")?.split(","), manualDecision: val("decision") });
+        yes: has("yes"), noSkills: has("no-skills"), uploadDocs: has("upload-docs"), enableChecks: has("enable-checks"), disableChecks: has("disable-checks"), docs: val("docs")?.split(","), manualDecision: val("decision") });
     }
     case "checks": {
       if (argv[1] !== "on" && argv[1] !== "off") throw new Error("usage: lockstep checks on|off");
@@ -130,8 +132,13 @@ async function main(): Promise<void> {
       return runEnroll({ yes: has("yes") });
     }
     case "skills": {
-      const { runSkills } = await import("./standards/client.js");
-      return runSkills(argv.slice(1));
+      const client = await import("./standards/client.js");
+      if (argv[1] === "auto") return client.runAutoSync();
+      if (argv[1] === "everywhere") {
+        if (argv[2] !== "on" && argv[2] !== "off") throw new Error("usage: lockstep skills everywhere on|off");
+        return client.setOrgSkillsEverywhere(argv[2] === "on");
+      }
+      return client.runSkills(argv.slice(1));
     }
     case "pack": {
       const { runPack } = await import("./pack.js");

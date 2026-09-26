@@ -15,7 +15,7 @@ import { readLocalState, saveLocalState } from "./local-state.js";
 import { gitRemote } from "./mcp/git.js";
 import type { Scope } from "./adapters/types.js";
 
-export interface OnboardOptions { vendor?: string; scope?: Scope; dryRun?: boolean; noDocs?: boolean; broadDocs?: boolean; yes?: boolean; uploadDocs?: boolean; enableChecks?: boolean; disableChecks?: boolean; api?: string; project?: string; projectId?: string; feature?: string; docs?: string[]; manualDecision?: string }
+export interface OnboardOptions { noSkills?: boolean; vendor?: string; scope?: Scope; dryRun?: boolean; noDocs?: boolean; broadDocs?: boolean; yes?: boolean; uploadDocs?: boolean; enableChecks?: boolean; disableChecks?: boolean; api?: string; project?: string; projectId?: string; feature?: string; docs?: string[]; manualDecision?: string }
 interface Proposal { decisionId: string; ruleText: string; evidence?: string; anchorKey?: string; deduped?: boolean }
 
 /** Exported orchestration seam: failed optional steps never suppress pack or the honest summary. */
@@ -39,6 +39,14 @@ export async function runOnboard(opts: OnboardOptions): Promise<void> {
   files.forEach((f, i) => console.log(`  ${i + 1}. ${f.path} (${f.sections.length} sections)`));
   for (const skipped of [...preview.skipped, ...preview.truncated]) console.log(`  Skipped/truncated: ${skipped}`);
   await runInit({ vendor: "claude", scope: opts.scope ?? "project", dryRun: true });
+  // Org skills are part of the same single confirmation (--no-skills to leave them out).
+  const { standardsOn } = await import("./standards/client.js");
+  const offerSkills = !opts.noSkills && (await standardsOn().catch(() => false));
+  if (offerSkills)
+    console.log(`\nOrganization skills: your org's approved skills are installed in .claude/skills/lockstep-org-*/ in this and
+every other checkout of your org's connected repos (a user-level Claude Code hook: ~/.claude/settings.json),
+updated at each session start. Kept out of git, hash-verified, never executed; edits are never overwritten.
+Reported to your org: adapter version, a hashed machine/checkout id, installed versions. Skip with --no-skills.`);
   if (opts.dryRun) return;
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive && !opts.yes) {
@@ -56,6 +64,20 @@ export async function runOnboard(opts: OnboardOptions): Promise<void> {
     const session = await registerSession("onboard");
     console.log(`Destination: project ${session.projectId} in workspace ${session.orgId}`);
     await runInit({ vendor: "claude", scope: opts.scope ?? "project", dryRun: false });
+    if (offerSkills) {
+      try {
+        const { enrollHere, installOrgSkillsHook, httpApi } = await import("./standards/client.js");
+        const { syncSkills, formatSync } = await import("./standards/sync.js");
+        const { setOrgSkills } = await import("./config.js");
+        setOrgSkills(true);
+        console.log(await installOrgSkillsHook());
+        const env = readLocalState().environmentId ?? (await enrollHere(session));
+        const r = await syncSkills(cwd, httpApi(env, session.sessionId));
+        console.log(formatSync(r, "command") || `✓ Organization skills ready (${r.unchanged.length} installed; more arrive as your org assigns them).`);
+      } catch (e) {
+        console.log(`Organization skills couldn't be set up now (${e instanceof Error ? e.message : e}); they'll sync at your next Claude session.`);
+      }
+    }
     saveLocalState({ configured: true, connected: true, projectId: session.projectId, ...(opts.feature ? { featureRef: opts.feature } : {}) });
     if (opts.enableChecks) saveLocalState({ automaticChecks: true });
     else if (opts.disableChecks) saveLocalState({ automaticChecks: false });
@@ -123,11 +145,6 @@ export async function runOnboard(opts: OnboardOptions): Promise<void> {
     console.log(`\n✓ Configured · ✓ Connected\n${surfaces}\n${accepted ? "✓" : "○"} Decisions ready: ${accepted} accepted (${confirmed} confirmed now)\n${state.verifiedAt ? "✓" : "○"} Agent verified: ${state.verifiedAt ?? "pending a real Claude session"}\nHosted checks: ${state.automaticChecks ? "enabled" : "off"}\nDashboard: ${dashboardUrl()}/project/${session.orgId}/${session.projectId}\nReview: ${dashboardUrl()}/project/${session.orgId}/${session.projectId}/review-queue`);
     const invites = await inviteFooter(cwd, p);
     if (invites) console.log(`\n${invites}`);
-    // Org skills are opt-in per checkout (A8): offer, never enroll implicitly.
-    if (!readLocalState().environmentId) {
-      const { standardsOn } = await import("./standards/client.js");
-      if (await standardsOn()) console.log("\nYour organization can send approved skills to this checkout. To opt in: lockstep enroll");
-    }
     console.log("\nOpen Claude Code in this repo. Approve the project MCP server when prompted; then run lockstep status to inspect verification.");
   } finally { rl?.close(); }
 }
