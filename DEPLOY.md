@@ -50,7 +50,7 @@ Railway project
 - _Optional:_ `LOCKSTEP_STANDARDS = 1` (on **both** core and web) adds the Organization workspace
   (Standards & Skills, Teams, Roles) and the project Ledger's Standards tab. Core also needs object
   storage for skill packages: **Add → Bucket** in Railway, then copy its endpoint, bucket name and
-  keys into core's `BLOB_*` variables. Without them, authoring standards works but saving a skill
+  keys into core's `BLOB_*` variables, with `BLOB_URL_STYLE=virtual`. Without them, authoring standards works but saving a skill
   returns "object storage is not configured". Self-host: `docker compose up minio` (see `.env.example`).
   The `ingest` worker runs the hourly `standards_exceptions` job (expiry). Performance can be
   checked with `tsx packages/core/src/scripts/standards-fixture.ts` then `standards-timing.ts`

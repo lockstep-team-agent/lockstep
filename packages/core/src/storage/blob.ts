@@ -121,7 +121,7 @@ export function blobStore(): BlobStore {
     new S3Client({
       endpoint: env.BLOB_ENDPOINT,
       region: env.BLOB_REGION,
-      forcePathStyle: true, // MinIO and most S3-compatible endpoints
+      forcePathStyle: env.BLOB_URL_STYLE === "path", // MinIO: path; Railway Buckets: virtual-host
       credentials: { accessKeyId: env.BLOB_ACCESS_KEY_ID, secretAccessKey: env.BLOB_SECRET_ACCESS_KEY },
     }),
     env.BLOB_BUCKET,

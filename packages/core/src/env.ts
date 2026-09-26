@@ -49,6 +49,8 @@ const schema = z.object({
   BLOB_DIR: z.string().optional(), // local-disk blobs for development only
   BLOB_BUCKET: z.string().optional(),
   BLOB_REGION: z.string().default("auto"),
+  // "path" for MinIO/self-host (default); "virtual" for providers that use virtual-host addressing (Railway Buckets)
+  BLOB_URL_STYLE: z.enum(["path", "virtual"]).default("path"),
   BLOB_ACCESS_KEY_ID: z.string().optional(),
   BLOB_SECRET_ACCESS_KEY: z.string().optional(),
   // Optional token for public GitHub skill imports (raises the unauthenticated rate limit).
