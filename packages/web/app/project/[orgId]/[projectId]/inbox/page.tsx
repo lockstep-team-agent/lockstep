@@ -16,6 +16,8 @@ const KINDS: Array<{ k: InboxKind; label: string }> = [
   { k: "question", label: "Questions" },
   { k: "task", label: "Tasks" },
   { k: "review_due", label: "Review due" },
+  { k: "check_finding", label: "Findings" },
+  { k: "exception_request", label: "Exceptions" },
 ];
 const SEVERITY = ["Housekeeping", "Normal", "High", "Blocking"] as const;
 const KIND_WORD: Record<InboxKind, string> = {
@@ -26,6 +28,9 @@ const KIND_WORD: Record<InboxKind, string> = {
   task: "Task",
   review_due: "Review due",
   placement: "Placement",
+  check_finding: "Finding",
+  exception_request: "Exception",
+  rollout_failure: "Rollout",
 };
 
 export default async function InboxPage({
@@ -40,7 +45,12 @@ export default async function InboxPage({
   if (!newUiEnabled()) redirect(base);
   const hk = searchParams.hk === "1";
   const kind = KINDS.find((x) => x.k === searchParams.kind)?.k ?? (hk ? "placement" : undefined);
-  const inbox = await getInbox(orgId, projectId, { cursor: searchParams.cursor, kinds: kind, housekeeping: hk });
+  // Housekeeping = placement suggestions + aggregated skill-install failures.
+  const inbox = await getInbox(orgId, projectId, {
+    cursor: searchParams.cursor,
+    kinds: hk && !searchParams.kind ? "placement,rollout_failure" : kind,
+    housekeeping: hk,
+  });
   if (!inbox) return <Empty title="Couldn’t load the inbox" hint="The API didn’t respond. Try again in a moment." />;
   const open = KINDS.reduce((a, { k }) => a + (inbox.counts[k] ?? 0), 0);
   const chip = (href: string, label: string, n: number | undefined, active: boolean) => (
@@ -168,6 +178,12 @@ function hrefOf(it: InboxItem, base: string): string {
       return `${base}/tasks`;
     case "placement":
       return it.conceptId ? `${base}/map?concept=${it.conceptId}` : `${base}/map?group=unplaced`;
+    case "check_finding":
+      return `${base}/ledger?tab=standards`;
+    case "exception_request":
+      return `/org/${base.split("/")[2]}/exceptions`;
+    case "rollout_failure":
+      return `/org/${base.split("/")[2]}/rollouts/${String(it.meta.assignmentId ?? "")}`;
     default:
       return `${base}/decisions/${it.id}`;
   }

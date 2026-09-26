@@ -4,7 +4,8 @@ export interface Me {
 }
 
 export interface OrgOverview {
-  projects: Array<{ id: string; name: string; archived?: boolean }>;
+  org?: { id: string; name: string } | null;
+  projects: Array<{ id: string; name: string; archived?: boolean; repos?: Array<{ id: string; gitRemote: string }> }>;
   members: Array<{ id: string; githubLogin: string }>;
 }
 

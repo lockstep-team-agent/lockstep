@@ -8,6 +8,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Hotkey } from "@/components/shell/Hotkey";
 import { Shell } from "@/components/next/Shell";
 import { getInbox, newUiEnabled } from "@/lib/next-data";
+import { standardsEnabled } from "@/lib/org-data";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,10 @@ export default async function ProjectLayout({
   if (!me) redirect("/");
 
   if (newUiEnabled()) {
-    const [org, inbox] = await Promise.all([apiGet<OrgOverview>(`/orgs/${orgId}/overview`), getInbox(orgId, projectId)]);
+    const [org, inbox] = await Promise.all([
+      apiGet<OrgOverview>(`/orgs/${orgId}/overview`),
+      getInbox(orgId, projectId),
+    ]);
     const open = Object.values(inbox?.counts ?? {}).reduce((a, n) => a + (n ?? 0), 0);
     return (
       <Shell
@@ -33,6 +37,8 @@ export default async function ProjectLayout({
         login={me.principal.githubLogin}
         role={inbox?.viewer.role ?? "member"}
         inboxCount={open}
+        withOrg={standardsEnabled()}
+        orgName={org?.org?.name}
       >
         {children}
       </Shell>

@@ -85,6 +85,41 @@
       "when": 1795100000000,
       "tag": "0011_decision_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795200000000,
+      "tag": "0012_standards_rollouts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795300000000,
+      "tag": "0013_standards_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795400000000,
+      "tag": "0014_standards_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0015_check_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795600000000,
+      "tag": "0016_env_verified",
+      "breakpoints": true
     }
   ]
 }

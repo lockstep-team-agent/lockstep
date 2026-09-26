@@ -8,6 +8,7 @@ import { dashboardRoutes } from "./routes/dashboard.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { documentRoutes } from "./routes/documents.js";
 import { conceptRoutes } from "./routes/concepts.js";
+import { standardsRoutes } from "./routes/standards.js";
 import { slackRoutes } from "./routes/slack.js";
 import { githubWebhookRoutes } from "./routes/github-webhook.js";
 import { slackEventsRoutes } from "./routes/slack-events.js";
@@ -42,6 +43,7 @@ export function buildApp(adoptionProviders: Parameters<typeof adoptionRoutesWith
   void app.register(ingestRoutes);
   void app.register(documentRoutes);
   void app.register(conceptRoutes);
+  void app.register(standardsRoutes);
   void app.register(slackRoutes);
   void app.register(githubWebhookRoutes);
   void app.register(slackEventsRoutes);

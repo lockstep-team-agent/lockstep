@@ -45,6 +45,39 @@ export interface BriefingResp {
 
 export type PackState = "stale" | "missing" | null;
 
+/** Org standards from /continuity: requirement text + exact versions, and skill pointers. */
+export interface StandardsBrief {
+  requirements: Array<{ standard: string; version: number; key: string; text: string; level: string }>;
+  conditional: Array<{ name: string; when: string[] }>;
+  skills: Array<{ slug: string; name: string; version: number; versionId: string; level: string; whenToUse: string }>;
+  overflow: number;
+}
+
+export function formatStandards(s: StandardsBrief, cwd: string): string {
+  const lines: string[] = [];
+  if (s.requirements.length) {
+    lines.push("📐 Organization standards in effect (exact versions):");
+    for (const r of s.requirements) lines.push(`  • [${r.standard} v${r.version}] ${r.level === "required" ? "MUST" : "SHOULD"}: ${r.text} (${r.key})`);
+    if (s.overflow) lines.push(`  • (+${s.overflow} more requirements)`);
+  }
+  for (const c of s.conditional) if (c.when.length) lines.push(`  • “${c.name}” also applies when ${c.when.join(" or ")}.`);
+  if (s.skills.length) {
+    // Pointers only; the skill body loads when the agent uses it.
+    let installed: Record<string, { versionId: string }> = {};
+    try {
+      installed = (JSON.parse(readFileSync(join(cwd, ".claude", "skills", ".lockstep-managed.json"), "utf8")) as { skills: Record<string, { versionId: string }> }).skills;
+    } catch {
+      /* not enrolled here */
+    }
+    lines.push("🧩 Organization skills for this work — use the matching skill when its situation comes up:");
+    for (const k of s.skills) {
+      const here = Object.values(installed).some((m) => m.versionId === k.versionId);
+      lines.push(`  • ${k.name} v${k.version}${k.whenToUse ? ` — use when: ${k.whenToUse}` : ""}${here ? "" : " (not installed in this checkout — `lockstep enroll`)"}`);
+    }
+  }
+  return lines.length ? `\n${lines.join("\n")}` : "";
+}
+
 /** Highest-blast-radius first, so the session-start briefing leads with what matters most. */
 const byImpact = <T extends { impact?: number }>(a: T, b: T): number => (b.impact ?? 0) - (a.impact ?? 0);
 const tag = (impact?: number): string => ((impact ?? 0) > 0 ? `[impact ${impact}] ` : "");
@@ -161,11 +194,14 @@ export async function runCapture(event: string): Promise<void> {
 
   try {
     if (event === "SessionStart") {
+      // Org skills sync runs alongside the briefing calls (bounded; failures keep existing files).
+      const { sessionStartSync } = await import("../standards/client.js");
+      const skillsP = sessionStartSync(session).catch(() => ({ text: "", result: null }));
       await syncManifestDeps(cwd, session.sessionId); // keep the usage graph current from lockstep.yaml
       const inbox = await call<InboxResp>("GET", "/inbox", session.sessionId).catch(() => null);
       let decisions = await call<DecisionsResp>("GET", "/decisions", session.sessionId).catch(() => null);
       let briefing = await call<BriefingResp>("GET", "/briefing", session.sessionId).catch(() => null);
-      const continuity = await call<{ packHash: string; decisions: Array<{ id: string; version: number; scopeRef: string; ruleText: string }>; updates: Array<{ action: string; decisionId: string }>; concerns: Array<{ file: string; line: number; decisionId: string }>; nativeSession: boolean }>("GET", `/continuity${capabilityRef ? `?featureRef=${encodeURIComponent(capabilityRef)}` : ""}`, session.sessionId).catch(() => null);
+      const continuity = await call<{ packHash: string; decisions: Array<{ id: string; version: number; scopeRef: string; ruleText: string }>; updates: Array<{ action: string; decisionId: string }>; concerns: Array<{ file: string; line: number; decisionId: string }>; nativeSession: boolean; standards?: StandardsBrief | null }>("GET", `/continuity${capabilityRef ? `?featureRef=${encodeURIComponent(capabilityRef)}` : ""}`, session.sessionId).catch(() => null);
       if (continuity) {
         decisions = { decisions: continuity.decisions.map((d) => ({ ...d, status: "binding" })) };
         briefing = { constraints: [], overflow: 0, pack: { hash: continuity.packHash } };
@@ -176,7 +212,10 @@ export async function runCapture(event: string): Promise<void> {
         const local = readLocalPackHash(cwd);
         packState = local === null ? "missing" : local === briefing.pack.hash ? null : "stale";
       }
+      const skills = await skillsP;
       let replay = formatReplay(inbox, decisions, briefing, packState);
+      if (continuity?.standards) replay += formatStandards(continuity.standards, cwd);
+      if (skills.text) replay += `\n${skills.text}`;
       if (continuity?.updates.length) replay += `\nSince your previous session:\n${continuity.updates.map((u) => `  • ${u.action}: ${u.decisionId}`).join("\n")}`;
       if (continuity?.concerns.length) replay += `\nUnresolved advisory concerns:\n${continuity.concerns.map((f) => `  • ${f.file}:${f.line} — review decision ${f.decisionId}`).join("\n")}`;
       if (!continuity && !decisions && !briefing) replay += "\nLive context unavailable. Any installed decision pack is cached and may be stale.";
@@ -203,6 +242,10 @@ export async function runCapture(event: string): Promise<void> {
           continuity?.updates.length ? `${continuity.updates.length} update${continuity.updates.length === 1 ? "" : "s"} since your last session` : null,
           continuity?.concerns.length ? `${continuity.concerns.length} open concern${continuity.concerns.length === 1 ? "" : "s"}` : null,
           packState === "stale" ? "decision pack is stale" : packState === "missing" ? "no decision pack" : null,
+          skills.result && (skills.result.installed.length || skills.result.updated.length)
+            ? `${skills.result.installed.length + skills.result.updated.length} org skill update(s) for your next session`
+            : null,
+          skills.result?.conflicts.length ? `${skills.result.conflicts.length} org skill conflict(s) — run lockstep skills` : null,
         ].filter(Boolean);
         if (parts.length > 0) process.stderr.write(`[lockstep] ${parts.join(" · ")}\n`);
       }

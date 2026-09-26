@@ -7,7 +7,7 @@ import { registerSession, type Session } from "./mcp/session.js";
 import { readLocalState, saveLocalState } from "./local-state.js";
 import { extractAllSurfaces } from "./capture/extract.js";
 
-export interface CheckResult { id?: string; status: "completed" | "partial" | "skipped" | "unavailable"; checked: number; total: number; partial?: boolean; findings: Array<{ decisionId: string; version: number; file: string; line: number; reason: string }>; rules?: Array<{ id: string; ruleText: string }>; cached?: boolean; /** Local-only: untracked files that were never uploaded. Never sent to the API. */ untracked?: number }
+export interface CheckResult { id?: string; status: "completed" | "partial" | "skipped" | "unavailable"; checked: number; total: number; partial?: boolean; findings: Array<{ decisionId: string; version: number; file: string; line: number; reason: string }>; rules?: Array<{ id: string; ruleText: string }>; cached?: boolean; standards?: Array<{ name: string | null; execution: string; findings: Array<{ verdict: string; criterion: string; evidence: Array<{ location: string }> }> }> | null; /** Local-only: untracked files that were never uploaded. Never sent to the API. */ untracked?: number }
 
 export function parseDiff(diff: string): { hunks: Array<{ file: string; text: string }>; partial: boolean } {
   const hunks: Array<{ file: string; text: string }> = [];
@@ -83,5 +83,12 @@ export function formatCheck(result: CheckResult): string {
   }
   if (result.status === "completed" && result.findings.length === 0) lines.push("No possible contradictions found in the checked scope. This does not establish feature completeness.");
   if (result.status === "unavailable" || result.status === "skipped") lines.push("No compliance conclusion is available. Check consent, provider configuration and connection status.");
+  // Org standards, judged on the same consented diff. Advisory; execution reported apart from findings.
+  for (const st of result.standards ?? []) {
+    const issues = st.findings.filter((f) => f.verdict === "possible_violation");
+    lines.push(`Standard ${st.name ?? "(org standard)"}: ${st.execution}${issues.length ? ` · ${issues.length} possible issue(s)` : ""}`);
+    for (const f of issues) lines.push(`  ${f.evidence[0]?.location ?? ""} — ${f.criterion}`);
+    if (st.execution === "unavailable" || st.execution === "skipped") lines.push("  Not assessed — this is not a pass.");
+  }
   return lines.join("\n");
 }

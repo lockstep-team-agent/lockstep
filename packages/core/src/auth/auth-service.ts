@@ -6,6 +6,7 @@ import {
   projects,
   projectMembers,
   orgs,
+  orgRoles,
   githubCredentials,
   repos,
   contracts,
@@ -158,12 +159,27 @@ export async function ensureMember(orgId: string, principalId: string): Promise<
 export async function createOrg(principal: Principal, name: string): Promise<{ orgId: string }> {
   return withSystem(async (tx) => {
     const org = one(await tx.insert(orgs).values({ name, deployment: env.LOCKSTEP_DEPLOYMENT }).returning());
-    await tx.insert(members).values({
+    const m = one(
+      await tx
+        .insert(members)
+        .values({
+          orgId: org.id,
+          principalId: principal.id,
+          githubUserId: principal.githubUserId,
+          githubLogin: principal.githubLogin,
+          displayName: principal.githubLogin,
+        })
+        .returning(),
+    );
+    // the creator is the org's first owner — explicit org authority, separate from project roles
+    await tx.insert(orgRoles).values({ orgId: org.id, memberId: m.id, role: "owner", grantedBy: m.id });
+    await writeAudit(tx, {
       orgId: org.id,
-      principalId: principal.id,
-      githubUserId: principal.githubUserId,
-      githubLogin: principal.githubLogin,
-      displayName: principal.githubLogin,
+      actorMemberId: m.id,
+      action: "org.role_granted",
+      entityKind: "member",
+      entityId: m.id,
+      payload: { role: "owner", reason: "org_created" },
     });
     return { orgId: org.id };
   });

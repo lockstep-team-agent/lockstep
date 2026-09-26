@@ -184,6 +184,11 @@ export class LockstepClient {
     return this.req("POST", "/internal/digests/weekly/run");
   }
 
+  /** Expire org-standard exceptions past their date — via the `standards_exceptions` job. */
+  async runStandardsExceptions(): Promise<{ expired: number }> {
+    return this.req("POST", "/internal/standards/exceptions/expire");
+  }
+
   /** Drain the concept classification queue — via the `concept_drain` scheduled job. */
   async runConceptDrain(): Promise<{ claimed: number; done: number; requeued: number; failed: number }> {
     return this.req("POST", "/internal/concepts/drain");

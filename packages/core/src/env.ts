@@ -42,6 +42,17 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   // Dashboard base URL — used for "details" links in comments posted back to PRDs / Slack threads.
   LOCKSTEP_WEB_URL: z.string().optional(),
+  // Standards & Skills / Rollouts & Adoption (feature flag; routes 404 while off).
+  LOCKSTEP_STANDARDS: z.string().default("0").transform((v) => v === "1"),
+  // Object storage for skill packages (S3-compatible: Railway Buckets in prod, MinIO locally).
+  BLOB_ENDPOINT: z.string().optional(),
+  BLOB_DIR: z.string().optional(), // local-disk blobs for development only
+  BLOB_BUCKET: z.string().optional(),
+  BLOB_REGION: z.string().default("auto"),
+  BLOB_ACCESS_KEY_ID: z.string().optional(),
+  BLOB_SECRET_ACCESS_KEY: z.string().optional(),
+  // Optional token for public GitHub skill imports (raises the unauthenticated rate limit).
+  GITHUB_IMPORT_TOKEN: z.string().optional(),
   LOCKSTEP_EXTRACT_MODEL: z.string().default("claude-sonnet-4-6"),
   LOCKSTEP_CHECKS_ENABLED: z.string().default("1").transform((v) => v !== "0"),
 

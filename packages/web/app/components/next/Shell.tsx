@@ -19,6 +19,8 @@ export function Shell({
   login,
   role,
   inboxCount,
+  withOrg = false,
+  orgName,
   children,
 }: {
   orgId: string;
@@ -27,6 +29,9 @@ export function Shell({
   login: string;
   role: string;
   inboxCount: number;
+  /** Show the Organization context in the switcher (Standards & Skills enabled). */
+  withOrg?: boolean;
+  orgName?: string;
   children: ReactNode;
 }) {
   const base = `/project/${orgId}/${projectId}`;
@@ -38,7 +43,7 @@ export function Shell({
           <span className="text-[13px] font-semibold tracking-[-0.01em]">Lockstep</span>
         </div>
         <div className="px-2 pb-2 [&_button]:h-8 [&_button]:text-[13px]">
-          <ProjectSwitcher orgId={orgId} projectId={projectId} projects={projects} />
+          <ProjectSwitcher orgId={orgId} projectId={projectId} projects={projects} withOrg={withOrg} orgName={orgName} />
         </div>
         <div className="px-2 pb-3">
           <PaletteButton />

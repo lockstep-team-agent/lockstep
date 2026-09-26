@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
 import {
+  orgs,
   projects,
   repos,
   members,
@@ -27,10 +28,12 @@ export async function orgOverview(
   orgId: string,
   viewerMemberId?: string,
 ): Promise<{
-  projects: Array<{ id: string; name: string; archived: boolean; repos: Array<{ gitRemote: string }> }>;
+  org: { id: string; name: string } | null;
+  projects: Array<{ id: string; name: string; archived: boolean; repos: Array<{ id: string; gitRemote: string }> }>;
   members: Array<{ id: string; githubLogin: string }>;
 }> {
   return withOrg(orgId, async (tx) => {
+    const [org] = await tx.select({ id: orgs.id, name: orgs.name }).from(orgs).where(eq(orgs.id, orgId)).limit(1);
     const ps = await tx.select().from(projects).where(eq(projects.orgId, orgId));
     const rs = await tx.select().from(repos).where(eq(repos.orgId, orgId));
     const ms = await tx.select().from(members).where(eq(members.orgId, orgId));
@@ -47,6 +50,7 @@ export async function orgOverview(
       : new Set<string>();
     const visible = ps.filter((p) => projectVisibility(p.settings) === "shared" || myProjectIds.has(p.id));
     return {
+      org: org ?? null,
       // Include each project's connected repos so the CLI can resolve which project a repo belongs
       // to by its git remote (e.g. for `lockstep invite`) instead of guessing from the remote name.
       // Archived projects stay in the payload, flagged — the web renders them in a collapsed
@@ -55,7 +59,7 @@ export async function orgOverview(
         id: p.id,
         name: p.name,
         archived: projectArchived(p.settings),
-        repos: rs.filter((r) => r.projectId === p.id).map((r) => ({ gitRemote: r.gitRemote })),
+        repos: rs.filter((r) => r.projectId === p.id).map((r) => ({ id: r.id, gitRemote: r.gitRemote })),
       })),
       members: ms.map((m) => ({ id: m.id, githubLogin: m.githubLogin })),
     };

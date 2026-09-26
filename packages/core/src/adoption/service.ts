@@ -1,3 +1,4 @@
+import { sessionStandards } from "../standards/briefing.js";
 import { createHash } from "node:crypto";
 import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
@@ -127,6 +128,7 @@ export async function continuity(c: SessionContext, featureRef?: string) {
     updates: events.filter((e) => e.entityId && ids.has(e.entityId) && /decision\.|constraint\./.test(e.action)).slice(0, 12).map((e) => ({ id: e.id, decisionId: e.entityId, action: e.action, at: e.createdAt })),
     concerns: checks.flatMap((check) => (check.findings as Array<{ decisionId: string; version: number; file: string; line: number }>).filter((f) => rules.some((r) => r.id === f.decisionId && r.version === f.version) && !feedback.some((fb) => fb.checkId === check.id && fb.decisionId === f.decisionId && fb.verdict !== "useful")).map((f) => ({ ...f, checkId: check.id }))).slice(0, 8),
     nativeSession: Boolean(sess?.nativeSessionId),
+    standards: await sessionStandards(c).catch(() => null),
   };
 }
 

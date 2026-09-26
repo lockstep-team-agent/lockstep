@@ -1,4 +1,5 @@
 "use server";
+import { apiGet } from "./lib/api";
 /** Server actions for the concept-ledger shell: human edits + paginated reads for client components. */
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
@@ -105,7 +106,15 @@ export async function loadSurfaceHistoryAction(orgId: string, projectId: string,
   return getSurfaceHistory(orgId, projectId, surfaceId, cursor);
 }
 export async function searchAction(orgId: string, projectId: string, q: string) {
-  return searchProject(orgId, projectId, q);
+  const [r, cat] = await Promise.all([
+    searchProject(orgId, projectId, q),
+    process.env.LOCKSTEP_STANDARDS === "1" && q.trim()
+      ? apiGet<{ items: Array<{ id: string; kind: string; name: string; slug: string }> }>(
+          `/orgs/${orgId}/catalog/search?q=${encodeURIComponent(q)}`,
+        )
+      : null,
+  ]);
+  return r ? { ...r, standards: cat?.items ?? [] } : r;
 }
 export async function loadGraphAction(
   orgId: string,

@@ -3,6 +3,8 @@ import { ArrowRight, FolderGit2 } from "lucide-react";
 import { hasToken, apiGet } from "@/lib/api";
 import { loginAction, logoutAction } from "@/actions";
 import type { Me, OrgOverview } from "@/lib/types";
+import { standardsEnabled } from "@/lib/org-data";
+import { newUiEnabled } from "@/lib/next-data";
 import { Brand } from "@/components/shell/Brand";
 import { ListRow } from "@/components/ListRow";
 import { RefChip } from "@/components/RefChip";
@@ -88,14 +90,19 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
   const orgs = await Promise.all(
     orgIds.map(async (id) => ({ id, data: await apiGet<OrgOverview>(`/orgs/${id}/overview`) })),
   );
-  const active = orgs.flatMap(({ id, data }) =>
-    (data?.projects ?? [])
-      .filter((p) => !p.archived)
-      .map((p) => ({ orgId: id, members: data?.members.length ?? 0, ...p })),
-  );
+  const groups = orgs
+    .map(({ id, data }) => ({
+      id,
+      name: data?.org?.name ?? "Organization",
+      members: data?.members.length ?? 0,
+      projects: (data?.projects ?? []).filter((p) => !p.archived),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const active = groups.flatMap((g) => g.projects);
   const archived = orgs.flatMap(({ id, data }) =>
     (data?.projects ?? []).filter((p) => p.archived).map((p) => ({ orgId: id, ...p })),
   );
+  const orgLink = standardsEnabled() && newUiEnabled();
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">
@@ -113,7 +120,9 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
 
       <section className="mb-6 rounded-lg border p-4">
         <h2 className="font-semibold">Keep decisions across Claude sessions</h2>
-        <p className="my-2 text-sm text-muted-foreground">Start in one repo. Preview local documents, confirm a decision, and connect Claude.</p>
+        <p className="my-2 text-sm text-muted-foreground">
+          Start in one repo. Preview local documents, confirm a decision, and connect Claude.
+        </p>
         <RefChip>npx lockstep-cli onboard</RefChip>
       </section>
       <CreatePilotForm />
@@ -123,26 +132,36 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
           Create a project above, or start from your repo with the onboarding command.
         </EmptyState>
       ) : (
-        <Section label="Projects" count={active.length}>
-          {active.map((p) => (
-            <ListRow
-              key={p.id}
-              href={`/project/${p.orgId}/${p.id}`}
-              leading={
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
-                  {(p.name[0] ?? "?").toUpperCase()}
-                </span>
-              }
-              title={p.name}
-              meta={
-                <span>
-                  {p.members} member{p.members === 1 ? "" : "s"}
-                </span>
-              }
-              action={<ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
-            />
-          ))}
-        </Section>
+        groups
+          .filter((g) => g.projects.length > 0)
+          .map((g) => (
+            <Section
+              key={g.id}
+              label={g.name}
+              count={g.projects.length}
+              href={orgLink ? `/org/${g.id}/standards` : undefined}
+              hrefLabel="Standards & Skills →"
+            >
+              {g.projects.map((p) => (
+                <ListRow
+                  key={p.id}
+                  href={`/project/${g.id}/${p.id}`}
+                  leading={
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
+                      {(p.name[0] ?? "?").toUpperCase()}
+                    </span>
+                  }
+                  title={p.name}
+                  meta={
+                    <span>
+                      {g.members} member{g.members === 1 ? "" : "s"} in org
+                    </span>
+                  }
+                  action={<ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden />}
+                />
+              ))}
+            </Section>
+          ))
       )}
 
       {archived.length > 0 && (

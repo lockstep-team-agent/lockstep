@@ -16,15 +16,9 @@ export function ViewToggle({ user, projectId, view }: { user: string; projectId:
   const params = useSearchParams();
   const explicit = params.get("view");
 
+  // Restore a remembered choice only when the URL doesn't say which view it wants.
   useEffect(() => {
-    if (explicit) {
-      try {
-        localStorage.setItem(key(user, projectId), explicit);
-      } catch {
-        /* storage unavailable — the URL still carries the view */
-      }
-      return;
-    }
+    if (explicit) return;
     let saved: string | null;
     try {
       saved = localStorage.getItem(key(user, projectId));
@@ -37,6 +31,15 @@ export function ViewToggle({ user, projectId, view }: { user: string; projectId:
       router.replace(`${path}?${next}`);
     }
   }, [explicit, user, projectId, params, path, router]);
+
+  // The preference is what the user picks with this toggle — not whatever a link put in the URL.
+  const remember = (v: string) => {
+    try {
+      localStorage.setItem(key(user, projectId), v);
+    } catch {
+      /* storage unavailable — the URL still carries the view */
+    }
+  };
 
   const href = (v: string) => {
     const next = new URLSearchParams(params);
@@ -51,6 +54,7 @@ export function ViewToggle({ user, projectId, view }: { user: string; projectId:
           role="tab"
           aria-selected={view === v}
           href={href(v)}
+          onClick={() => remember(v)}
           scroll={false}
           className={cn(
             "flex h-full items-center rounded px-2 text-[12px] font-medium capitalize transition-colors duration-150",

@@ -32,6 +32,27 @@ services:
       db:
         condition: service_healthy
 
+  # S3-compatible storage for skill packages (Standards & Skills). Point core's BLOB_* vars here.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: lockstep
+      MINIO_ROOT_PASSWORD: lockstep-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - lockstep_blobs:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      sh -c "until mc alias set local http://minio:9000 lockstep lockstep-dev; do sleep 1; done;
+      mc mb --ignore-existing local/lockstep-skills"
+
   # the dashboard ships in the same compose for self-host:
   web:
     build:
@@ -46,3 +67,4 @@ services:
 
 volumes:
   lockstep_pgdata:
+  lockstep_blobs:

@@ -1,10 +1,11 @@
+import { briefStandardsSection } from "../standards/briefing.js";
 import { and, desc, eq } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
 import { nativeDocumentVersions, projects, questions, decisionChecks, sourceDocuments, checkFeedback } from "../db/schema.js";
 import { listDecisions } from "../ledger/ledger-service.js";
 import { digest, fail } from "./service.js";
 
-export async function buildBrief(c: { orgId: string; projectId: string }, filters: { decisionId?: string; documentId?: string; featureRef?: string } = {}) {
+export async function buildBrief(c: { orgId: string; projectId: string; memberId?: string }, filters: { decisionId?: string; documentId?: string; featureRef?: string } = {}) {
   const all = await listDecisions(c.orgId, c.projectId);
   const selected = all.filter((d) => (!filters.decisionId || d.id === filters.decisionId) && (!filters.featureRef || d.scopeRef === filters.featureRef) && (!filters.documentId || (d.provenance as { documentId?: string })?.documentId === filters.documentId));
   if (filters.decisionId && !selected.length) throw fail("decision not found", 404);
@@ -39,6 +40,7 @@ export async function buildBrief(c: { orgId: string; projectId: string }, filter
   const findings = checks.flatMap((check) => (check.findings as Array<{ decisionId: string; version: number; file: string; line: number }>).filter((f) => ids.has(f.decisionId) && accepted.some((d) => d.id === f.decisionId && d.version === f.version) && !feedback.some((fb) => fb.checkId === check.id && fb.decisionId === f.decisionId && fb.verdict !== "useful")));
   out.push("", "## Recorded code concerns", "", ...findings.slice(0, 10).map((f) => `- Review ${f.file}:${f.line} against decision ${f.decisionId}.`));
   if (!findings.length) out.push("No concerns recorded in this selection. Implementation completeness and compliance have not been established.");
+  if (c.memberId) out.push("", ...(await briefStandardsSection(c.orgId, c.projectId, c.memberId)));
   out.push("", "## Join this project", "", "Ask a project owner for an invitation, then connect your repo:", "", `\`npx lockstep-cli onboard --project-id ${c.projectId}${versions[0] ? ` --feature ${versions[0].featureRef}` : ""}\``, "", "This brief does not grant access. Review its contents before sharing.");
   const markdown = out.join("\n");
   return { markdown, hash: digest(markdown), accepted: accepted.length, ratifiedRequirements: accepted.filter((d) => d.origin === "document").length, proposed: proposals.length };

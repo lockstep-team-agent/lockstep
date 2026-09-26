@@ -59,6 +59,11 @@ export function PageHead({ title, meta, actions }: { title: ReactNode; meta?: Re
   );
 }
 
+/** A failed request is not an empty list — say so. */
+export function LoadError({ what }: { what: string }) {
+  return <Empty title={`Couldn’t load ${what}`} hint="The API didn’t respond or refused the request. Nothing here was changed — try again in a moment." />;
+}
+
 export function Empty({ title, hint }: { title: string; hint?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center gap-1 px-6 py-16 text-center">

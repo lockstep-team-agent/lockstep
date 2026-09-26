@@ -58,7 +58,12 @@ export function CommandPalette({ orgId, projectId, base }: { orgId: string; proj
                 : next.decisions[0]
                   ? `d-${next.decisions[0].id}`
                   : q
-                    ? ""
+                    ? (() => {
+                        const nav = ["inbox", "map", "ledger", "insights", "settings"].find((x) =>
+                          x.includes(q.trim().toLowerCase()),
+                        );
+                        return nav ? `go-${nav}` : "";
+                      })()
                     : "go-inbox";
             setSel(first);
           }
@@ -152,34 +157,64 @@ export function CommandPalette({ orgId, projectId, base }: { orgId: string; proj
                   ))}
                 </Command.Group>
               )}
-              {!q && (
-                <Command.Group heading="Go to" className={group}>
-                  {[
-                    { label: "Inbox", seg: "inbox", icon: Inbox, k: "G I" },
-                    { label: "Map", seg: "map", icon: Network, k: "G M" },
-                    { label: "Ledger", seg: "ledger", icon: Rows3, k: "G L" },
-                    { label: "Insights", seg: "insights", icon: BarChart3, k: "G N" },
-                    { label: "Settings", seg: "settings", icon: Settings2, k: "G S" },
-                  ].map(({ label, seg, icon: Icon, k }) => (
-                    <Command.Item key={seg} value={`go-${seg}`} onSelect={() => go(`${base}/${seg}`)} className={item}>
-                      <Icon className="h-3.5 w-3.5 text-faint" />
-                      <span className="text-foreground">{label}</span>
-                      <kbd className="ml-auto font-mono text-[10px] text-faint">{k}</kbd>
+              {(res.standards?.length ?? 0) > 0 && (
+                <Command.Group heading="Standards & skills" className={group}>
+                  {res.standards!.map((x) => (
+                    <Command.Item
+                      key={x.id}
+                      value={`x-${x.id}`}
+                      onSelect={() => go(`/org/${orgId}/standards/${x.id}`)}
+                      className={item}
+                    >
+                      <ScrollText className="h-3.5 w-3.5 text-faint" />
+                      <span className="truncate text-foreground">{x.name}</span>
+                      <span className="ml-auto shrink-0 text-[11px] text-faint">{x.kind}</span>
                     </Command.Item>
                   ))}
-                  <Command.Item
-                    value="theme"
-                    onSelect={() => {
-                      toggleTheme();
-                      setOpen(false);
-                    }}
-                    className={item}
-                  >
-                    <Moon className="h-3.5 w-3.5 text-faint" />
-                    <span className="text-foreground">Toggle theme</span>
-                  </Command.Item>
                 </Command.Group>
               )}
+              {(() => {
+                // Navigation stays searchable alongside server results ("settings" finds Settings).
+                const t = q.trim().toLowerCase();
+                const nav = [
+                  { label: "Inbox", seg: "inbox", icon: Inbox, k: "G I" },
+                  { label: "Map", seg: "map", icon: Network, k: "G M" },
+                  { label: "Ledger", seg: "ledger", icon: Rows3, k: "G L" },
+                  { label: "Insights", seg: "insights", icon: BarChart3, k: "G N" },
+                  { label: "Settings", seg: "settings", icon: Settings2, k: "G S" },
+                ].filter((x) => !t || x.label.toLowerCase().includes(t));
+                const theme = !t || "toggle theme dark light".includes(t);
+                if (!nav.length && !theme) return null;
+                return (
+                  <Command.Group heading="Go to" className={group}>
+                    {nav.map(({ label, seg, icon: Icon, k }) => (
+                      <Command.Item
+                        key={seg}
+                        value={`go-${seg}`}
+                        onSelect={() => go(`${base}/${seg}`)}
+                        className={item}
+                      >
+                        <Icon className="h-3.5 w-3.5 text-faint" />
+                        <span className="text-foreground">{label}</span>
+                        <kbd className="ml-auto font-mono text-[10px] text-faint">{k}</kbd>
+                      </Command.Item>
+                    ))}
+                    {theme && (
+                      <Command.Item
+                        value="theme"
+                        onSelect={() => {
+                          toggleTheme();
+                          setOpen(false);
+                        }}
+                        className={item}
+                      >
+                        <Moon className="h-3.5 w-3.5 text-faint" />
+                        <span className="text-foreground">Toggle theme</span>
+                      </Command.Item>
+                    )}
+                  </Command.Group>
+                );
+              })()}
             </Command.List>
           </Command>
         </Dialog.Content>

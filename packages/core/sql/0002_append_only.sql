@@ -14,7 +14,8 @@ DO $$
 DECLARE t text;
 DECLARE frozen text[] := ARRAY[
   'audit_events','decision_versions','answers',
-  'ownership_rules','ownership_rule_owners','native_document_versions','usage_events'
+  'ownership_rules','ownership_rule_owners','native_document_versions','usage_events',
+  'releases','assignment_revisions','receipts','release_withdrawals','artifact_checks'
 ];
 BEGIN
   FOREACH t IN ARRAY frozen LOOP

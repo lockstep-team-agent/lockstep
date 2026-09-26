@@ -58,7 +58,7 @@ html.light {
   --border-strong: rgb(255 255 255 / 0.14);
   --foreground: #e8eaed;
   --muted-foreground: #8a9099;
-  --faint: #5c626b;
+  --faint: #80868f; /* ≥4.5:1 on base/muted/raised — it carries small helper text */
   --primary: #b4f05a;
   --primary-foreground: #0a0b0d;
   --primary-ink: #b4f05a;
@@ -96,7 +96,7 @@ html.light .ui-next {
   --border-strong: rgb(10 11 13 / 0.16);
   --foreground: #111317;
   --muted-foreground: #5b616b;
-  --faint: #9096a0;
+  --faint: #676d77; /* ≥4.5:1 on base/muted/card */
   /* lime can't carry text on white: light mode uses a deep lime for fills and ink alike */
   --primary: #4d7c0f;
   --primary-foreground: #ffffff;

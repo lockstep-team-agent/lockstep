@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConceptStandards } from "@/components/org/ConceptStandards";
 import { ExternalLink, FileText, Link2 } from "lucide-react";
 import {
   getConcept,
@@ -79,6 +80,7 @@ export async function ConceptPane({
             canEdit={canEdit}
           />
         </div>
+        <ConceptStandards orgId={orgId} projectId={projectId} conceptId={c.id} />
         <nav className="mt-4 flex gap-5" aria-label="Concept sections">
           {(
             [
@@ -349,7 +351,15 @@ async function ContractsTab({
       <div className="grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1fr)] gap-4 border-b px-6 py-2 text-[11px] font-medium text-faint">
         <span>Surface</span>
         <span>Blast radius</span>
-        <span>Governed by</span>
+        <span>
+          Governed by (binding)
+          {r.projectWideBinding ? (
+            <span className="font-normal">
+              {" "}
+              · plus {r.projectWideBinding} project-wide rule{r.projectWideBinding === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </span>
       </div>
       <ul>
         {r.contracts.map((s) => (
@@ -390,7 +400,9 @@ async function ContractsTab({
               )}
             </div>
             <div className="min-w-0 space-y-1">
-              {s.governing.length === 0 && <span className="text-[12px] text-faint">—</span>}
+              {s.governing.length === 0 && (
+                <span className="text-[12px] text-faint">No binding rule for this surface</span>
+              )}
               {s.governing.map((g) => (
                 <Link
                   key={g.id}
@@ -401,6 +413,19 @@ async function ContractsTab({
                   )}
                 >
                   {g.ruleText ?? "(decision)"}
+                  {g.via !== "surface" && <span className="text-faint"> · {g.via === "repository" ? "whole repo" : `via ${g.via}`}</span>}
+                </Link>
+              ))}
+              {s.related.map((g) => (
+                <Link
+                  key={g.id}
+                  href={`${base}/decisions/${g.id}`}
+                  className={cn(
+                    railFor(g.status),
+                    "block truncate pl-2.5 text-[11px] leading-5 text-faint hover:text-foreground",
+                  )}
+                >
+                  <span className="uppercase tracking-[0.04em]">{g.status}</span> · {g.ruleText ?? "(decision)"}
                 </Link>
               ))}
             </div>

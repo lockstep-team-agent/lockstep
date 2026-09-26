@@ -33,6 +33,9 @@ usage: lockstep <command>
   scan  [--json] [--apply] [--dry-run]              scan the repo → propose lockstep.yaml (produces + graph-resolved consumes)
   sync                                              push lockstep.yaml (produces + consumes) to the graph, no rescan
   pack  [--check] [--dry-run]                       write the compiled decision pack skill (--check: exit 1 if stale)
+  enroll [--yes]                                    receive your organization's skills in this checkout
+  skills [status|sync|restore <slug>|keep <slug>|accept <slug>|decline <slug>|unenroll]
+                                                    manage org skills (sync runs at every session start)
   invite <github-handle>                            invite a teammate to this repo's project
   status                                            show auth + config health
   --version                                         print the CLI version
@@ -121,6 +124,14 @@ async function main(): Promise<void> {
     case "sync": {
       const { runSync } = await import("./scan.js");
       return runSync();
+    }
+    case "enroll": {
+      const { runEnroll } = await import("./standards/client.js");
+      return runEnroll({ yes: has("yes") });
+    }
+    case "skills": {
+      const { runSkills } = await import("./standards/client.js");
+      return runSkills(argv.slice(1));
     }
     case "pack": {
       const { runPack } = await import("./pack.js");

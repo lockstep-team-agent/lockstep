@@ -7,13 +7,24 @@ import { withOrg } from "../db/rls.js";
 import { getProjectRoleTx } from "../auth/permissions.js";
 import { ConceptError } from "./concept-service.js";
 import { decodeCursor, encodeCursor, ITEM_PAGE, scopeLabelSql } from "./read.js";
+import { standardsInboxItems } from "../standards/inbox.js";
 
 const rows = <T>(r: unknown): T[] => r as T[];
 const DAY = 86_400_000;
 
 /* ───────────────────────────── Inbox ───────────────────────────── */
 
-export type InboxKind = "conflict" | "proposal" | "ratification" | "question" | "task" | "review_due" | "placement";
+export type InboxKind =
+  | "conflict"
+  | "proposal"
+  | "ratification"
+  | "question"
+  | "task"
+  | "review_due"
+  | "placement"
+  | "check_finding"
+  | "exception_request"
+  | "rollout_failure";
 
 export interface InboxItem {
   kind: InboxKind;
@@ -262,6 +273,8 @@ export async function getInbox(
       });
     }
 
+    for (const x of await standardsInboxItems(orgId, projectId, memberId, Boolean(opts.housekeeping)))
+      items.push({ ...x, impact: 0, conceptId: null, conceptLabel: null });
     const scored = items
       .filter((i) => !opts.kinds?.length || opts.kinds.includes(i.kind))
       .map((i) => ({ ...i, score: inboxScore(i.impact, new Date(i.createdAt), asOf, maxImpact) }))

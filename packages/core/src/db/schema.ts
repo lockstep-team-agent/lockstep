@@ -1047,3 +1047,294 @@ export const decisionSummaries = pgTable(
   },
   (t) => ({ uqVersion: uniqueIndex("uq_decision_summary").on(t.decisionId, t.version) }),
 );
+
+/* ───────────────────────────── Standards & Skills / Rollouts ───────────────────────────── */
+
+/** Explicit organization authority — never inferred from project ownership. */
+export const orgRoles = pgTable(
+  "org_roles",
+  {
+    id: id(),
+    orgId: orgId(),
+    memberId: uuid("member_id").notNull(),
+    role: text("role").notNull(), // owner | admin
+    grantedBy: uuid("granted_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqMember: uniqueIndex("uq_org_role_member").on(t.orgId, t.memberId) }),
+);
+
+/** Lightweight, Lockstep-administered teams: they target audiences, never grant access. */
+export const teams = pgTable(
+  "teams",
+  {
+    id: id(),
+    orgId: orgId(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqSlug: uniqueIndex("uq_team_slug").on(t.orgId, t.slug) }),
+);
+
+export const teamMembers = pgTable(
+  "team_members",
+  {
+    id: id(),
+    orgId: orgId(),
+    teamId: uuid("team_id").notNull(),
+    memberId: uuid("member_id").notNull(),
+    addedBy: uuid("added_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqMember: uniqueIndex("uq_team_member").on(t.teamId, t.memberId) }),
+);
+
+/** Stable identity of a standard / skill / check. Content lives in item_versions. */
+export const catalogItems = pgTable(
+  "catalog_items",
+  {
+    id: id(),
+    orgId: orgId(),
+    kind: text("kind").notNull(), // standard | skill | check
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    ownerMemberId: uuid("owner_member_id"),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqSlug: uniqueIndex("uq_catalog_slug").on(t.orgId, t.kind, t.slug) }),
+);
+
+export interface PackageFile {
+  path: string;
+  sha256: string;
+  size: number;
+  mode: number;
+  isScript: boolean;
+}
+
+/** An immutable skill package: a manifest of content-addressed blobs in object storage. */
+export const skillPackages = pgTable(
+  "skill_packages",
+  {
+    id: id(),
+    orgId: orgId(),
+    manifest: jsonb("manifest").$type<PackageFile[]>().notNull(),
+    totalBytes: integer("total_bytes").notNull(),
+    packageHash: text("package_hash").notNull(),
+    declared: jsonb("declared"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqHash: uniqueIndex("uq_package_hash").on(t.orgId, t.packageHash) }),
+);
+
+/** A version of a catalog item. Published rows are immutable (DB trigger). */
+export const itemVersions = pgTable(
+  "item_versions",
+  {
+    id: id(),
+    orgId: orgId(),
+    itemId: uuid("item_id").notNull(),
+    version: integer("version").notNull(),
+    state: text("state").notNull().default("draft"), // draft | proposed | published
+    content: jsonb("content").notNull(),
+    contentHash: text("content_hash").notNull(),
+    packageId: uuid("package_id"),
+    provenance: jsonb("provenance"),
+    parentVersionId: uuid("parent_version_id"),
+    authoredBy: uuid("authored_by"),
+    proposedBy: uuid("proposed_by"),
+    approvedBy: uuid("approved_by"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ uqVersion: uniqueIndex("uq_item_version").on(t.itemId, t.version) }),
+);
+
+export interface ReleaseItem {
+  itemId: string;
+  versionId: string;
+  kind: string;
+}
+
+/** An immutable selection of published versions distributed together (append-only). */
+export const releases = pgTable("releases", {
+  id: id(),
+  orgId: orgId(),
+  name: text("name").notNull(),
+  items: jsonb("items").$type<ReleaseItem[]>().notNull(),
+  releaseHash: text("release_hash").notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: createdAt(),
+});
+
+export const assignments = pgTable("assignments", {
+  id: id(),
+  orgId: orgId(),
+  name: text("name").notNull(),
+  ownerMemberId: uuid("owner_member_id"),
+  state: text("state").notNull().default("active"), // active | paused | retired
+  currentRevision: integer("current_revision").notNull().default(0),
+  createdAt: createdAt(),
+});
+
+export interface Selectors {
+  projects?: string[];
+  repos?: string[];
+  pathGlobs?: string[];
+  taskTypes?: string[]; // code | prd
+  audience?: { kind: "all" } | { kind: "members"; ids: string[] } | { kind: "teams"; ids: string[] };
+}
+
+/** One immutable revision of an assignment's target + release (append-only). */
+export const assignmentRevisions = pgTable(
+  "assignment_revisions",
+  {
+    id: id(),
+    orgId: orgId(),
+    assignmentId: uuid("assignment_id").notNull(),
+    revision: integer("revision").notNull(),
+    releaseId: uuid("release_id").notNull(),
+    selectors: jsonb("selectors").$type<Selectors>().notNull(),
+    level: text("level").notNull().default("required"), // required | recommended
+    pilot: jsonb("pilot").$type<Selectors | null>(),
+    reason: text("reason").notNull(), // create | expand | pilot | rollback | withdraw_replace
+    createdBy: uuid("created_by"),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uqRevision: uniqueIndex("uq_assignment_revision").on(t.assignmentId, t.revision) }),
+);
+
+/** An approved, scoped departure from an assignment or requirement, bound to exact versions. */
+export const exceptions = pgTable("exceptions", {
+  id: id(),
+  orgId: orgId(),
+  target: text("target").notNull(), // requirement | skill_assignment
+  itemId: uuid("item_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  requirementKey: text("requirement_key"),
+  scope: jsonb("scope").$type<{ projectId?: string; repoId?: string; taskType?: string; memberId?: string }>().notNull(),
+  reason: text("reason").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  state: text("state").notNull().default("requested"), // requested | approved | rejected | expired | needs_review
+  requestedBy: uuid("requested_by"),
+  decidedBy: uuid("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  /** Hash of the covered content (requirement text+level, or skill package) — binds the exception to it. */
+  contentHash: text("content_hash"),
+  decisionNote: text("decision_note"),
+  sourceCheckId: uuid("source_check_id"),
+  createdAt: createdAt(),
+});
+
+/* ── Standards milestone 2: environments + receipts ── */
+
+export interface EnvCapabilities {
+  install?: boolean; // can write managed skills
+  sessionAvailability?: boolean; // can report which version a session started with
+  invocation?: "observed" | "self_reported" | "unobservable";
+  checks?: boolean;
+}
+
+export const environments = pgTable(
+  "environments",
+  {
+    id: id(),
+    orgId: orgId(),
+    memberId: uuid("member_id").notNull(),
+    adapter: text("adapter").notNull(), // claude | codex
+    adapterVersion: text("adapter_version"),
+    hostKey: text("host_key").notNull(), // sha256(machine + checkout) — never a raw path
+    contextKind: text("context_kind").notNull().default("repo"),
+    projectId: uuid("project_id"),
+    repoId: uuid("repo_id"),
+    capabilities: jsonb("capabilities").$type<EnvCapabilities>().notNull().default({}),
+    accepted: jsonb("accepted").$type<string[]>().notNull().default([]),
+    declined: jsonb("declined").$type<string[]>().notNull().default([]),
+    enrolledAt: timestamp("enrolled_at", { withTimezone: true }).defaultNow().notNull(),
+    lastContactAt: timestamp("last_contact_at", { withTimezone: true }).defaultNow().notNull(),
+    /** Last completed reconciliation the server accepted (a `synced` receipt) — the freshness basis. */
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    unenrolledAt: timestamp("unenrolled_at", { withTimezone: true }),
+  },
+  (t) => ({ uq: uniqueIndex("uq_environment").on(t.orgId, t.memberId, t.adapter, t.hostKey) }),
+);
+
+export const receipts = pgTable("receipts", {
+  id: id(),
+  orgId: orgId(),
+  envId: uuid("env_id").notNull(),
+  kind: text("kind").notNull(), // synced | installed | removed | failed | conflict | declined | readiness_gap | session_available | invoked
+  itemId: uuid("item_id"),
+  versionId: uuid("version_id"),
+  packageHash: text("package_hash"),
+  sessionId: uuid("session_id"),
+  generation: text("generation").notNull(),
+  detail: jsonb("detail").$type<Record<string, unknown>>(),
+  observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const releaseWithdrawals = pgTable("release_withdrawals", {
+  id: id(),
+  orgId: orgId(),
+  releaseId: uuid("release_id").notNull(),
+  reason: text("reason").notNull(),
+  replacementReleaseId: uuid("replacement_release_id"),
+  withdrawnBy: uuid("withdrawn_by"),
+  createdAt: createdAt(),
+});
+
+/* ── Standards milestone 3: artifact checks ── */
+
+export type Verdict = "satisfied" | "possible_violation" | "inconclusive" | "exempt";
+export interface EvaluationSnapshot {
+  hash: string;
+  checkVersionId: string | null;
+  requirements: Array<{ standardVersionId: string; key: string; exempt: boolean }>;
+  releaseIds: string[];
+}
+export interface CheckFinding {
+  key: string; // stable within a check: requirement key or `section:<name>`
+  requirementKey: string | null;
+  criterion: string;
+  verdict: Verdict;
+  evidence: Array<{ location: string; quote: string }>;
+  note: string;
+}
+
+export const artifactChecks = pgTable("artifact_checks", {
+  id: id(),
+  orgId: orgId(),
+  projectId: uuid("project_id").notNull(),
+  memberId: uuid("member_id"),
+  artifactKind: text("artifact_kind").notNull(), // prd | code_diff
+  artifactRef: jsonb("artifact_ref").$type<Record<string, unknown>>().notNull(),
+  artifactHash: text("artifact_hash").notNull(),
+  standardVersionId: uuid("standard_version_id"),
+  checkVersionId: uuid("check_version_id"),
+  releaseIds: jsonb("release_ids").$type<string[]>().notNull().default([]),
+  evaluator: text("evaluator").notNull(),
+  execution: text("execution").notNull(), // completed | partial | skipped | unavailable | error
+  executionDetail: text("execution_detail"),
+  findings: jsonb("findings").$type<CheckFinding[]>().notNull().default([]),
+  /** Exactly what was evaluated: check version, requirement versions + exemptions, releases. */
+  evaluated: jsonb("evaluated").$type<EvaluationSnapshot>().notNull().default({} as EvaluationSnapshot),
+  dedupeKey: text("dedupe_key").notNull(),
+  createdAt: createdAt(),
+});
+
+export const findingActions = pgTable("finding_actions", {
+  id: id(),
+  orgId: orgId(),
+  checkId: uuid("check_id").notNull(),
+  findingKey: text("finding_key").notNull(),
+  action: text("action").notNull(), // dismiss | exception_requested
+  rationale: text("rationale").notNull(),
+  exceptionId: uuid("exception_id"),
+  memberId: uuid("member_id").notNull(),
+  createdAt: createdAt(),
+});

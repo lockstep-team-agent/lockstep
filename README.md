@@ -219,6 +219,19 @@ For production, configure real GitHub authentication, set `NODE_ENV=production` 
 | **Question** | A cross-team ask, ideally answered from the ledger before a human is pinged.      |
 | **Task**     | Delegated work, fanned out to the assignee's inbox.                               |
 
+## Standards & Skills (organizations) — Claude Code pilot
+
+Behind `LOCKSTEP_STANDARDS=1` (see [DEPLOY.md](DEPLOY.md)), an organization can define how agents should work and prove what reached each checkout. **This is a Claude Code pilot, not the complete PRD:** pausing/resuming a rollout, Codex, enrolling a repo-free PM workspace, readiness checks for a skill's declared tools, owner reassignment and linking supporting decisions in the standard editor, and author-facing conflict flagging are not built yet. The Map graph shows the first page of an expanded domain (the Outline lists everything).
+
+- **Standards & Skills** — versioned standards (requirements with stable keys and required/recommended levels), skills authored in Lockstep or imported from a public GitHub repo at an exact commit, and checks (PRD sections, PRD rubric, advisory code review). Published versions are immutable; members draft and propose, owners/admins publish.
+- **Rollouts & Adoption** — assign exact versions by project, repository, team or person, path and task type; preview the impact before applying; pilot, expand, roll back, retire or withdraw. Adoption reports coverage, installation, session availability, invocation (reported as *unobservable* where the agent can't show it) and check outcomes separately.
+- **In the work** — enrolled checkouts (`lockstep enroll`) receive managed skills in `.claude/skills/lockstep-org-*/` (kept out of git, verified by hash, never executed, never overwritten when edited locally). Session briefings list the applicable requirements with exact versions and point to the relevant skills; the copyable project brief carries the same for repo-free PRD work. Exceptions are requested and approved per requirement, bind to the exact published version (a new version needs a new review), and expire on their own.
+
+| Agent | Install managed skills | Session availability | Invocation | Checks |
+| --- | --- | --- | --- | --- |
+| Claude Code (verified on 2.1.281) | Yes — `.claude/skills/lockstep-org-*/` | Yes — which versions a session started with | Unobservable | Code-diff via `lockstep check` consent; PRD checks in the dashboard |
+| Codex | Not supported yet | — | — | — |
+
 ## Agents & integration
 
 The individual pilot supports **Claude Code only**, with session-start briefings, MCP tools, local decision packs, and optional completion checks. Explicit CLI/MCP operations remain available if hooks are unavailable. No model calls run after every edit.
@@ -245,6 +258,8 @@ Use `npx lockstep-cli <command>` without installing a global binary, or `lockste
 | `invite <github-handle>`                         | Invite a colleague to the connected project                                                |
 | `status` / `doctor`                              | Inspect configuration, connection, and verification status                                 |
 | `uninstall [--dry-run]`                          | Remove Lockstep-managed Claude entries while retaining ledger history                      |
+| `enroll [--yes]`                                 | Opt this checkout in to your organization's managed skills (Standards & Skills)            |
+| `skills [status\|sync\|restore\|keep\|accept\|decline\|unenroll]` | Sync or resolve managed org skills; sync also runs at every session start       |
 
 ## Project Structure
 

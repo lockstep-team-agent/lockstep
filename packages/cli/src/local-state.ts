@@ -12,6 +12,10 @@ export interface LocalState {
   verifiedAt?: string;
   verifiedSession?: string;
   lastCheck?: { fingerprint: string; result: unknown };
+  /** Enrolled org-skills environment for this checkout (Standards & Skills). */
+  environmentId?: string;
+  skillsFailures?: number;
+  skillsBackoffUntil?: string;
 }
 
 function statePath(cwd: string): string {

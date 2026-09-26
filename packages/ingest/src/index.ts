@@ -314,6 +314,11 @@ async function fastTick(ls: LockstepClient, useStub: boolean, useHaiku: boolean)
           if (cd.claimed > 0) console.log(`[concepts] claimed=${cd.claimed} done=${cd.done} requeued=${cd.requeued} failed=${cd.failed}`);
           break;
         }
+        case "standards_exceptions": {
+          const se = await ls.runStandardsExceptions();
+          if (se.expired > 0) console.log(`[standards] ${se.expired} exception(s) expired`);
+          break;
+        }
         default:
           console.log(`[jobs] unknown kind ${job.kind} — completing as error`);
           await ls.completeJob(job.id, false, `unknown kind ${job.kind}`);

@@ -98,7 +98,10 @@ export interface ConceptContract {
   returnType: string | null;
   placement: { state: string; classifier: string | null };
   consumers: { count: number; sample: string[] };
-  governing: Array<{ id: string; status: string; origin: string; ruleText: string | null }>;
+  /** Binding rules only: this surface's, or its whole repository's. */
+  governing: Array<{ id: string; status: string; origin: string; ruleText: string | null; via: string }>;
+  /** Proposals, open, superseded or expired decisions — context, not authority. */
+  related: Array<{ id: string; status: string; origin: string; ruleText: string | null; via: string }>;
   historyCount: number;
 }
 export interface ConceptSources {
@@ -121,7 +124,17 @@ export interface SurfaceChange {
   createdAt: string;
 }
 
-export type InboxKind = "conflict" | "proposal" | "ratification" | "question" | "task" | "review_due" | "placement";
+export type InboxKind =
+  | "conflict"
+  | "proposal"
+  | "ratification"
+  | "question"
+  | "task"
+  | "review_due"
+  | "placement"
+  | "check_finding"
+  | "exception_request"
+  | "rollout_failure";
 export interface InboxItem {
   kind: InboxKind;
   id: string;
@@ -163,6 +176,8 @@ export interface SearchResult {
   concepts: Array<{ id: string; label: string; key: string }>;
   surfaces: Array<{ id: string; surface: string; conceptId: string | null }>;
   decisions: Array<{ id: string; ruleText: string; status: string; conceptId: string | null }>;
+  /** Org catalog matches (Standards & Skills), when enabled. */
+  standards?: Array<{ id: string; kind: string; name: string; slug: string }>;
 }
 
 export interface GraphData {
@@ -265,7 +280,7 @@ export const getConceptDecisions = (o: string, p: string, id: string, cursor?: s
     `${P(o, p)}/concepts/${id}${qs({ tab: "decisions", cursor })}`,
   );
 export const getConceptContracts = (o: string, p: string, id: string, cursor?: string) =>
-  apiGet<{ contracts: ConceptContract[]; nextCursor: string | null }>(
+  apiGet<{ contracts: ConceptContract[]; nextCursor: string | null; projectWideBinding?: number }>(
     `${P(o, p)}/concepts/${id}${qs({ tab: "contracts", cursor })}`,
   );
 export const getConceptSources = (o: string, p: string, id: string) =>

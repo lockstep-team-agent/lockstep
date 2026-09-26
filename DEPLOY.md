@@ -47,6 +47,14 @@ Railway project
   non-surface placements are suggested by core's `TYPESAFE_API_KEY` (or `ANTHROPIC_API_KEY`); without
   either, surfaces are still grouped by rule and Settings shows a banner. The `ingest` worker must run:
   it drains the classification queue (`concept_drain` job, every 60s).
+- _Optional:_ `LOCKSTEP_STANDARDS = 1` (on **both** core and web) adds the Organization workspace
+  (Standards & Skills, Teams, Roles) and the project Ledger's Standards tab. Core also needs object
+  storage for skill packages: **Add → Bucket** in Railway, then copy its endpoint, bucket name and
+  keys into core's `BLOB_*` variables. Without them, authoring standards works but saving a skill
+  returns "object storage is not configured". Self-host: `docker compose up minio` (see `.env.example`).
+  The `ingest` worker runs the hourly `standards_exceptions` job (expiry). Performance can be
+  checked with `tsx packages/core/src/scripts/standards-fixture.ts` then `standards-timing.ts`
+  (budgets: sync p95 < 300 ms, preview < 2 s, adoption < 500 ms).
 - Open the web service URL → sign in with a Lockstep token (`lockstep login` locally prints one).
 
 ## 4. Deploy `ingest` (the sweep worker)
@@ -90,6 +98,9 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 | `LOCKSTEP_API_URL` | — | ✓ | ✓ |
 | `LOCKSTEP_WEB_URL` | — | ✓ (canonical URL; don't rely on x-forwarded-host) | ✓ (digest links) |
 | `LOCKSTEP_NEW_UI` | — | ✓ (optional — `1` = concept-ledger dashboard) | — |
+| `LOCKSTEP_STANDARDS` | ✓ (optional — `1` = Standards & Skills API) | ✓ (same flag; needs `LOCKSTEP_NEW_UI=1`) | — |
+| `BLOB_ENDPOINT` / `BLOB_BUCKET` / `BLOB_REGION` / `BLOB_ACCESS_KEY_ID` / `BLOB_SECRET_ACCESS_KEY` | ✓ (with `LOCKSTEP_STANDARDS`) — skill package storage | — | — |
+| `GITHUB_IMPORT_TOKEN` | ✓ (optional — higher GitHub rate limit for skill imports) | — | — |
 
 ## 5. Wire the live event ingress (gateway webhooks — both land on `core`)
 

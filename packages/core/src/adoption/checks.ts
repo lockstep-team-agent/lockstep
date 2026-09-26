@@ -5,6 +5,7 @@ import { env } from "../env.js";
 import type { SessionContext } from "../api/session-context.js";
 import { digest, scopedRules, usage } from "./service.js";
 import { systemOne, type Judge } from "./providers.js";
+import { checkCodeAgainstStandards } from "../standards/checks.js";
 
 export interface Hunk { file: string; text: string }
 export interface Finding { decisionId: string; version: number; file: string; line: number; reason: string }
@@ -62,7 +63,9 @@ export async function runCheck(c: SessionContext, input: { hunks: Hunk[]; surfac
   const key = `${c.memberId}:${c.repoId}:${fingerprint}`;
   const execute = async () => {
     const old = await withOrg(c.orgId, async (tx) => (await tx.select().from(decisionChecks).where(and(eq(decisionChecks.memberId, c.memberId), eq(decisionChecks.repoId, c.repoId), eq(decisionChecks.fingerprint, fingerprint))).limit(1))[0]);
-    if (old && (old.status === "completed" || (old.status === "partial" && old.checked === rules.length))) return { ...old, cached: true, rules: rules.map((r) => ({ id: r.id, ruleText: r.ruleText })) };
+    // Applicable org standards ride the same consented path; their results are stored separately.
+    const standards = await checkCodeAgainstStandards(c, hunks, fingerprint, partial, judge).catch(() => null);
+    if (old && (old.status === "completed" || (old.status === "partial" && old.checked === rules.length))) return { ...old, cached: true, rules: rules.map((r) => ({ id: r.id, ruleText: r.ruleText })), standards };
     let status: CheckStatus = "skipped";
     let result: { checked: number; findings: Finding[] } = { checked: 0, findings: [] };
     if (rules.length && hunks.length && env.LOCKSTEP_CHECKS_ENABLED) {
@@ -79,7 +82,7 @@ export async function runCheck(c: SessionContext, input: { hunks: Hunk[]; surfac
     const values = { orgId: c.orgId, projectId: c.projectId, repoId: c.repoId, memberId: c.memberId, sessionId: c.sessionId, fingerprint, featureRef: input.featureRef ?? null, status, checked: result.checked, total: all.length, partial: partial || status === "partial", findings: result.findings, ruleVersions };
     const row = await withOrg(c.orgId, async (tx) => (await tx.insert(decisionChecks).values(values).onConflictDoUpdate({ target: [decisionChecks.memberId, decisionChecks.repoId, decisionChecks.fingerprint], set: { status, checked: result.checked, findings: result.findings, partial: values.partial } }).returning())[0]!);
     await usage(c, `check_${status}`, row.id, { checked: result.checked, findings: result.findings.length });
-    return { ...row, cached: false, rules: rules.map((r) => ({ id: r.id, ruleText: r.ruleText })) };
+    return { ...row, cached: false, rules: rules.map((r) => ({ id: r.id, ruleText: r.ruleText })), standards };
   };
   // Coalesce duplicate Stop/tool invocations without holding a DB transaction across inference.
   const running = inFlight.get(key);

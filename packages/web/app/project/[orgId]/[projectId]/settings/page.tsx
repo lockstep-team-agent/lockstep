@@ -5,6 +5,8 @@ import { getConceptSettings, getOutline, newUiEnabled } from "@/lib/next-data";
 import { DomainsEditor, HttpRulesEditor, RebuildButton } from "@/components/next/SettingsControls";
 import { When } from "@/components/When";
 import { Empty, PageHead } from "@/components/next/bits";
+import { standardsEnabled } from "@/lib/org-data";
+import { ProjectEnvironmentsSection } from "@/components/org/ProjectEnvironmentsSection";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +91,8 @@ export default async function SettingsPage({ params }: { params: { orgId: string
             </p>
             <HttpRulesEditor ids={ids} rules={s.httpRules} canEdit={canEdit} />
           </section>
+
+          {standardsEnabled() && <ProjectEnvironmentsSection orgId={orgId} projectId={projectId} base={base} />}
 
           <section>
             <h2 className="mb-3 text-[15px] font-semibold tracking-[-0.01em]">Workspace</h2>

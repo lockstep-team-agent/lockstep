@@ -128,5 +128,15 @@ export async function runMcpServer(): Promise<void> {
     });
   });
 
+  // Local FS side effect: sync this checkout's managed org skills. New files load next session.
+  server.tool("sync_skills", {}, async () => {
+    const envId = readLocalState().environmentId;
+    if (!envId) return ok({ status: "not_enrolled", message: "Ask the user to run `lockstep enroll` to receive org skills here." });
+    const { syncSkills, formatSync } = await import("../standards/sync.js");
+    const { httpApi } = await import("../standards/client.js");
+    const r = await syncSkills(process.cwd(), httpApi(envId, (await getSession()).sessionId));
+    return ok({ ...r, summary: formatSync(r, "session") || "Org skills are up to date.", note: "Installed or updated skills are available from the next session." });
+  });
+
   await server.connect(new StdioServerTransport());
 }

@@ -35,6 +35,9 @@ const INBOX_KINDS: InboxKind[] = [
   "task",
   "review_due",
   "placement",
+  "check_finding",
+  "exception_request",
+  "rollout_failure",
 ];
 const LEDGER_TABS: LedgerTab[] = ["decisions", "contracts", "sources", "questions", "tasks"];
 
@@ -130,7 +133,7 @@ export async function conceptRoutes(app: FastifyInstance): Promise<void> {
       getInbox(c.orgId, c.projectId, c.memberId, {
         cursor,
         kinds: ks,
-        housekeeping: housekeeping === "1" || ks.includes("placement"),
+        housekeeping: housekeeping === "1" || ks.includes("placement") || ks.includes("rollout_failure"),
       }),
     );
   });

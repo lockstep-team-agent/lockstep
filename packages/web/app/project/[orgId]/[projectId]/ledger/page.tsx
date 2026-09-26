@@ -14,6 +14,8 @@ import {
 import { When } from "@/components/When";
 import { Empty, PageHead, railFor, scopeText, StateTag, SurfaceId } from "@/components/next/bits";
 import { cn } from "@/lib/utils";
+import { standardsEnabled } from "@/lib/org-data";
+import { ProjectStandards } from "@/components/org/ProjectStandards";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +33,16 @@ const ORIGINS = [
   ["document", "Product"],
 ] as const;
 
-type SP = { tab?: string; q?: string; status?: string; origin?: string; cursor?: string };
+type SP = {
+  tab?: string;
+  q?: string;
+  status?: string;
+  origin?: string;
+  cursor?: string;
+  repo?: string;
+  task?: string;
+  paths?: string;
+};
 
 export default async function LedgerPage({
   params,
@@ -43,6 +54,7 @@ export default async function LedgerPage({
   const { orgId, projectId } = params;
   const base = `/project/${orgId}/${projectId}`;
   if (!newUiEnabled()) redirect(base);
+  const std = standardsEnabled() && searchParams.tab === "standards";
   const tab = TABS.find((x) => x.t === searchParams.tab)?.t ?? "decisions";
   const q = searchParams.q?.trim() || undefined;
   const opts = { q, status: searchParams.status, origin: searchParams.origin, cursor: searchParams.cursor };
@@ -61,10 +73,10 @@ export default async function LedgerPage({
           <Link
             key={t}
             href={`${base}/ledger?tab=${t}`}
-            aria-current={tab === t ? "page" : undefined}
+            aria-current={tab === t && !std ? "page" : undefined}
             className={cn(
               "-mb-px flex h-10 items-center border-b-2 text-[13px] font-medium transition-colors duration-150",
-              tab === t
+              tab === t && !std
                 ? "border-foreground text-foreground"
                 : "border-transparent text-faint hover:text-muted-foreground",
             )}
@@ -72,52 +84,83 @@ export default async function LedgerPage({
             {label}
           </Link>
         ))}
-      </div>
-      <div className="flex items-center gap-2 border-b px-5 py-2">
-        <form className="relative" action={`${base}/ledger`}>
-          <input type="hidden" name="tab" value={tab} />
-          {searchParams.status && <input type="hidden" name="status" value={searchParams.status} />}
-          {searchParams.origin && <input type="hidden" name="origin" value={searchParams.origin} />}
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-          <input
-            name="q"
-            defaultValue={q}
-            placeholder={tab === "contracts" ? "Filter surfaces…" : "Search…"}
-            aria-label="Search the ledger"
-            className="h-7 w-72 rounded-md border bg-muted pl-7 pr-2 text-[12px] outline-none placeholder:text-faint focus:border-border-strong"
-          />
-        </form>
-        {tab === "decisions" && (
-          <div className="flex items-center gap-0.5">
-            {ORIGINS.map(([o, label]) => (
-              <Filter
-                key={o}
-                href={href({ origin: searchParams.origin === o ? undefined : o, cursor: undefined })}
-                active={searchParams.origin === o}
-              >
-                {label}
-              </Filter>
-            ))}
-            <span className="mx-1.5 h-4 w-px bg-border" />
-            {DECISION_STATUS.map((s) => (
-              <Filter
-                key={s}
-                href={href({ status: searchParams.status === s ? undefined : s, cursor: undefined })}
-                active={searchParams.status === s}
-              >
-                {s}
-              </Filter>
-            ))}
-          </div>
+        {standardsEnabled() && (
+          <Link
+            href={`${base}/ledger?tab=standards`}
+            aria-current={std ? "page" : undefined}
+            className={cn(
+              "-mb-px flex h-10 items-center border-b-2 text-[13px] font-medium transition-colors duration-150",
+              std ? "border-foreground text-foreground" : "border-transparent text-faint hover:text-muted-foreground",
+            )}
+          >
+            Standards
+          </Link>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "decisions" && <Decisions orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />}
-        {tab === "contracts" && <Contracts orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />}
-        {tab === "sources" && <Sources orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />}
-        {tab === "questions" && <Questions orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />}
-        {tab === "tasks" && <Tasks orgId={orgId} projectId={projectId} opts={opts} href={href} />}
-      </div>
+      {std ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ProjectStandards
+            orgId={orgId}
+            projectId={projectId}
+            base={base}
+            why={{ repoId: searchParams.repo, taskType: searchParams.task, paths: searchParams.paths }}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 border-b px-5 py-2">
+            <form className="relative" action={`${base}/ledger`}>
+              <input type="hidden" name="tab" value={tab} />
+              {searchParams.status && <input type="hidden" name="status" value={searchParams.status} />}
+              {searchParams.origin && <input type="hidden" name="origin" value={searchParams.origin} />}
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder={tab === "contracts" ? "Filter surfaces…" : "Search…"}
+                aria-label="Search the ledger"
+                className="h-7 w-72 rounded-md border bg-muted pl-7 pr-2 text-[12px] outline-none placeholder:text-faint focus:border-border-strong"
+              />
+            </form>
+            {tab === "decisions" && (
+              <div className="flex items-center gap-0.5">
+                {ORIGINS.map(([o, label]) => (
+                  <Filter
+                    key={o}
+                    href={href({ origin: searchParams.origin === o ? undefined : o, cursor: undefined })}
+                    active={searchParams.origin === o}
+                  >
+                    {label}
+                  </Filter>
+                ))}
+                <span className="mx-1.5 h-4 w-px bg-border" />
+                {DECISION_STATUS.map((s) => (
+                  <Filter
+                    key={s}
+                    href={href({ status: searchParams.status === s ? undefined : s, cursor: undefined })}
+                    active={searchParams.status === s}
+                  >
+                    {s}
+                  </Filter>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {tab === "decisions" && (
+              <Decisions orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />
+            )}
+            {tab === "contracts" && (
+              <Contracts orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />
+            )}
+            {tab === "sources" && <Sources orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />}
+            {tab === "questions" && (
+              <Questions orgId={orgId} projectId={projectId} base={base} opts={opts} href={href} />
+            )}
+            {tab === "tasks" && <Tasks orgId={orgId} projectId={projectId} opts={opts} href={href} />}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -222,6 +222,13 @@ export function ConceptGraph({
         openConcept.id,
       );
     }
+    // Several concepts can share a label ("files" over http and gql): add the protocol to tell them apart.
+    const labelCount = new Map<string, number>();
+    for (const n of data.nodes) if (n.kind === "concept") labelCount.set(n.label, (labelCount.get(n.label) ?? 0) + 1);
+    const shown = (n: (typeof data.nodes)[number]) => {
+      const key = (n as { key?: string }).key;
+      return n.kind === "concept" && (labelCount.get(n.label) ?? 0) > 1 && key?.includes(":") ? `${n.label} · ${key.split(":")[0]}` : n.label;
+    };
     for (const n of data.nodes) {
       const p = pos.current.get(n.id) ?? { x: 0, y: 0 };
       if (n.kind === "item") {
@@ -271,7 +278,7 @@ export function ConceptGraph({
                   isDomain ? "text-[13px] font-semibold" : "text-[12px]",
                 )}
               >
-                {n.label}
+                {shown(n)}
               </span>
               <Badges decisions={n.decisions} conflicts={n.conflicts} />
             </div>
@@ -328,7 +335,9 @@ export function ConceptGraph({
     else if (kind === "i") router.push(`${base}/decisions/${id}`);
   };
   const onNodeDoubleClick: NodeMouseHandler = (_, n) => {
-    if (n.id.startsWith("c:")) router.push(`${base}/map?concept=${n.id.slice(2)}`);
+    // Opening a concept is explicit intent to read its ledger: say so, so a saved graph
+    // preference can't bounce the user back into the graph (review D1).
+    if (n.id.startsWith("c:")) router.push(`${base}/map?concept=${n.id.slice(2)}&view=outline`);
   };
 
   return (

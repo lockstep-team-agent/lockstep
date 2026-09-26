@@ -123,6 +123,11 @@ export async function runOnboard(opts: OnboardOptions): Promise<void> {
     console.log(`\n✓ Configured · ✓ Connected\n${surfaces}\n${accepted ? "✓" : "○"} Decisions ready: ${accepted} accepted (${confirmed} confirmed now)\n${state.verifiedAt ? "✓" : "○"} Agent verified: ${state.verifiedAt ?? "pending a real Claude session"}\nHosted checks: ${state.automaticChecks ? "enabled" : "off"}\nDashboard: ${dashboardUrl()}/project/${session.orgId}/${session.projectId}\nReview: ${dashboardUrl()}/project/${session.orgId}/${session.projectId}/review-queue`);
     const invites = await inviteFooter(cwd, p);
     if (invites) console.log(`\n${invites}`);
+    // Org skills are opt-in per checkout (A8): offer, never enroll implicitly.
+    if (!readLocalState().environmentId) {
+      const { standardsOn } = await import("./standards/client.js");
+      if (await standardsOn()) console.log("\nYour organization can send approved skills to this checkout. To opt in: lockstep enroll");
+    }
     console.log("\nOpen Claude Code in this repo. Approve the project MCP server when prompted; then run lockstep status to inspect verification.");
   } finally { rl?.close(); }
 }

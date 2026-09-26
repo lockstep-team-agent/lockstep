@@ -436,51 +436,91 @@ export async function getConceptContracts(orgId: string, projectId: string, conc
     );
     const page = r.slice(0, ITEM_PAGE);
     const names = [...new Set(page.map((s) => s.surface))];
+    const inList = (xs: string[]) => sql`(${sql.join(xs.map((n) => sql`${n}`), sql`, `)})`;
+    // Consumers belong to a producer: the same canonical route in two repos is two contracts (D3).
     const consumers = names.length
-      ? rows<{ produced_surface: string; n: number; remotes: string[] }>(
+      ? rows<{ produced_repo_id: string | null; produced_surface: string; n: number; remotes: string[] }>(
           await tx.execute(sql`
-            SELECT e.produced_surface, count(DISTINCT e.consumer_repo_id)::int AS n,
+            SELECT e.produced_repo_id, e.produced_surface, count(DISTINCT e.consumer_repo_id)::int AS n,
               (array_agg(DISTINCT r.git_remote))[1:5] AS remotes
             FROM dependency_edges e LEFT JOIN repos r ON r.id = e.consumer_repo_id
-            WHERE e.project_id = ${projectId} AND e.active AND e.produced_surface IN ${sql`(${sql.join(
-              names.map((n) => sql`${n}`),
-              sql`, `,
-            )})`}
-            GROUP BY e.produced_surface`),
+            WHERE e.project_id = ${projectId} AND e.active AND e.produced_surface IN ${inList(names)}
+            GROUP BY e.produced_repo_id, e.produced_surface`),
         )
       : [];
-    const governing = names.length
-      ? rows<{ scope_ref: string; id: string; status: string; origin: string; rule_text: string | null }>(
+    // An edge with no recorded producer is attributed only when exactly one repo produces that surface.
+    const producers = names.length
+      ? rows<{ surface: string; n: number }>(
           await tx.execute(sql`
-            SELECT d.scope_ref, d.id, d.status, d.origin,
+            SELECT surface, count(DISTINCT repo_id)::int AS n FROM surfaces
+            WHERE project_id = ${projectId} AND removed_at IS NULL AND surface IN ${inList(names)} GROUP BY surface`),
+        )
+      : [];
+    const soleProducer = new Set(producers.filter((x) => x.n === 1).map((x) => x.surface));
+    // "Governed by" = BINDING rules for the surface or its whole repository; proposals and history
+    // are shown separately with their status (D2).
+    const remotes = [...new Set(page.map((s) => s.git_remote).filter((x): x is string => Boolean(x)))];
+    // Capabilities govern a surface only through CONFIRMED governs edges (same rule as briefings).
+    const capEdges = names.length
+      ? rows<{ surface: string; cap: string }>(
+          await tx.execute(sql`
+            SELECT sn.ref AS surface, cn.ref AS cap FROM graph_nodes sn
+            JOIN graph_edges e ON e.to_id = sn.id AND e.kind = 'governs' AND e.status = 'confirmed'
+            JOIN graph_nodes cn ON cn.id = e.from_id AND cn.kind = 'capability'
+            WHERE sn.project_id = ${projectId} AND sn.kind = 'surface' AND sn.ref IN ${inList(names)}`),
+        )
+      : [];
+    const caps = [...new Set(capEdges.map((e) => e.cap))];
+    const decisionsFor = names.length
+      ? rows<{ scope_kind: string; scope_ref: string; id: string; status: string; origin: string; rule_text: string | null }>(
+          await tx.execute(sql`
+            SELECT d.scope_kind, d.scope_ref, d.id, d.status, d.origin,
               (SELECT rule_text FROM decision_versions WHERE decision_id = d.id ORDER BY version DESC LIMIT 1) AS rule_text
             FROM decisions d
-            WHERE d.project_id = ${projectId} AND d.scope_kind = 'surface' AND d.status NOT IN ('rejected')
-              AND d.scope_ref IN ${sql`(${sql.join(
-                names.map((n) => sql`${n}`),
-                sql`, `,
-              )})`}
+            WHERE d.project_id = ${projectId} AND d.status NOT IN ('rejected')
+              AND ((d.scope_kind = 'surface' AND d.scope_ref IN ${inList(names)})
+                ${remotes.length ? sql`OR (d.scope_kind = 'repo' AND d.status = 'binding' AND d.scope_ref IN ${inList(remotes)})` : sql``}
+                ${caps.length ? sql`OR (d.scope_kind = 'capability' AND d.status = 'binding' AND d.scope_ref IN ${inList(caps)})` : sql``})
             ORDER BY d.created_at DESC`),
         )
       : [];
-    const cBy = new Map(consumers.map((c) => [c.produced_surface, c]));
-    const gBy = new Map<string, typeof governing>();
-    for (const g of governing) (gBy.get(g.scope_ref) ?? gBy.set(g.scope_ref, []).get(g.scope_ref)!).push(g);
+    const projectWide = rows<{ n: number }>(
+      await tx.execute(sql`SELECT count(*)::int AS n FROM decisions WHERE project_id = ${projectId} AND scope_kind = 'project' AND status = 'binding'`),
+    )[0]?.n ?? 0;
     const last = page[page.length - 1];
     return {
-      contracts: page.map((s) => ({
-        id: s.id,
-        surface: s.surface,
-        kind: s.kind,
-        repo: { id: s.repo_id, gitRemote: s.git_remote },
-        returnType: s.return_type,
-        placement: { state: s.state, classifier: s.classifier },
-        consumers: { count: cBy.get(s.surface)?.n ?? 0, sample: (cBy.get(s.surface)?.remotes ?? []).filter(Boolean) },
-        governing: (gBy.get(s.surface) ?? [])
-          .slice(0, 5)
-          .map((g) => ({ id: g.id, status: g.status, origin: g.origin, ruleText: g.rule_text })),
-        historyCount: s.history,
-      })),
+      projectWideBinding: projectWide,
+      contracts: page.map((s) => {
+        const c =
+          consumers.find((x) => x.produced_repo_id === s.repo_id && x.produced_surface === s.surface) ??
+          (soleProducer.has(s.surface) ? consumers.find((x) => x.produced_repo_id === null && x.produced_surface === s.surface) : undefined);
+        const myCaps = new Set(capEdges.filter((e) => e.surface === s.surface).map((e) => e.cap));
+        const mine = decisionsFor.filter(
+          (d) =>
+            (d.scope_kind === "surface" && d.scope_ref === s.surface) ||
+            (d.scope_kind === "repo" && d.scope_ref === s.git_remote) ||
+            (d.scope_kind === "capability" && myCaps.has(d.scope_ref)),
+        );
+        const toRow = (g: (typeof mine)[number]) => ({
+          id: g.id,
+          status: g.status,
+          origin: g.origin,
+          ruleText: g.rule_text,
+          via: g.scope_kind === "repo" ? "repository" : g.scope_kind === "capability" ? `capability ${g.scope_ref}` : "surface",
+        });
+        return {
+          id: s.id,
+          surface: s.surface,
+          kind: s.kind,
+          repo: { id: s.repo_id, gitRemote: s.git_remote },
+          returnType: s.return_type,
+          placement: { state: s.state, classifier: s.classifier },
+          consumers: { count: c?.n ?? 0, sample: (c?.remotes ?? []).filter(Boolean) },
+          governing: mine.filter((g) => g.status === "binding").slice(0, 5).map(toRow),
+          related: mine.filter((g) => g.status !== "binding").slice(0, 5).map(toRow),
+          historyCount: s.history,
+        };
+      }),
       nextCursor: r.length > ITEM_PAGE && last ? encodeCursor({ s: last.surface, id: last.id }) : null,
     };
   });
