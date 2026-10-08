@@ -146,6 +146,7 @@ Reported to your org: adapter version, a hashed machine/checkout id, installed v
     const invites = await inviteFooter(cwd, p);
     if (invites) console.log(`\n${invites}`);
     console.log("\nOpen Claude Code in this repo. Approve the project MCP server when prompted; then run lockstep status to inspect verification.");
+    console.log("If Lockstep helps, star it so other teams can find it: https://github.com/lockstep-team-agent/lockstep");
   } finally { rl?.close(); }
 }
 
