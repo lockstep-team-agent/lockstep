@@ -10,6 +10,7 @@
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache 2.0 License"></a>
   <a href="https://glama.ai/mcp/servers/lockstep-team-agent/lockstep"><img src="https://glama.ai/mcp/servers/lockstep-team-agent/lockstep/badges/score.svg" alt="Lockstep MCP server quality and maintenance score on Glama"></a>
   <img src="https://img.shields.io/badge/TypeScript-strict-blue" alt="TypeScript strict">
+  <a href="https://github.com/lockstep-team-agent/lockstep/stargazers"><img src="https://img.shields.io/github/stars/lockstep-team-agent/lockstep?style=flat" alt="GitHub stars"></a>
 </p>
 
 <p align="center">
@@ -20,6 +21,8 @@
   <a href="#how-it-works"><b>How it works</b></a> ·
   <a href="./DEPLOY.md"><b>Deploy</b></a>
 </p>
+
+<p align="center">Lockstep is free and open source. If it helps your team keep decisions straight, <a href="https://github.com/lockstep-team-agent/lockstep">star the repo on GitHub</a> so other teams can find it.</p>
 
 ---
 

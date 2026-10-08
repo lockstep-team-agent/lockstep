@@ -24,6 +24,10 @@ Full setup, MCP configuration, and self-hosting (Apache-2.0, one `docker compose
 - **How it works:** https://www.getlockstep.dev/how-it-works
 - **Source:** https://github.com/lockstep-team-agent/lockstep
 
+## Star the repo
+
+If Lockstep helps your team, [star it on GitHub](https://github.com/lockstep-team-agent/lockstep) so other teams can find it.
+
 ## License
 
 Apache-2.0
