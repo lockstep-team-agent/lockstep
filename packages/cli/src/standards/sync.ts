@@ -227,7 +227,7 @@ async function acquireLock(root: string): Promise<() => Promise<void>> {
       return () => unlink(p).catch(() => {});
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      let stale = true;
+      let stale: boolean;
       try {
         const { pid, at } = JSON.parse(await readFile(p, "utf8")) as { pid: number; at: number };
         let alive = false;
