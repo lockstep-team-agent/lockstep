@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <a href="https://mcprush.com/to/lockstep-team-agent-lockstep-mcp?ref=badge"><img src="https://mcprush.com/badge/lockstep-team-agent-lockstep-mcp/card.svg" alt="Lockstep MCP server on MCP Rush: security grade A" width="380"></a>
+</p>
+
+<p align="center">
   <a href="https://www.getlockstep.dev"><b>Website</b></a> ·
   <a href="https://lockstep-dashboard.up.railway.app"><b>▶ Try it live</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a> ·
@@ -281,3 +285,4 @@ actions/pr-check # GitHub Action — PR-time reconciliation gate
 ## License
 
 [Apache 2.0](./LICENSE) &copy; 2026 Naman Jain
+
