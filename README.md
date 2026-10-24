@@ -110,7 +110,7 @@ Choose your starting point: [developer](#for-developers) or [product manager](#f
 
 <!-- Release maintenance: after hosted rollout, verify both entry paths and a real authenticated Claude session, then replace this pending note with the verified status. -->
 
-> **Pilot release status:** CLI **0.3.0** is published on npm and listed in the MCP registry, alongside the matching API and dashboard changes in this repository. Hosted rollout and a real authenticated Claude-session verification are still pending, so the hosted links may run an earlier release. Complete those checks before inviting pilot participants.
+> **Pilot release status:** CLI **0.4.0** is published on npm, alongside the matching API and dashboard changes in this repository. Hosted rollout and a real authenticated Claude-session verification are still pending, so the hosted links may run an earlier release. Complete those checks before inviting pilot participants.
 
 ### For developers
 
@@ -285,4 +285,3 @@ actions/pr-check # GitHub Action — PR-time reconciliation gate
 ## License
 
 [Apache 2.0](./LICENSE) &copy; 2026 Naman Jain
-
