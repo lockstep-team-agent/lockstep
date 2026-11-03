@@ -2,7 +2,7 @@
   "name": "lockstep-cli",
   "version": "0.4.0",
   "mcpName": "io.github.lockstep-team-agent/lockstep",
-  "description": "Keep your team's AI coding agents in lockstep — shared decisions, contracts, ownership and dependencies across repos.",
+  "description": "Shared team memory for Claude Code: decisions, standards, and skills every agent session receives. MCP server + CLI.",
   "type": "module",
   "license": "Apache-2.0",
   "homepage": "https://www.getlockstep.dev",
@@ -17,11 +17,15 @@
   "keywords": [
     "lockstep",
     "mcp",
+    "mcp-server",
     "claude-code",
-    "codex",
+    "claude-code-memory",
+    "agent-memory",
+    "team-memory",
+    "claude-md",
     "ai-agents",
-    "coordination",
-    "codeowners"
+    "decision-log",
+    "skills"
   ],
   "bin": {
     "lockstep": "dist/index.js"

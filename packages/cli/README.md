@@ -1,8 +1,8 @@
 # lockstep-cli
 
-The CLI for [Lockstep](https://www.getlockstep.dev) — one source of truth for every engineering decision, read by every human and every AI agent before work starts.
+The CLI for [Lockstep AI](https://www.getlockstep.dev): shared team memory for Claude Code.
 
-Lockstep captures decisions automatically from Slack, Notion, Jira, and pull requests, gets each one confirmed by its owner, briefs any MCP-compatible coding agent (Claude Code, Cursor, and others) at session start, and flags work that contradicts a Locked decision before it ships.
+Lockstep captures decisions from PRDs, Slack, Jira, and pull requests, gets each one approved by its owner, rolls out your team's standards and skills, and briefs every Claude Code session at start. Any MCP client can call the same tools. An opt-in check flags changes that may conflict with a binding decision.
 
 ## Install
 
