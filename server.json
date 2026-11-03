@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.lockstep-team-agent/lockstep",
-  "description": "Decision memory for AI coding agents: captures decisions once, briefs every agent before it acts.",
-  "title": "Lockstep",
+  "description": "Shared team memory for Claude Code: decisions, standards, and skills every agent session receives.",
+  "title": "Lockstep AI",
   "websiteUrl": "https://www.getlockstep.dev",
   "repository": {
     "url": "https://github.com/lockstep-team-agent/lockstep",

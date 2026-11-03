@@ -1,8 +1,8 @@
-<p align="center"><strong>Lockstep</strong></p>
+<p align="center"><strong>Lockstep AI</strong></p>
 
-<h3 align="center">Keep decisions consistent. Turn product briefs into clear implementation context.</h3>
+<h3 align="center">Shared team memory for Claude Code.</h3>
 
-<p align="center">Start with one developer or one product manager. Grow into a shared decision record for your team.</p>
+<p align="center">Decisions, standards, and skills that every Claude Code session on your team receives, captured from PRDs, Slack, and PRs and approved by the person who owns them.</p>
 
 <p align="center">
   <a href="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml"><img src="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -32,10 +32,11 @@
 
 Yesterday, you and Claude renamed `POST /login` to `POST /session`. Today, a fresh session writes a client against the old route. The decision was made; the next session never received it.
 
-Lockstep gives developers and product managers two ways to start independently:
+CLAUDE.md is one file in one repo, and auto memory lives on one machine. Lockstep gives the whole team one memory, with three ways in:
 
 - **Developers:** keep accepted decisions across Claude Code sessions and check whether changed code may contradict them.
 - **Product managers:** turn a product brief into reviewed requirements, track revisions, and copy a useful implementation brief before a developer joins.
+- **Engineering leaders:** publish standards and skills once, roll them out to every engineer's Claude Code by team, repo, or path, and see which version landed where ([Standards & Skills](#standards--skills-organizations--claude-code-pilot)).
 - **Teams:** share the same ledger, route interface changes to affected services, and retain existing integrations, permissions, and PR enforcement.
 
 For example, accept “exports expire after 24 hours, except internal previews.” A later Claude session receives that decision without another explanation. A PM can trace the requirement to its source, revise it for review, and share its accepted version with a developer.
@@ -108,9 +109,8 @@ The same ledger grows into coordination across developers and repos. For example
 
 Choose your starting point: [developer](#for-developers) or [product manager](#for-product-managers). Both use the full dashboard and the same project history.
 
-<!-- Release maintenance: after hosted rollout, verify both entry paths and a real authenticated Claude session, then replace this pending note with the verified status. -->
 
-> **Pilot release status:** CLI **0.4.0** is published on npm, alongside the matching API and dashboard changes in this repository. Hosted rollout and a real authenticated Claude-session verification are still pending, so the hosted links may run an earlier release. Complete those checks before inviting pilot participants.
+> **Status:** pilot. CLI **0.4.0** is on npm and the hosted dashboard. Session briefings, hooks, and managed skills support **Claude Code** today; any MCP client can call the tools, and other agent adapters are on the roadmap.
 
 ### For developers
 
