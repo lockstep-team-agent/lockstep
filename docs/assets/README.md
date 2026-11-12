@@ -11,7 +11,7 @@ main README is left commented out (so the README never shows a broken image).
 | `demo.mp4`        | MP4 fallback of the same clip | Better quality than GIF for links/social.                                              |
 | `dashboard.png`   | Screenshot of the dashboard   | Decisions or activity view with seeded demo data.                                      |
 | `logo.svg`        | Wordmark / logo               | Used in README header and social card.                                                 |
-| `social-card.png` | 1280×640 social preview       | Set in repo Settings → Social preview.                                                 |
+| `social-card.png` | 1280×640 social preview | ✅ Created — set it in repo Settings → Social preview. |
 
 ## Recording the hero loop
 
