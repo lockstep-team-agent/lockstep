@@ -433,7 +433,7 @@ export async function ApprovalBrief({
         <>
           <Section title="Approved by" count={b.approvals.length}>
             {b.approvals.length === 0 ? (
-              <p className="text-[12px] text-faint">No acknowledgements yet.</p>
+              <p className="text-[12px] text-faint">No approvals yet.</p>
             ) : (
               <ul className="space-y-1 text-[12px]">
                 {b.approvals.map((a, i) => (

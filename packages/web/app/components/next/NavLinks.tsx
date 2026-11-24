@@ -13,7 +13,7 @@ const ITEMS: Array<{ seg: string; label: string; icon: LucideIcon; key: string }
 // admin pages that live under Settings in the new shell
 const SETTINGS_SEGS = ["settings", "connections", "members", "activity"];
 
-export function NavLinks({ base, inboxCount }: { base: string; inboxCount: number }) {
+export function NavLinks({ base }: { base: string }) {
   const path = usePathname();
   const seg = path.slice(base.length + 1).split("/")[0] ?? "";
   const active = (s: string) =>
@@ -44,13 +44,7 @@ export function NavLinks({ base, inboxCount }: { base: string; inboxCount: numbe
             )}
           />
           <span className="flex-1">{label}</span>
-          {s === "" && inboxCount > 0 ? (
-            <span className="tnum rounded bg-primary-soft px-1.5 text-[11px] font-semibold leading-5 text-primary-ink">
-              {inboxCount}
-            </span>
-          ) : (
-            <kbd className="hidden font-mono text-[10px] text-faint group-hover:inline">G {key}</kbd>
-          )}
+          <kbd className="hidden font-mono text-[10px] text-faint group-hover:inline">G {key}</kbd>
         </Link>
       ))}
     </nav>

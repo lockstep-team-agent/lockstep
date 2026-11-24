@@ -16,18 +16,19 @@ export interface Pulse {
 }
 
 export async function getPulse(orgId: string, projectId: string, days = 7): Promise<Pulse> {
-  const since = new Date(Date.now() - days * 86_400_000);
+  // ISO string + cast: raw sql`` params don't serialize Date objects
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const queries: Record<Exclude<keyof Pulse, "days">, SQL> = {
     briefed: sql`select count(*) as n from usage_events
-      where project_id = ${projectId} and event = 'agent_briefing_delivered' and created_at >= ${since}`,
+      where project_id = ${projectId} and event = 'agent_briefing_delivered' and created_at >= ${since}::timestamptz`,
     routed: sql`select count(distinct i.ref_id) as n from inbox_items i join inboxes b on b.id = i.inbox_id
-      where b.project_id = ${projectId} and i.kind = 'change' and i.created_at >= ${since}`,
+      where b.project_id = ${projectId} and i.kind = 'change' and i.created_at >= ${since}::timestamptz`,
     caught: sql`select count(*) as n from decision_checks
-      where project_id = ${projectId} and created_at >= ${since} and jsonb_array_length(findings) > 0`,
-    conflicts: sql`select count(*) as n from conflicts where project_id = ${projectId} and opened_at >= ${since}`,
+      where project_id = ${projectId} and created_at >= ${since}::timestamptz and jsonb_array_length(findings) > 0`,
+    conflicts: sql`select count(*) as n from conflicts where project_id = ${projectId} and opened_at >= ${since}::timestamptz`,
     rulesInForce: sql`select count(*) as n from decisions where project_id = ${projectId} and status = 'binding'`,
     newRules: sql`select count(*) as n from decisions
-      where project_id = ${projectId} and status = 'binding' and created_at >= ${since}`,
+      where project_id = ${projectId} and status = 'binding' and created_at >= ${since}::timestamptz`,
   };
   return withOrg(orgId, async (tx) => {
     const out = { days } as Pulse;

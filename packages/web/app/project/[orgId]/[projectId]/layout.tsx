@@ -23,7 +23,6 @@ export default async function ProjectLayout({
     apiGet<OrgOverview>(`/orgs/${orgId}/overview`),
     getInbox(orgId, projectId),
   ]);
-  const open = Object.values(inbox?.counts ?? {}).reduce((a, n) => a + (n ?? 0), 0);
   return (
     <Shell
       orgId={orgId}
@@ -31,7 +30,6 @@ export default async function ProjectLayout({
       projects={org?.projects ?? []}
       login={me.principal.githubLogin}
       role={inbox?.viewer.role ?? "member"}
-      inboxCount={open}
       withOrg={standardsEnabled()}
       orgName={org?.org?.name}
     >

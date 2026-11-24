@@ -18,7 +18,6 @@ export function Shell({
   projects,
   login,
   role,
-  inboxCount,
   withOrg = false,
   orgName,
   children,
@@ -28,7 +27,6 @@ export function Shell({
   projects: Array<{ id: string; name: string }>;
   login: string;
   role: string;
-  inboxCount: number;
   /** Show the Organization context in the switcher (Standards & Skills enabled). */
   withOrg?: boolean;
   orgName?: string;
@@ -48,7 +46,7 @@ export function Shell({
         <div className="px-2 pb-3">
           <PaletteButton />
         </div>
-        <NavLinks base={base} inboxCount={inboxCount} />
+        <NavLinks base={base} />
         <div className="mt-auto flex items-center gap-1 border-t px-2 py-2">
           <UserMenu login={login} role={role} onSignOut={logoutAction} />
           <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">@{login}</span>

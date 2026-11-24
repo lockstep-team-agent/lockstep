@@ -54,16 +54,17 @@ const ALL = Object.values(RESOURCES).flat();
 
 /** Realistic product requirements (usability rounds read "Product: … (#43)" as fake data). */
 const PRODUCT_RULES = [
-  (r: string) => `Customers must confirm before ${r} changes are saved`,
-  (r: string) => `${cap(r)} exports are only available on paid plans`,
+  (r: string) => `Customers must confirm before ${an(r)} change is saved`,
+  (r: string) => `${r[0]!.toUpperCase() + r.slice(1)} exports are only available on paid plans`,
   (r: string) => `Every ${r} change shows the customer a receipt they can download`,
   (r: string) => `Bulk ${r} editing is out of scope for the first release`,
-  (r: string) => `${cap(r)} data is kept for 7 years for compliance, then deleted`,
-  (r: string) => `Guests can view ${r} but never change them`,
+  (r: string) => `${r[0]!.toUpperCase() + r.slice(1)} data is kept for 7 years for compliance, then deleted`,
+  (r: string) => `Guests can view ${an(r)} but never change it`,
 ];
+const an = (w: string) => `${/^[aeiou]/i.test(w) ? "an" : "a"} ${w}`;
 function productRule(surface: string, i: number): string {
   const r = ALL.find((x) => surface.includes(x)) ?? "account";
-  return PRODUCT_RULES[i % PRODUCT_RULES.length]!(r.replace(/-/g, " "));
+  return PRODUCT_RULES[i % PRODUCT_RULES.length]!(singular(r).replace(/-/g, " "));
 }
 const QUESTIONS = [
   (r: string) => `Who owns ${r} after the platform migration?`,
