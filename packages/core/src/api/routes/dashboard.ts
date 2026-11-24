@@ -4,6 +4,7 @@ import { ensureProjectVisible } from "../guards.js";
 import { orgOverview, projectOverview, decisionDetail } from "../../dashboard/dashboard-service.js";
 import { projectInsights } from "../../documents/insights-service.js";
 import { ackDecision, proposeDecision } from "../../ledger/ledger-service.js";
+import { auditExport, toCsv } from "../../dashboard/audit-export.js";
 
 /** Read endpoints for the dashboard — principal + org-membership guarded (no session needed). */
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
@@ -31,6 +32,23 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const m = await ensureMember(orgId, p.id); // throws 403 if not an org member
     if (!(await ensureProjectVisible(reply, orgId, projectId, m.id))) return;
     return projectInsights(orgId, projectId);
+  });
+
+  // Compliance export: one row per decision version — who proposed, who approved, when, from where.
+  app.get("/orgs/:orgId/projects/:projectId/audit-export", async (req, reply) => {
+    const p = req.principal;
+    if (!p) return reply.code(401).send({ error: "unauthorized" });
+    const { orgId, projectId } = req.params as { orgId: string; projectId: string };
+    const m = await ensureMember(orgId, p.id);
+    if (!(await ensureProjectVisible(reply, orgId, projectId, m.id))) return;
+    const { format = "csv" } = req.query as { format?: string };
+    if (format !== "csv" && format !== "json") return reply.code(400).send({ error: "format must be csv or json" });
+    const { projectName, rows } = await auditExport(orgId, projectId);
+    const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
+    const filename = `lockstep-audit-${slug}-${new Date().toISOString().slice(0, 10)}.${format}`;
+    reply.header("content-disposition", `attachment; filename="${filename}"`);
+    if (format === "json") return reply.type("application/json; charset=utf-8").send({ rows });
+    return reply.type("text/csv; charset=utf-8").send(toCsv(rows));
   });
 
   // ── Web-facing decision reads/writes — member auth, no MCP session (the dashboard has none) ──
