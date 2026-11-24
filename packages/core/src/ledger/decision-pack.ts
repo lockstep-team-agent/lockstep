@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { withOrg } from "../db/rls.js";
 import { projects } from "../db/schema.js";
-import { listDecisions } from "./ledger-service.js";
+import { deprecationLine, listDecisions } from "./ledger-service.js";
 
 export type PackDecision = Awaited<ReturnType<typeof listDecisions>>[number];
 
@@ -41,7 +41,8 @@ function stableSort(rows: PackDecision[]): PackDecision[] {
 }
 
 function renderDecision(d: PackDecision): string {
-  const lines = [`- ${d.ruleText}${d.impact > 0 ? ` _(impact ${d.impact})_` : ""}`];
+  const head = d.deprecation ? deprecationLine(d.deprecation, d.ruleText) : d.ruleText;
+  const lines = [`- ${head}${d.impact > 0 ? ` _(impact ${d.impact})_` : ""}`];
   if (d.rationale) lines.push(`  - Why: ${d.rationale}`);
   if (d.alternatives && d.alternatives.length > 0) lines.push(`  - Rejected: ${d.alternatives.join("; ")}`);
   if (d.reviewAt) lines.push(`  - Review by: ${d.reviewAt.toISOString().slice(0, 10)}${d.dueForReview ? " ⚠ due" : ""}`);

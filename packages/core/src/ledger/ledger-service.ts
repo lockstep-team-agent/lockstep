@@ -276,7 +276,9 @@ export interface ProposeInput {
   scopeRef: string;
   ruleText: string;
   baseVersion: number; // CAS: must equal the decision's current version (0 for new)
-  decisionType?: string; // rule | architecture (default rule)
+  decisionType?: string; // rule | architecture | principle | deprecation (default rule)
+  // decisionType=deprecation: the retired identifier/pattern (e.g. "axios") and what to use instead.
+  deprecation?: { retired: string; replacement: string };
   provenance?: unknown;
   // v3: the feature the agent declared it was working on (set_feature_context). Persisted into the
   // version provenance so drift detection can SUPPRESS conflicts between a constraint and its own
@@ -298,6 +300,12 @@ export async function proposeDecision(
   orgId: string,
   input: ProposeInput,
 ): Promise<{ decisionId: string; version: number; status: string; impact: number }> {
+  const retired = input.deprecation?.retired?.trim();
+  const replacement = input.deprecation?.replacement?.trim();
+  if (input.decisionType === "deprecation" && (!retired || !replacement)) {
+    throw Object.assign(new Error("a deprecation needs retired and replacement"), { statusCode: 400 });
+  }
+  const deprecation = input.decisionType === "deprecation" ? { retired: retired!, replacement: replacement! } : null;
   return withOrg(orgId, async (tx: Tx) => {
     // Agent decisions and product constraints (origin=document) can share a surface — they are
     // SEPARATE decision streams. Never version a constraint from propose_decision; a co-location
@@ -366,6 +374,7 @@ export async function proposeDecision(
       provenance,
       rationale: input.rationale ?? null,
       alternatives: input.alternatives ?? null,
+      deprecation,
       status,
       proposedBy: input.memberId,
     });
@@ -1327,6 +1336,7 @@ export async function listDecisions(
     createdAt: Date;
     rationale: string | null;
     alternatives: string[] | null;
+    deprecation: { retired: string; replacement: string } | null;
     reviewAt: Date | null;
     dueForReview: boolean;
     supersededById: string | null;
@@ -1369,6 +1379,7 @@ export async function listDecisions(
         createdAt: d.createdAt,
         rationale: v?.rationale ?? null,
         alternatives: (v?.alternatives as string[] | null) ?? null,
+        deprecation: v?.deprecation ?? null,
         reviewAt: d.reviewAt,
         // Query-time tripwire: due decisions stay binding — they just surface for a human look.
         dueForReview: d.status === "binding" && d.reviewAt != null && d.reviewAt < now,
@@ -2309,6 +2320,66 @@ export async function projectPrinciples(
   });
 }
 
+/* ── Deprecations: retired identifiers → their replacement ── */
+
+// Same small-budget shape as principles: one plain line each, impact-ranked, token-capped.
+const DEPRECATION_BUDGET = Math.floor(BRIEFING_TOKEN_BUDGET * 0.1);
+
+/** `Retired: axios → use lib/http.client`, plus the rule text when it says more than the pair. */
+export function deprecationLine(dep: { retired: string; replacement: string }, ruleText = ""): string {
+  const base = `Retired: ${dep.retired} → use ${dep.replacement}`;
+  const restates = ruleText.includes(dep.retired) && ruleText.includes(dep.replacement);
+  return ruleText && !restates ? `${base} — ${ruleText}` : base;
+}
+
+export interface BindingDeprecation {
+  decisionId: string;
+  retired: string;
+  replacement: string;
+  ruleText: string;
+  impact: number;
+}
+
+/** Every binding decision whose current version carries a deprecation pair, impact-desc. */
+export async function bindingDeprecationsTx(tx: Tx, projectId: string): Promise<BindingDeprecation[]> {
+  const rows = await tx
+    .select({ d: decisions, v: decisionVersions })
+    .from(decisions)
+    .innerJoin(
+      decisionVersions,
+      and(eq(decisionVersions.decisionId, decisions.id), eq(decisionVersions.version, decisions.currentVersion)),
+    )
+    .where(and(eq(decisions.projectId, projectId), eq(decisions.status, "binding")));
+  return rows
+    .filter((r) => r.v.deprecation?.retired)
+    .map((r) => ({
+      decisionId: r.d.id,
+      retired: r.v.deprecation!.retired,
+      replacement: r.v.deprecation!.replacement,
+      ruleText: r.v.ruleText,
+      impact: r.d.impact,
+    }))
+    .sort((a, b) => b.impact - a.impact || a.decisionId.localeCompare(b.decisionId));
+}
+
+/** Binding deprecations for the session-start briefing, budget-capped like principles. */
+export async function projectDeprecations(
+  orgId: string,
+  projectId: string,
+): Promise<{ deprecations: Array<{ decisionId: string; line: string; impact: number }>; overflow: number }> {
+  const all = await withOrg(orgId, (tx) => bindingDeprecationsTx(tx, projectId));
+  const out: Array<{ decisionId: string; line: string; impact: number }> = [];
+  let spent = 0;
+  for (const d of all) {
+    const line = deprecationLine(d, d.ruleText);
+    const cost = estimateTokens(line);
+    if (out.length > 0 && spent + cost > DEPRECATION_BUDGET) break;
+    out.push({ decisionId: d.decisionId, line, impact: d.impact });
+    spent += cost;
+  }
+  return { deprecations: out, overflow: all.length - out.length };
+}
+
 /** The GET /briefing backend: in-scope constraints, ranked + 15%-capped, with an overflow count. */
 export async function briefingConstraints(
   orgId: string,
@@ -2448,6 +2519,7 @@ export async function reconcile(
     docTitle: string | null;
     docUrl: string | null;
   }>;
+  deprecations: Array<{ decisionId: string; retired: string; replacement: string }>;
 }> {
   return withOrg(orgId, async (tx) => {
     const violations: string[] = [];
@@ -2538,6 +2610,12 @@ export async function reconcile(
       staleDependents,
       confirmedGovernsEdges: confirmed.map((c) => ({ surface: c.surface, capabilityRef: c.capabilityRef })),
       openConflicts,
+      // The PR gate scans the diff's added lines for these (warn-only).
+      deprecations: (await bindingDeprecationsTx(tx, projectId)).map(({ decisionId, retired, replacement }) => ({
+        decisionId,
+        retired,
+        replacement,
+      })),
     };
   });
 }

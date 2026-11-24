@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { withSystem } from "../db/rls.js";
 import { orgs, principals, members, projects } from "../db/schema.js";
-import { proposeDecision, confirmDecision, fileProposedDecision } from "./ledger-service.js";
+import { proposeDecision, confirmDecision, fileProposedDecision, projectDeprecations, reconcile } from "./ledger-service.js";
 import type { Embedder } from "./embeddings.js";
 import { renderDecisionPack, getDecisionPack, getDecisionPackHash, type PackDecision } from "./decision-pack.js";
 
@@ -51,6 +51,7 @@ function mkDecision(over: Partial<PackDecision>): PackDecision {
     createdAt: new Date("2026-01-01T00:00:00Z"),
     rationale: null,
     alternatives: null,
+    deprecation: null,
     reviewAt: null,
     dueForReview: false,
     supersededById: null,
@@ -175,4 +176,31 @@ test("e2e: principles section + org isolation", async () => {
   const otherPack = await getDecisionPack(other.orgId, other.projectId);
   assert.ok(!otherPack.markdown.includes("Prefer boring technology"), "org B's pack lacks org A's decisions");
   assert.equal(otherPack.counts.binding + otherPack.counts.principles, 0);
+});
+
+test("e2e: a deprecation renders as one Retired line in pack + briefing, and reconcile returns it", async () => {
+  const s = await setup();
+  const base = { projectId: s.projectId, memberId: s.memberId, scopeKind: "topic", baseVersion: 0 };
+  await assert.rejects(
+    proposeDecision(s.orgId, { ...base, scopeRef: "http-client-bad", ruleText: "x", decisionType: "deprecation" }),
+    /retired and replacement/,
+  );
+  const r = await proposeDecision(s.orgId, {
+    ...base,
+    scopeRef: "http-client",
+    ruleText: "Stop using axios; use lib/http.client.",
+    decisionType: "deprecation",
+    deprecation: { retired: "axios", replacement: "lib/http.client" },
+  });
+  assert.equal(r.status, "binding");
+  const pack = await getDecisionPack(s.orgId, s.projectId);
+  assert.match(pack.markdown, /- Retired: axios → use lib\/http\.client\n/);
+  assert.ok(!pack.markdown.includes("Stop using axios"), "rule text that restates the pair is dropped");
+  const b = await projectDeprecations(s.orgId, s.projectId);
+  assert.deepEqual(
+    b.deprecations.map((d) => d.line),
+    ["Retired: axios → use lib/http.client"],
+  );
+  const rec = await reconcile(s.orgId, s.projectId, []);
+  assert.deepEqual(rec.deprecations, [{ decisionId: r.decisionId, retired: "axios", replacement: "lib/http.client" }]);
 });

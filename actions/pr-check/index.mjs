@@ -6,6 +6,7 @@
  *   4. FAIL if a changed contract surface has no binding decision (existing rule);
  *      WARN (default) or FAIL (block-on-conflict) if a changed surface has an OPEN product-constraint
  *      conflict; surface everything as GitHub annotations, and optionally a PR comment.
+ *   5. WARN (never fail) on added diff lines that use a retired identifier (binding deprecations).
  *
  * Auth: a Lockstep CI token (input `token`). An optional `github-token` enables a PR comment.
  */
@@ -13,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { extractSurfaces, isContractSurface } from "./surface.mjs";
 import { buildComment, COMMENT_MARKER } from "./comment.mjs";
+import { findRetiredUses, hitMessage } from "./deprecations.mjs";
 
 const API = process.env.INPUT_API_URL || process.env.LOCKSTEP_API_URL;
 const TOKEN = process.env.INPUT_TOKEN || process.env.LOCKSTEP_CI_TOKEN;
@@ -22,7 +24,7 @@ const GH_TOKEN = process.env.INPUT_GITHUB_TOKEN || "";
 
 function sh(args) {
   try {
-    return execFileSync("git", args, { encoding: "utf8" });
+    return execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); // full -U0 diffs can be big
   } catch {
     return "";
   }
@@ -118,14 +120,19 @@ async function main() {
     for (const s of extractSurfaces(f, content)) surfaceSet.add(s);
   }
   const surfaces = [...surfaceSet];
-  if (surfaces.length === 0) {
-    console.log("Lockstep: no contract surfaces changed — pass.");
-    return;
-  }
 
+  // Always reconcile (even with no contract surfaces) — it also returns the binding deprecations.
   const remote = normalizeRemote(sh(["remote", "get-url", "origin"]));
   const session = (await api("POST", "/sessions/register", undefined, { gitRemote: remote })).sessionId;
   const result = await api("POST", "/reconcile", session, { contractSurfaces: surfaces });
+
+  // Retired identifiers on ADDED lines — warn only, never fail.
+  const hits = findRetiredUses(sh(["diff", `origin/${BASE}...HEAD`, "-U0"]), result.deprecations ?? []);
+  const deprecationLines = [];
+  for (const h of hits) {
+    console.log(`::warning file=${h.file},line=${h.line}::${hitMessage(h)}`);
+    deprecationLines.push(`- \`${h.file}:${h.line}\` — ${hitMessage(h)}`);
+  }
 
   for (const s of result.staleDependents ?? []) {
     annotate("warning", `${s.surface} is consumed by ${s.consumers.length} repo(s) — ensure they're updated.`);
@@ -162,10 +169,16 @@ async function main() {
     conflictLines: commentLines,
     consumers,
     connectedRepos: result.connectedRepos ?? 0,
+    deprecationLines,
   });
   if (comment) await postPrComment(comment);
 
   if (failed) process.exit(1);
+  if (hits.length > 0) console.log(`⚠ Lockstep: ${hits.length} use(s) of retired identifiers added (warning only).`);
+  if (surfaces.length === 0) {
+    console.log("Lockstep: no contract surfaces changed — pass.");
+    return;
+  }
   console.log(
     openConflicts.length > 0
       ? `⚠ Lockstep: ${openConflicts.length} product-constraint conflict(s) on changed surfaces (warning; set block-on-conflict to enforce).`

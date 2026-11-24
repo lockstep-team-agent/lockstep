@@ -30,7 +30,7 @@ interface InboxResp {
   conflicts?: Array<{ id: string; surface: string; constraintRuleText: string; engRuleText: string }>;
 }
 interface DecisionsResp {
-  decisions?: Array<{ scopeRef: string; status: string; ruleText: string; impact?: number }>;
+  decisions?: Array<{ id?: string; scopeRef: string; status: string; ruleText: string; impact?: number }>;
 }
 /** Product-layer briefing: ranked, budget-capped constraints (origin=document, binding) in scope. */
 export interface BriefingResp {
@@ -39,6 +39,9 @@ export interface BriefingResp {
   /** Phase P: binding decisionType=principle decisions — the team's standing decision criteria. */
   principles?: Array<{ line: string; impact: number }>;
   principlesOverflow?: number;
+  /** Binding deprecations, one "Retired: x → use y" line each. */
+  deprecations?: Array<{ decisionId: string; line: string; impact: number }>;
+  deprecationsOverflow?: number;
   /** Compiled decision-pack hash — compared against the locally-written pack for the staleness nudge. */
   pack?: { hash: string };
 }
@@ -124,7 +127,18 @@ export function formatReplay(
     if ((briefing?.principlesOverflow ?? 0) > 0)
       lines.push(`  • (+${briefing?.principlesOverflow} more — query the ledger)`);
   }
-  const binding = (decisions?.decisions ?? []).filter((d) => d.status === "binding").sort(byImpact);
+  const deprecations = briefing?.deprecations ?? [];
+  if (deprecations.length) {
+    lines.push(`⛔ ${deprecations.length} retired thing(s) — do not use in new code:`);
+    for (const d of deprecations) lines.push(`  • ${d.line}`);
+    if ((briefing?.deprecationsOverflow ?? 0) > 0)
+      lines.push(`  • (+${briefing?.deprecationsOverflow} more — query the ledger)`);
+  }
+  // Deprecations already have their own section above — don't repeat them as binding rows.
+  const shownDeps = new Set(deprecations.map((d) => d.decisionId));
+  const binding = (decisions?.decisions ?? [])
+    .filter((d) => d.status === "binding" && !(d.id && shownDeps.has(d.id)))
+    .sort(byImpact);
   const constraints = briefing?.constraints ?? [];
   if (binding.length || constraints.length) {
     // Constraints ARE binding decisions (origin=document) — interleave them into this section,

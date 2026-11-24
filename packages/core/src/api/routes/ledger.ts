@@ -17,6 +17,7 @@ import {
   reconcile,
   briefingConstraints,
   projectPrinciples,
+  projectDeprecations,
   getProductContext,
 } from "../../ledger/ledger-service.js";
 import { getDecisionPack, getDecisionPackHash } from "../../ledger/decision-pack.js";
@@ -90,6 +91,8 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       rationale?: string;
       alternatives?: string[];
       reviewAt?: string;
+      retired?: string;
+      replacement?: string;
     };
     if (!b?.scopeKind || !b?.scopeRef || !b?.ruleText || b.baseVersion === undefined) {
       return reply.code(400).send({ error: "scopeKind, scopeRef, ruleText, baseVersion required" });
@@ -112,6 +115,7 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
       rationale: b.rationale,
       alternatives: b.alternatives,
       reviewAt,
+      deprecation: b.retired || b.replacement ? { retired: b.retired ?? "", replacement: b.replacement ?? "" } : undefined,
     });
   });
 
@@ -134,19 +138,21 @@ export async function ledgerRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // briefing — ranked, 15%-budget-capped product constraints in scope for this repo (session start),
-  // plus project principles (Phase P). The product-layer gate silences only the CONSTRAINTS —
+  // plus project principles (Phase P) and binding deprecations (retired → replacement). The product-layer gate silences only the CONSTRAINTS —
   // principles are engineering meta-decisions and flow regardless.
   app.get("/briefing", async (req, reply) => {
     const c = await ctx(req, reply);
     if (!c) return;
     const p = await projectPrinciples(c.orgId, c.projectId);
+    const dep = await projectDeprecations(c.orgId, c.projectId);
+    const deps = { deprecations: dep.deprecations, deprecationsOverflow: dep.overflow };
     // Additive staleness signal: the current compiled decision-pack hash. The CLI compares it to
     // the locally-written pack's embedded hash and nudges (read-only) when they diverge.
     const pack = { hash: await getDecisionPackHash(c.orgId, c.projectId) };
     if (!(await productLayerOn(c.orgId, c.projectId)))
-      return { constraints: [], overflow: 0, principles: p.principles, principlesOverflow: p.overflow, pack };
+      return { constraints: [], overflow: 0, principles: p.principles, principlesOverflow: p.overflow, ...deps, pack };
     const b = await briefingConstraints(c.orgId, c.projectId, c.repoId);
-    return { ...b, principles: p.principles, principlesOverflow: p.overflow, pack };
+    return { ...b, principles: p.principles, principlesOverflow: p.overflow, ...deps, pack };
   });
 
   // decision-pack — the compiled per-project SKILL.md (settled decisions only, uncapped).

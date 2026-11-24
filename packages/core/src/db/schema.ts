@@ -182,7 +182,7 @@ export const decisions = pgTable("decisions", {
   scopeRef: text("scope_ref").notNull(),
   // A decision is a durable RULE or ARCHITECTURAL choice that shapes future work — never a routine
   // change event (those live in change_feed_entries). See the product thesis.
-  decisionType: text("decision_type").notNull().default("rule"), // rule | architecture | principle (project-level meta-decision / standing criteria)
+  decisionType: text("decision_type").notNull().default("rule"), // rule | architecture | principle (project-level meta-decision / standing criteria) | deprecation (retired thing → replacement)
   // Blast radius, derived from the usage graph (count of consumers of the scope) with optional
   // agent/human override. Drives noise filtering, session-start ranking, and the binding model.
   impact: integer("impact").notNull().default(0),
@@ -222,6 +222,8 @@ export const decisionVersions = pgTable(
     provenance: jsonb("provenance"), // {source, vendor, gitSha, summary}
     rationale: text("rationale"), // the why, versioned with the rule text (ADR context)
     alternatives: jsonb("alternatives").$type<string[]>(), // options considered and rejected
+    // decisionType=deprecation only: the retired identifier/pattern and what to use instead.
+    deprecation: jsonb("deprecation").$type<{ retired: string; replacement: string }>(),
     status: text("status").notNull().default("open"),
     proposedBy: uuid("proposed_by"),
     createdAt: createdAt(),
