@@ -124,5 +124,5 @@ test("features API: briefing degrades to empty (not 403) when the product layer 
   // pack.hash is additive and always present (the decision-pack staleness signal).
   const body = res.json() as { pack?: { hash?: string } };
   assert.match(body.pack?.hash ?? "", /^[0-9a-f]{16}$/);
-  assert.deepEqual(body, { constraints: [], overflow: 0, principles: [], principlesOverflow: 0, pack: body.pack });
+  assert.deepEqual(body, { constraints: [], overflow: 0, principles: [], principlesOverflow: 0, deprecations: [], deprecationsOverflow: 0, pack: body.pack });
 });
