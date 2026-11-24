@@ -89,3 +89,25 @@ capped and personal; plain verbs that state their effect; human rule titles (no 
 rule page with why/owner/approver/absolute dates/consumers by name/history + export; hide setup chores
 (API-key banner, regex grouping); drop the Map graph that admits it shows no dependencies.
 Old Home's "Needs you" + stat tiles + sentence rules were preferred over the new Inbox.
+
+## Round 4 — usability after the simplification
+
+| Persona | Before | After | Back weekly? |
+|---|---|---|---|
+| Priya — CTO | 4 | 5 | N (maybe) — can't see *which* teams a change hurts |
+| Marcus — staff eng | 5 | 5 | N — "who consumes this" is still a count, not names |
+| Aisha — PM | 4 | 5 | N — no per-PRD status; can't see a real approver trail |
+| Tom — seed CTO | 4 | 5 | N — 54 open items still reads as a backlog to feed |
+
+Landed well: proof strip, plain captions, short "Needs you", Export for audit, absolute history dates,
+Settings chores hidden. Applied after this round: one verb pair (Approve/Dismiss), one status
+vocabulary, "Product rule wins" instead of "Keep the rule", no hover-to-understand hint.
+
+Still blocking a weekly habit (next iteration):
+1. **Queue that shrinks itself** — auto-accept high-confidence, low-impact suggestions; show "N handled
+   for you" instead of "54 open". (All four.)
+2. **Clickable proof with named examples** — "PR #412 changed /orders → mobile-app warned"; trend line.
+   (Priya, Tom.)
+3. **Named consumers on rule and search** — services/owners, and "none" vs "not declared". (Marcus, Priya.)
+4. **Per-PRD requirements view** — "PRD v3: 4 in force, 2 awaiting approval by X". (Aisha.)
+5. Demo data quality — generated rules/clashes read as fake; trust drops. (All four.)
