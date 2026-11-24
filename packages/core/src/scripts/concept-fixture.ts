@@ -25,7 +25,7 @@ import {
   repos,
   sourceDocuments,
 } from "../db/schema.js";
-import { fileProposedDecision, proposeDecision, syncProducedSurfaces } from "../ledger/ledger-service.js";
+import { fileProposedDecision, proposeDecision, recordChange, syncProducedSurfaces } from "../ledger/ledger-service.js";
 import { drainConceptTasks, type Classifier } from "../concepts/queue.js";
 import type { ChoiceInput } from "../concepts/classify.js";
 
@@ -543,6 +543,25 @@ async function main() {
     }
   });
   console.error(`[fixture] product layer done in ${Date.now() - t0}ms; draining classification…`);
+
+  // ── a week of agent activity, so Home's proof strip has something to show ──
+  const { usageEvents } = await import("../db/schema.js");
+  await withOrg(orgId, async (tx) => {
+    const rows = Array.from({ length: R ? 400 : 37 }, (_, i) => ({
+      orgId,
+      projectId,
+      memberId: team[i % team.length] ?? memberId,
+      repoId: repoIds[i % repoIds.length]!,
+      event: "agent_briefing_delivered",
+      eventKey: `fixture-${stamp}-${i}`,
+      createdAt: new Date(Date.now() - (i % 7) * 86_400_000),
+    }));
+    await tx.insert(usageEvents).values(rows);
+  });
+  for (let i = 0; i < 6; i++) {
+    const surface = produced[(i * 31) % produced.length]!;
+    await recordChange(orgId, { ...ctx(repoIds[i % 3]!), surface, summary: `PR #${120 + i} merged`, contractDelta: { kind: "pr-merge", prNumber: 120 + i } }).catch(() => undefined);
+  }
 
   // ── classification with the deterministic stand-in ──
   for (let round = 0; round < 5000; round++) {
