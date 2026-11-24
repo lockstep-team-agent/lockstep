@@ -9,6 +9,7 @@ import { VerdictButton } from "./VerdictButton";
 import { VerdictBar, type VerdictSpec } from "./VerdictBar";
 import { ProposeVersionSheet } from "@/project/[orgId]/[projectId]/decisions/[id]/ProposeVersionSheet";
 import { btn, Empty, railFor, scopeText, StateTag, SurfaceId } from "./bits";
+import { STATUS_WORD } from "@/lib/words";
 
 type Ids = { orgId: string; projectId: string };
 
@@ -92,16 +93,16 @@ function Verdicts({ ids, b }: { ids: Ids; b: DecisionBrief }) {
         : null;
     actions = [
       { op: "ratify", label: "Approve", kind: "primary", disabled: Boolean(reason) },
-      { op: "reject", label: "Not a rule", kind: "ghost" },
+      { op: "reject", label: "Dismiss", kind: "ghost" },
     ];
     blocked = reason;
   } else if (b.status === "proposed") {
     actions = [
-      { op: "confirm", label: "Make it a rule", kind: "primary" },
-      { op: "reject", label: "Not a rule", kind: "ghost" },
+      { op: "confirm", label: "Approve", kind: "primary" },
+      { op: "reject", label: "Dismiss", kind: "ghost" },
     ];
   } else if (b.status === "open") {
-    actions = [{ op: "ack", label: "Agree", kind: "primary", extra: { version: String(b.currentVersion) } }];
+    actions = [{ op: "ack", label: "Approve", kind: "primary", extra: { version: String(b.currentVersion) } }];
   } else if (reviewDue) {
     actions = [{ op: "reviewed", label: "Mark reviewed" }];
   }
@@ -147,7 +148,7 @@ export async function ApprovalBrief({
       {/* header: the rule leads; everything else is quiet metadata */}
       <header className="px-5 pb-4 pt-5">
         <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-faint">
-          <StateTag state={b.status} />
+          <StateTag state={b.status} label={STATUS_WORD[b.status]} />
           <span>·</span>
           <span>{b.origin === "document" ? "product constraint" : b.decisionType}</span>
           {b.constraintKind && <span>· {b.constraintKind.replace("_", " ")}</span>}
@@ -254,7 +255,7 @@ export async function ApprovalBrief({
                     · <When at={c.openedAt} />
                   </span>
                   <span className="ml-auto flex gap-1">
-                    <Act ids={ids} id={c.id} op="holds" label="Keep the rule" />
+                    <Act ids={ids} id={c.id} op="holds" label="Product rule wins" />
                     <Act ids={ids} id={c.id} op="dismiss" label="Not a clash" kind="ghost" />
                   </span>
                 </div>
@@ -366,7 +367,7 @@ export async function ApprovalBrief({
           <dd>
             {b.consumers.length === 0 ? (
               <span className="text-faint">
-                none declared{b.scopeKind !== "surface" ? " (not surface-scoped)" : ""}
+                none known yet{b.scopeKind !== "surface" ? " (not surface-scoped)" : ""}
               </span>
             ) : (
               <span className="text-muted-foreground">

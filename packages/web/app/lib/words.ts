@@ -31,13 +31,25 @@ export const KIND_TAB: Partial<Record<InboxKind, string>> = {
 
 /** Verdict ops → button label + what clicking it does. */
 export const VERB: Record<string, { label: string; effect: string }> = {
-  confirm: { label: "Make it a rule", effect: "Becomes a rule every agent session is briefed on." },
-  reject: { label: "Not a rule", effect: "Discarded. Agents never see it. Kept in history." },
-  ack: { label: "Agree", effect: "Records that you agree. Once the affected teams agree, it binds." },
+  confirm: { label: "Approve", effect: "Becomes a rule every agent session is briefed on." },
+  reject: { label: "Dismiss", effect: "Discarded. Agents never see it. Kept in history." },
+  ack: { label: "Approve", effect: "Records your approval. Once the affected teams approve, it binds." },
   ratify: { label: "Approve", effect: "Approves this requirement. Agents are briefed on it from now on." },
-  holds: { label: "Keep the rule", effect: "The rule stands; the conflicting change has to adapt." },
+  holds: { label: "Product rule wins", effect: "The product requirement stands; the engineering rule has to change." },
   dismiss: { label: "Not a clash", effect: "Closes this as a false alarm. Both rules stay as they are." },
   place: { label: "File it here", effect: "Files this under the suggested area." },
+};
+
+/** Plain status words (the API keeps its lifecycle names). */
+export const STATUS_WORD: Record<string, string> = {
+  binding: "in force",
+  proposed: "suggested",
+  open: "awaiting approval",
+  ack: "awaiting approval",
+  superseded: "replaced",
+  rejected: "dismissed",
+  stale: "source gone",
+  expired: "expired",
 };
 
 export const SEVERITY_WORD = ["Low priority", "Normal", "Important", "Blocking"] as const;

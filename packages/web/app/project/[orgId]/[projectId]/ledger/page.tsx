@@ -14,6 +14,7 @@ import { Empty, PageHead, railFor, scopeText, StateTag, SurfaceId } from "@/comp
 import { cn } from "@/lib/utils";
 import { standardsEnabled } from "@/lib/org-data";
 import { ProjectStandards } from "@/components/org/ProjectStandards";
+import { STATUS_WORD } from "@/lib/words";
 
 export const dynamic = "force-dynamic";
 
@@ -25,17 +26,6 @@ const TABS: Array<{ t: LedgerTab; label: string }> = [
   { t: "tasks", label: "Tasks" },
 ];
 const DECISION_STATUS = ["binding", "proposed", "open", "superseded", "expired"];
-/** Plain status words (the API keeps its lifecycle names). */
-const STATUS_WORD: Record<string, string> = {
-  binding: "in force",
-  proposed: "suggested",
-  open: "awaiting agreement",
-  ack: "awaiting agreement",
-  superseded: "replaced",
-  rejected: "not a rule",
-  stale: "source gone",
-  expired: "expired",
-};
 const ORIGINS = [
   ["agent", "From agents"],
   ["ingested", "From Slack & PRs"],

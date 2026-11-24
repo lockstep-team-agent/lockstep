@@ -61,7 +61,7 @@ const PRODUCT_RULES = [
   (r: string) => `${r[0]!.toUpperCase() + r.slice(1)} data is kept for 7 years for compliance, then deleted`,
   (r: string) => `Guests can view ${an(r)} but never change it`,
 ];
-const an = (w: string) => `${/^[aeiou]/i.test(w) ? "an" : "a"} ${w}`;
+const an = (w: string) => `${/^[aeio]/i.test(w) ? "an" : "a"} ${w}`;
 function productRule(surface: string, i: number): string {
   const r = ALL.find((x) => surface.includes(x)) ?? "account";
   return PRODUCT_RULES[i % PRODUCT_RULES.length]!(singular(r).replace(/-/g, " "));

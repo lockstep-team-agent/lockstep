@@ -65,7 +65,7 @@ export default async function Home({ params }: { params: { orgId: string; projec
           <h2 id="needs-you" className="text-[13px] font-semibold">
             Needs you
           </h2>
-          <span className="text-[12px] text-faint">Most important first. Hover a button to see what it does.</span>
+          <span className="text-[12px] text-faint">Most important first</span>
           {open > needs.length && (
             <Link href={`${base}/inbox`} className="ml-auto text-[12px] text-faint hover:text-foreground">
               See all {open} open →
