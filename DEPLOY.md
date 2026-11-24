@@ -106,11 +106,12 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 
 Both endpoints 503 until their secret is set, so this step is safe to do any time after core deploys.
 
-**GitHub (PR-merge → verified ledger changes):** in your GitHub App's settings on github.com
-(there is no in-repo manifest):
+**GitHub (PR-merge → verified ledger changes; recurring review comments → proposed standards):** in
+your GitHub App's settings on github.com (there is no in-repo manifest):
 - **Webhook URL** → `https://<core-public-url>/webhooks/github`
 - **Webhook secret** → the same value as core's `GITHUB_WEBHOOK_SECRET`
-- **Subscribe to events** → *Pull requests* (Contents: read is already required for CODEOWNERS).
+- **Subscribe to events** → *Pull requests*, *Pull request reviews*, *Pull request review comments*
+  (all covered by Pull requests: read; Contents: read is already required for CODEOWNERS).
 - Verify with the App's "Recent Deliveries → Redeliver" on the `ping` — expect `200 {pong:true}`.
 
 **Slack (live message ingestion):** in your first-party Lockstep Slack app at api.slack.com

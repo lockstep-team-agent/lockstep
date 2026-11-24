@@ -47,7 +47,8 @@ DECLARE child_tables text[] := ARRAY[
   'decision_summaries',
   'org_roles','teams','team_members','catalog_items','skill_packages','item_versions',
   'releases','assignments','assignment_revisions','exceptions',
-  'environments','receipts','release_withdrawals','artifact_checks','finding_actions'
+  'environments','receipts','release_withdrawals','artifact_checks','finding_actions',
+  'review_comments'
 ];
 -- scheduled_jobs is cross-org by design: every job runs withSystem and iterates orgs itself
 -- (exactly like the expiry/digest endpoints it schedules) — so it takes the system-only policy.
