@@ -34,9 +34,10 @@ export function consumerLine(surface, consumers = {}, connectedRepos = 0) {
  * conflictLines: pre-rendered markdown bullets for open product-constraint conflicts.
  * consumers: { [surface]: number } consumer counts from the usage graph.
  * connectedRepos: how many repos in this project are on Lockstep at all.
+ * deprecationLines: pre-rendered markdown bullets for added lines that use a retired thing (warn-only).
  */
-export function buildComment({ violations = [], conflictLines = [], consumers = {}, connectedRepos = 0 }) {
-  if (violations.length === 0 && conflictLines.length === 0) return null;
+export function buildComment({ violations = [], conflictLines = [], consumers = {}, connectedRepos = 0, deprecationLines = [] }) {
+  if (violations.length === 0 && conflictLines.length === 0 && deprecationLines.length === 0) return null;
   const parts = [COMMENT_MARKER];
 
   if (violations.length > 0) {
@@ -69,6 +70,17 @@ export function buildComment({ violations = [], conflictLines = [], consumers = 
       ...conflictLines,
       "",
       "Resolve in the Lockstep dashboard (Review → Conflicts), or amend the PRD.",
+      "",
+    );
+  }
+
+  if (deprecationLines.length > 0) {
+    parts.push(
+      `### ⚠ Lockstep: retired usage${deprecationLines.length === 1 ? "" : "s"} added`,
+      "",
+      ...deprecationLines,
+      "",
+      "Warning only — these don't fail the check.",
     );
   }
 

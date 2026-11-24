@@ -70,12 +70,14 @@ export async function runMcpServer(): Promise<void> {
   );
   server.tool(
     "propose_decision",
-    "Propose a decision (rule, architecture or principle) for a scope, with optional rationale, rejected alternatives and review date. Uses optimistic concurrency: baseVersion must equal the decision's current version (0 for a new decision), otherwise the call fails with a conflict. Owner-scoped decisions bind immediately; shared or cross-cutting ones stay open until acknowledged.", {
+    "Propose a decision (rule, architecture, principle or deprecation) for a scope, with optional rationale, rejected alternatives and review date. Uses optimistic concurrency: baseVersion must equal the decision's current version (0 for a new decision), otherwise the call fails with a conflict. Owner-scoped decisions bind immediately; shared or cross-cutting ones stay open until acknowledged.", {
       scopeKind: z.string().describe("What kind of thing the decision is about. Kinds used by the ledger are surface, repo, topic, project, capability, shared and contract; the value is not validated here."),
       scopeRef: z.string().describe("Identifier within that kind, for example http:POST /session for a surface, a repo name, or a topic name."),
       ruleText: z.string().describe("The decision itself, stated as a clear rule others can follow."),
       baseVersion: z.number().describe("Current version of the decision for this scope, or 0 when proposing a new one. A stale value fails with a conflict; read decisions first to get it."),
-      decisionType: z.enum(["rule", "architecture", "principle"]).optional().describe("Kind of decision. Defaults to rule when omitted."),
+      decisionType: z.enum(["rule", "architecture", "principle", "deprecation"]).optional().describe("Kind of decision. Defaults to rule when omitted. Use deprecation when something is retired, and pass retired and replacement."),
+      retired: z.string().optional().describe("Deprecation only: the retired identifier or package, for example axios or fetchWithRetry. The PR check warns on added lines that use it."),
+      replacement: z.string().optional().describe("Deprecation only: what to use instead, for example lib/http.client."),
       capabilityRef: z.string().optional().describe("Capability or feature reference to attach. Defaults to the one set with set_feature_context."),
       rationale: z.string().optional().describe("Why, in one or two sentences (the ADR context)."),
       alternatives: z.array(z.string()).optional().describe("Options considered and rejected, one string each."),
