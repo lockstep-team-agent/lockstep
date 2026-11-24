@@ -51,6 +51,26 @@ const RESOURCES: Record<string, string[]> = {
   commerce: ["orders", "carts", "checkout", "shipments", "addresses", "returns"],
 };
 const ALL = Object.values(RESOURCES).flat();
+
+/** Realistic product requirements (usability rounds read "Product: … (#43)" as fake data). */
+const PRODUCT_RULES = [
+  (r: string) => `Customers must confirm before ${r} changes are saved`,
+  (r: string) => `${cap(r)} exports are only available on paid plans`,
+  (r: string) => `Every ${r} change shows the customer a receipt they can download`,
+  (r: string) => `Bulk ${r} editing is out of scope for the first release`,
+  (r: string) => `${cap(r)} data is kept for 7 years for compliance, then deleted`,
+  (r: string) => `Guests can view ${r} but never change them`,
+];
+function productRule(surface: string, i: number): string {
+  const r = ALL.find((x) => surface.includes(x)) ?? "account";
+  return PRODUCT_RULES[i % PRODUCT_RULES.length]!(r.replace(/-/g, " "));
+}
+const QUESTIONS = [
+  (r: string) => `Who owns ${r} after the platform migration?`,
+  (r: string) => `Should ${r} keep the v1 response shape until mobile 5.0 ships?`,
+  (r: string) => `Do ${r} webhooks need retries, or is at-most-once fine?`,
+  (r: string) => `Is soft delete still the rule for ${r}?`,
+];
 const DOMAIN_WORDS: Record<string, string[]> = {
   "Identity & Access": RESOURCES.identity!,
   "Users & Accounts": RESOURCES.users!,
@@ -351,7 +371,7 @@ async function main() {
             : k < 0.9
               ? { scopeKind: "topic", scopeRef: `topic:${pick(ALL)}-policy-${i}` }
               : { scopeKind: "capability", scopeRef: i === 0 && R ? capRefs[0]! : pick(capRefs) };
-    const ruleText = `${scope.scopeKind === "surface" ? surface.replace(/^[a-z]+:/, "") : pick(ALL)} ${pick(RULES)} (#${i})`;
+    const ruleText = `${scope.scopeKind === "surface" ? surface.replace(/^[a-z]+:/, "") : `${cap(pick(ALL))} endpoints`} ${pick(RULES)}`;
     try {
       const author = i % 4 === 0 ? memberId : team[i % team.length]!;
       const r = await proposeDecision(orgId, {
@@ -423,7 +443,7 @@ async function main() {
         projectId,
         scopeKind: "surface",
         scopeRef: surface,
-        ruleText: `Product: ${surface.replace(/^[a-z]+:/, "")} ${pick(["requires explicit consent", "is limited to paid plans", "must show a receipt", "is out of scope for v1"])} (#${i})`,
+        ruleText: productRule(surface, i),
         provenance: {
           source: "notion",
           documentId: docs[i % docs.length]!.id,
@@ -480,7 +500,7 @@ async function main() {
         projectId,
         scopeKind: "surface",
         scopeRef: surface,
-        ruleText: `${path} ${pick(RULES)} (thread #${i})`,
+        ruleText: `${path} ${pick(RULES)}`,
         provenance: {
           source: "slack",
           url: `https://northwind.slack.com/archives/C0${(i % 7) + 1}PLATFORM/p17${stamp}${i}`,
@@ -516,7 +536,7 @@ async function main() {
         orgId,
         projectId,
         scopeKind: "project",
-        body: `Who owns ${pick(ALL)} after the migration? (#${i})`,
+        body: pick(QUESTIONS)(pick(ALL)),
         urgent: i % 3 === 0,
         askedBy: memberId,
       });

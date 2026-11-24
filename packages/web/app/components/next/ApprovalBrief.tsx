@@ -86,22 +86,22 @@ function Verdicts({ ids, b }: { ids: Ids; b: DecisionBrief }) {
   if (b.status === "proposed" && b.origin === "document") {
     // ratification needs an Active source PRD; say so up front instead of failing on click
     const reason = !b.raisedFrom.document
-      ? "Can’t ratify: no source document is linked."
+      ? "Can’t approve: no source document is linked."
       : b.raisedFrom.document.state !== "active"
-        ? `Can’t ratify until “${b.raisedFrom.document.title ?? "the source document"}” is Active.`
+        ? `Can’t approve until “${b.raisedFrom.document.title ?? "the source document"}” is Active.`
         : null;
     actions = [
-      { op: "ratify", label: "Ratify", kind: "primary", disabled: Boolean(reason) },
-      { op: "reject", label: "Reject", kind: "ghost" },
+      { op: "ratify", label: "Approve", kind: "primary", disabled: Boolean(reason) },
+      { op: "reject", label: "Not a rule", kind: "ghost" },
     ];
     blocked = reason;
   } else if (b.status === "proposed") {
     actions = [
-      { op: "confirm", label: "Confirm", kind: "primary" },
-      { op: "reject", label: "Reject", kind: "ghost" },
+      { op: "confirm", label: "Make it a rule", kind: "primary" },
+      { op: "reject", label: "Not a rule", kind: "ghost" },
     ];
   } else if (b.status === "open") {
-    actions = [{ op: "ack", label: "Acknowledge", kind: "primary", extra: { version: String(b.currentVersion) } }];
+    actions = [{ op: "ack", label: "Agree", kind: "primary", extra: { version: String(b.currentVersion) } }];
   } else if (reviewDue) {
     actions = [{ op: "reviewed", label: "Mark reviewed" }];
   }
@@ -254,8 +254,8 @@ export async function ApprovalBrief({
                     · <When at={c.openedAt} />
                   </span>
                   <span className="ml-auto flex gap-1">
-                    <Act ids={ids} id={c.id} op="holds" label="Constraint holds" />
-                    <Act ids={ids} id={c.id} op="dismiss" label="Dismiss" kind="ghost" />
+                    <Act ids={ids} id={c.id} op="holds" label="Keep the rule" />
+                    <Act ids={ids} id={c.id} op="dismiss" label="Not a clash" kind="ghost" />
                   </span>
                 </div>
               </li>
@@ -431,7 +431,7 @@ export async function ApprovalBrief({
 
       {mode === "page" && (
         <>
-          <Section title="Agreement" count={b.approvals.length}>
+          <Section title="Approved by" count={b.approvals.length}>
             {b.approvals.length === 0 ? (
               <p className="text-[12px] text-faint">No acknowledgements yet.</p>
             ) : (
@@ -443,7 +443,7 @@ export async function ApprovalBrief({
                       {a.verdict.replace("_", " ")} v{a.version}
                     </span>
                     {a.comment && <span className="truncate text-muted-foreground">— {a.comment}</span>}
-                    <When at={a.createdAt} className="ml-auto text-faint" />
+                    <When at={a.createdAt} absolute className="tnum ml-auto text-faint" />
                   </li>
                 ))}
               </ul>
@@ -457,7 +457,7 @@ export async function ApprovalBrief({
                   <span className="tnum w-6 shrink-0 text-faint">v{v.version}</span>
                   <span className="min-w-0 flex-1 text-muted-foreground">{v.ruleText}</span>
                   {v.proposedBy && <span className="shrink-0 text-faint">@{v.proposedBy}</span>}
-                  <When at={v.createdAt} className="shrink-0 text-faint" />
+                  <When at={v.createdAt} absolute className="tnum shrink-0 text-faint" />
                 </li>
               ))}
             </ol>

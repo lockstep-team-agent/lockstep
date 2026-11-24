@@ -1,7 +1,6 @@
-/** Typed fetchers for the concept-ledger shell (LOCKSTEP_NEW_UI). Server-only (reads the auth cookie). */
+/** Typed fetchers for the dashboard shell. Server-only (reads the auth cookie). */
 import { apiGet } from "./api";
 
-export const newUiEnabled = (): boolean => process.env.LOCKSTEP_NEW_UI === "1";
 
 const P = (orgId: string, projectId: string) => `/orgs/${orgId}/projects/${projectId}`;
 const qs = (o: Record<string, string | undefined>) => {
@@ -180,34 +179,6 @@ export interface SearchResult {
   standards?: Array<{ id: string; kind: string; name: string; slug: string }>;
 }
 
-export interface GraphData {
-  nodes: Array<
-    | {
-        id: string;
-        kind: "domain";
-        label: string;
-        count: number;
-        decisions: number;
-        conflicts: number;
-        expanded: boolean;
-      }
-    | {
-        id: string;
-        kind: "concept";
-        label: string;
-        key: string;
-        count: number;
-        decisions: number;
-        conflicts: number;
-        expanded: boolean;
-        parent: string;
-      }
-    | { id: string; kind: "item"; label: string; status: string; origin: string; conflict: boolean; parent: string }
-  >;
-  edges: Array<{ from: string; to: string; kind: "shared_decision" | "conflict"; weight: number }>;
-  truncated: boolean;
-  nextCursor: string | null;
-}
 
 export type LedgerTab = "decisions" | "contracts" | "sources" | "questions" | "tasks";
 export interface LedgerPage<T> {
@@ -299,8 +270,6 @@ export const getLedger = <T>(o: string, p: string, tab: LedgerTab, opts: Record<
   apiGet<LedgerPage<T>>(`${P(o, p)}/ledger/${tab}${qs(opts)}`);
 export const getConceptSettings = (o: string, p: string) => apiGet<ConceptSettings>(`${P(o, p)}/concepts-settings`);
 export const searchProject = (o: string, p: string, q: string) => apiGet<SearchResult>(`${P(o, p)}/search${qs({ q })}`);
-export const getConceptGraph = (o: string, p: string, expand?: string, cursor?: string, focus?: string) =>
-  apiGet<GraphData>(`${P(o, p)}/graph/concepts${qs({ expand, cursor, focus })}`);
 
 /* ── approval brief (decision review) ── */
 export interface DecisionBrief {
@@ -393,3 +362,14 @@ export interface DecisionBrief {
 }
 export const getDecisionBrief = (o: string, p: string, id: string) =>
   apiGet<DecisionBrief>(`${P(o, p)}/decisions/${id}/brief`);
+
+export interface Pulse {
+  days: number;
+  briefed: number;
+  routed: number;
+  caught: number;
+  conflicts: number;
+  rulesInForce: number;
+  newRules: number;
+}
+export const getPulse = (o: string, p: string, days = 7) => apiGet<Pulse>(`${P(o, p)}/pulse${qs({ days: String(days) })}`);

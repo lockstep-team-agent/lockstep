@@ -3,7 +3,7 @@ import { apiGet } from "./lib/api";
 /** Server actions for the concept-ledger shell: human edits + paginated reads for client components. */
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { getConceptGraph, getOutlineDomain, getOutlineGroup, getSurfaceHistory, searchProject } from "./lib/next-data";
+import { getOutlineDomain, getOutlineGroup, getSurfaceHistory, searchProject } from "./lib/next-data";
 
 const P = (orgId: string, projectId: string) => `/orgs/${orgId}/projects/${projectId}`;
 const base = (orgId: string, projectId: string) => `/project/${orgId}/${projectId}`;
@@ -115,15 +115,6 @@ export async function searchAction(orgId: string, projectId: string, q: string) 
       : null,
   ]);
   return r ? { ...r, standards: cat?.items ?? [] } : r;
-}
-export async function loadGraphAction(
-  orgId: string,
-  projectId: string,
-  expand?: string,
-  cursor?: string,
-  focus?: string,
-) {
-  return getConceptGraph(orgId, projectId, expand, cursor, focus);
 }
 
 const noteOf = (f: FormData): { note?: string } => {

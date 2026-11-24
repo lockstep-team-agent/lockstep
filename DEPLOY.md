@@ -42,11 +42,9 @@ Railway project
 - **Add → GitHub Repo → same repo.** In the service settings set **Build → Dockerfile Path**
   to `packages/web/Dockerfile`.
 - **Variables:** `LOCKSTEP_API_URL = https://<core-public-url>`
-- _Optional:_ `LOCKSTEP_NEW_UI = 1` switches every user to the concept-ledger dashboard (Inbox / Map /
-  Ledger / Settings). Unset, the current dashboard renders exactly as before. Concept domains and
-  non-surface placements are suggested by core's `TYPESAFE_API_KEY` (or `ANTHROPIC_API_KEY`); without
-  either, surfaces are still grouped by rule and Settings shows a banner. The `ingest` worker must run:
-  it drains the classification queue (`concept_drain` job, every 60s).
+- The dashboard is Home / Rules / Settings. Rule areas are suggested by core's `TYPESAFE_API_KEY` (or
+  `ANTHROPIC_API_KEY`); without either, APIs are still grouped by path (Settings → Advanced explains).
+  The `ingest` worker must run: it drains the classification queue (`concept_drain` job, every 60s).
 - _Optional:_ `LOCKSTEP_STANDARDS = 1` (on **both** core and web) adds the Organization workspace
   (Standards & Skills, Teams, Roles) and the project Ledger's Standards tab. Core also needs object
   storage for skill packages: **Add → Bucket** in Railway, then copy its endpoint, bucket name and
@@ -97,8 +95,7 @@ Keep the blast radius small — each service gets only what it needs. **web hold
 | `NANGO_SECRET_KEY` / `NANGO_HOST` | — | — | ✓ (optional) |
 | `LOCKSTEP_API_URL` | — | ✓ | ✓ |
 | `LOCKSTEP_WEB_URL` | — | ✓ (canonical URL; don't rely on x-forwarded-host) | ✓ (digest links) |
-| `LOCKSTEP_NEW_UI` | — | ✓ (optional — `1` = concept-ledger dashboard) | — |
-| `LOCKSTEP_STANDARDS` | ✓ (optional — `1` = Standards & Skills API) | ✓ (same flag; needs `LOCKSTEP_NEW_UI=1`) | — |
+| `LOCKSTEP_STANDARDS` | ✓ (optional — `1` = Standards & Skills API) | ✓ (same flag) | — |
 | `BLOB_ENDPOINT` / `BLOB_BUCKET` / `BLOB_REGION` / `BLOB_ACCESS_KEY_ID` / `BLOB_SECRET_ACCESS_KEY` | ✓ (with `LOCKSTEP_STANDARDS`) — skill package storage | — | — |
 | `GITHUB_IMPORT_TOKEN` | ✓ (optional — higher GitHub rate limit for skill imports) | — | — |
 

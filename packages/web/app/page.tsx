@@ -4,7 +4,6 @@ import { hasToken, apiGet } from "@/lib/api";
 import { loginAction, logoutAction } from "@/actions";
 import type { Me, OrgOverview } from "@/lib/types";
 import { standardsEnabled } from "@/lib/org-data";
-import { newUiEnabled } from "@/lib/next-data";
 import { Brand } from "@/components/shell/Brand";
 import { ListRow } from "@/components/ListRow";
 import { RefChip } from "@/components/RefChip";
@@ -102,7 +101,7 @@ export default async function Home({ searchParams }: { searchParams: { error?: s
   const archived = orgs.flatMap(({ id, data }) =>
     (data?.projects ?? []).filter((p) => p.archived).map((p) => ({ orgId: id, ...p })),
   );
-  const orgLink = standardsEnabled() && newUiEnabled();
+  const orgLink = standardsEnabled();
 
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-12">

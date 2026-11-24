@@ -1,13 +1,9 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { apiGet } from "@/lib/api";
-import { getCounts, getOverview } from "@/lib/data";
 import type { Me, OrgOverview } from "@/lib/types";
-import { Sidebar } from "@/components/shell/Sidebar";
-import { Topbar } from "@/components/shell/Topbar";
-import { Hotkey } from "@/components/shell/Hotkey";
 import { Shell } from "@/components/next/Shell";
-import { getInbox, newUiEnabled } from "@/lib/next-data";
+import { getInbox } from "@/lib/next-data";
 import { standardsEnabled } from "@/lib/org-data";
 
 export const dynamic = "force-dynamic";
@@ -23,63 +19,23 @@ export default async function ProjectLayout({
   const me = await apiGet<Me>("/me");
   if (!me) redirect("/");
 
-  if (newUiEnabled()) {
-    const [org, inbox] = await Promise.all([
-      apiGet<OrgOverview>(`/orgs/${orgId}/overview`),
-      getInbox(orgId, projectId),
-    ]);
-    const open = Object.values(inbox?.counts ?? {}).reduce((a, n) => a + (n ?? 0), 0);
-    return (
-      <Shell
-        orgId={orgId}
-        projectId={projectId}
-        projects={org?.projects ?? []}
-        login={me.principal.githubLogin}
-        role={inbox?.viewer.role ?? "member"}
-        inboxCount={open}
-        withOrg={standardsEnabled()}
-        orgName={org?.org?.name}
-      >
-        {children}
-      </Shell>
-    );
-  }
-
-  const [org, o, projectCounts] = await Promise.all([
+  const [org, inbox] = await Promise.all([
     apiGet<OrgOverview>(`/orgs/${orgId}/overview`),
-    getOverview(orgId, projectId),
-    getCounts(orgId, projectId),
+    getInbox(orgId, projectId),
   ]);
-  const base = `/project/${orgId}/${projectId}`;
-  const projectName = org?.projects.find((p) => p.id === projectId)?.name ?? "project";
-  const counts = {
-    review: projectCounts?.review.total ?? 0,
-    decisions: o?.decisions.filter((d) => d.status !== "rejected" && d.status !== "superseded").length,
-    questions: o?.questions.filter((q) => q.status !== "closed").length,
-    tasks: o?.tasks.filter((t) => t.status !== "closed" && t.status !== "done").length,
-    contracts: o?.contracts.length,
-    dependencies: o?.dependencies.length,
-    sources: projectCounts?.sources,
-  };
-
+  const open = Object.values(inbox?.counts ?? {}).reduce((a, n) => a + (n ?? 0), 0);
   return (
-    <div className="flex min-h-screen">
-      <Sidebar orgId={orgId} projectId={projectId} projects={org?.projects ?? []} base={base} counts={counts} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          base={base}
-          orgName="Workspace"
-          projectName={projectName}
-          login={me.principal.githubLogin}
-          role={o?.viewer?.role ?? "member"}
-          reviewCount={counts.review}
-          counts={counts}
-        />
-        <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 lg:px-6">
-          <Hotkey />
-          {children}
-        </main>
-      </div>
-    </div>
+    <Shell
+      orgId={orgId}
+      projectId={projectId}
+      projects={org?.projects ?? []}
+      login={me.principal.githubLogin}
+      role={inbox?.viewer.role ?? "member"}
+      inboxCount={open}
+      withOrg={standardsEnabled()}
+      orgName={org?.org?.name}
+    >
+      {children}
+    </Shell>
   );
 }

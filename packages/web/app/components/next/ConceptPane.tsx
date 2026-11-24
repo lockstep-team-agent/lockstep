@@ -192,14 +192,12 @@ async function DecisionsTab({
                       projectId={ids.projectId}
                       id={cf.id}
                       op="holds"
-                      label="Constraint holds"
                     />
                     <VerdictButton
                       orgId={ids.orgId}
                       projectId={ids.projectId}
                       id={cf.id}
                       op="dismiss"
-                      label="Dismiss"
                       kind="ghost"
                     />
                   </span>

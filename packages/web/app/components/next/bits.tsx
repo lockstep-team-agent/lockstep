@@ -38,9 +38,9 @@ const TAG: Record<string, string> = {
 };
 
 /** Lowercase state word — color only where the state needs attention. */
-export function StateTag({ state, className }: { state: string; className?: string }) {
+export function StateTag({ state, label, className }: { state: string; label?: string; className?: string }) {
   return (
-    <span className={cn("text-[11px] font-medium", TAG[state] ?? "text-muted-foreground", className)}>{state}</span>
+    <span className={cn("text-[11px] font-medium", TAG[state] ?? "text-muted-foreground", className)}>{label ?? state}</span>
   );
 }
 

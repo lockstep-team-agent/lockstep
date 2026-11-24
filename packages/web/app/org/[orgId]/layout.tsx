@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import type { Me, OrgOverview } from "@/lib/types";
 import { getOrgMe, standardsEnabled } from "@/lib/org-data";
-import { newUiEnabled } from "@/lib/next-data";
 import { logoutAction } from "@/actions";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 import { UserMenu } from "@/components/shell/UserMenu";
@@ -17,7 +16,7 @@ export const dynamic = "force-dynamic";
  * it aggregates org metadata only — project artifacts still need project access.
  */
 export default async function OrgLayout({ children, params }: { children: ReactNode; params: { orgId: string } }) {
-  if (!standardsEnabled() || !newUiEnabled()) notFound();
+  if (!standardsEnabled()) notFound();
   const me = await apiGet<Me>("/me");
   if (!me) redirect("/");
   const [org, orgMe] = await Promise.all([

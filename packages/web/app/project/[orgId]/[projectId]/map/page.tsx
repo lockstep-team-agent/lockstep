@@ -1,13 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { apiGet } from "@/lib/api";
-import type { Me } from "@/lib/types";
-import { getOutline, getOutlineGroup, newUiEnabled } from "@/lib/next-data";
+import { getOutline, getOutlineGroup } from "@/lib/next-data";
 import { OutlineTree } from "@/components/next/OutlineTree";
 import { ConceptPane } from "@/components/next/ConceptPane";
-import { ViewToggle } from "@/components/next/ViewToggle";
 import { PlacementActions } from "@/components/next/ConceptControls";
-import { ConceptGraphLazy as ConceptGraph } from "@/components/next/ConceptGraphLazy";
 import { Empty, PageHead, StateTag } from "@/components/next/bits";
 
 export const dynamic = "force-dynamic";
@@ -24,17 +19,15 @@ export default async function MapPage({
 }) {
   const { orgId, projectId } = params;
   const base = `/project/${orgId}/${projectId}`;
-  if (!newUiEnabled()) redirect(base);
-  const [outline, me] = await Promise.all([getOutline(orgId, projectId), apiGet<Me>("/me")]);
+  const outline = await getOutline(orgId, projectId);
   if (!outline) return <Empty title="Couldn’t load the map" hint="The API didn’t respond. Try again in a moment." />;
 
-  const view = searchParams.view === "graph" ? "graph" : "outline";
   const tab = TABS.find((t) => t === searchParams.tab) ?? "decisions";
   const canEdit = ["owner", "pm"].includes(outline.viewer.role);
   const domains = outline.domains.map((d) => ({ id: d.id, label: d.label }));
   const hrefFor = (q: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
-    for (const [k, v] of Object.entries({ ...q, view: view === "graph" ? "graph" : undefined })) if (v) p.set(k, v);
+    for (const [k, v] of Object.entries(q)) if (v) p.set(k, v);
     return `${base}/map?${p}`;
   };
   const totals = outline.domains.reduce(
@@ -45,13 +38,12 @@ export default async function MapPage({
   return (
     <div data-full className="flex h-full flex-col">
       <PageHead
-        title="Map"
+        title="Rules by area"
         meta={
           <span className="tnum">
-            {totals.concepts} concepts · {totals.items} items
+            {totals.concepts} areas · {totals.items} items
           </span>
         }
-        actions={<ViewToggle user={me?.principal.githubLogin ?? "me"} projectId={projectId} view={view} />}
       />
       <div className="flex min-h-0 flex-1">
         <div className="w-[300px] shrink-0 border-r">
@@ -61,13 +53,10 @@ export default async function MapPage({
             outline={outline}
             selected={{ concept: searchParams.concept, group: searchParams.group }}
             mapHref={`${base}/map`}
-            view={view === "graph" ? "graph" : undefined}
           />
         </div>
         <div className="min-w-0 flex-1 overflow-y-auto">
-          {view === "graph" ? (
-            <ConceptGraph orgId={orgId} projectId={projectId} base={base} selected={searchParams.concept} />
-          ) : searchParams.concept ? (
+          {searchParams.concept ? (
             <ConceptPane
               orgId={orgId}
               projectId={projectId}
@@ -196,8 +185,8 @@ function Overview({
     <div className="mx-auto max-w-3xl px-6 py-8">
       <h2 className="text-[22px] font-semibold tracking-[-0.02em]">Every rule, filed where it applies.</h2>
       <p className="mt-1 max-w-xl text-[13px] text-muted-foreground">
-        Concepts group each surface with the engineering decisions and product constraints about it. Pick one on the
-        left, or start with what needs attention.
+        Each area groups an API or feature with the engineering rules and product requirements about it. Pick one on
+        the left, or start with what needs attention.
       </p>
       {hot.length > 0 && (
         <section className="mt-8">
@@ -233,7 +222,7 @@ function Overview({
               <div key={d.id} className="bg-background px-3 py-3">
                 <div className="text-[13px] font-medium">{d.label}</div>
                 <div className="tnum mt-0.5 text-[12px] text-faint">
-                  {d.counts.concepts} concepts · {d.counts.items} items
+                  {d.counts.concepts} areas · {d.counts.items} items
                 </div>
               </div>
             ))}

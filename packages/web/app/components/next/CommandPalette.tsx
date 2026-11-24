@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import * as Dialog from "@radix-ui/react-dialog";
-import { BarChart3, Inbox, Network, Rows3, Settings2, Search, Moon, CircleDot, Braces, ScrollText } from "lucide-react";
+import { Home, Inbox, Rows3, Settings2, Search, Moon, CircleDot, Braces, ScrollText } from "lucide-react";
 import { searchAction } from "@/next-actions";
 import type { SearchResult } from "@/lib/next-data";
 import { toggleTheme } from "./ThemeToggle";
@@ -59,12 +59,12 @@ export function CommandPalette({ orgId, projectId, base }: { orgId: string; proj
                   ? `d-${next.decisions[0].id}`
                   : q
                     ? (() => {
-                        const nav = ["inbox", "map", "ledger", "insights", "settings"].find((x) =>
+                        const nav = ["home", "inbox", "ledger", "settings"].find((x) =>
                           x.includes(q.trim().toLowerCase()),
                         );
                         return nav ? `go-${nav}` : "";
                       })()
-                    : "go-inbox";
+                    : "go-home";
             setSel(first);
           }
         });
@@ -177,10 +177,9 @@ export function CommandPalette({ orgId, projectId, base }: { orgId: string; proj
                 // Navigation stays searchable alongside server results ("settings" finds Settings).
                 const t = q.trim().toLowerCase();
                 const nav = [
-                  { label: "Inbox", seg: "inbox", icon: Inbox, k: "G I" },
-                  { label: "Map", seg: "map", icon: Network, k: "G M" },
-                  { label: "Ledger", seg: "ledger", icon: Rows3, k: "G L" },
-                  { label: "Insights", seg: "insights", icon: BarChart3, k: "G N" },
+                  { label: "Home", seg: "home", icon: Home, k: "G H" },
+                  { label: "Everything open", seg: "inbox", icon: Inbox, k: "G I" },
+                  { label: "Rules", seg: "ledger", icon: Rows3, k: "G L" },
                   { label: "Settings", seg: "settings", icon: Settings2, k: "G S" },
                 ].filter((x) => !t || x.label.toLowerCase().includes(t));
                 const theme = !t || "toggle theme dark light".includes(t);
@@ -191,7 +190,7 @@ export function CommandPalette({ orgId, projectId, base }: { orgId: string; proj
                       <Command.Item
                         key={seg}
                         value={`go-${seg}`}
-                        onSelect={() => go(`${base}/${seg}`)}
+                        onSelect={() => go(seg === "home" ? base : `${base}/${seg}`)}
                         className={item}
                       >
                         <Icon className="h-3.5 w-3.5 text-faint" />

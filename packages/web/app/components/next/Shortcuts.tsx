@@ -2,13 +2,13 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-const GO: Record<string, string> = { i: "inbox", m: "map", l: "ledger", n: "insights", s: "settings" };
+const GO: Record<string, string> = { h: "", i: "inbox", l: "ledger", s: "settings" };
 
 const typing = (el: EventTarget | null) =>
   el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
 
 /**
- * Global keys: `g i|m|l|n|s` navigate; `j`/`k` move between [data-row] rows of the page and
+ * Global keys: `g h|i|l|s` navigate; `j`/`k` move between [data-row] rows of the page and
  * Enter opens the focused row's [data-row-link]. Rows are real focusable elements, so Tab works too.
  */
 export function Shortcuts({ base }: { base: string }) {
@@ -21,10 +21,10 @@ export function Shortcuts({ base }: { base: string }) {
         g = Date.now();
         return;
       }
-      if (g && Date.now() - g < 800 && GO[e.key]) {
+      if (g && Date.now() - g < 800 && GO[e.key] !== undefined) {
         g = 0;
         e.preventDefault();
-        router.push(`${base}/${GO[e.key]}`);
+        router.push(GO[e.key] ? `${base}/${GO[e.key]}` : base);
         return;
       }
       if (e.key === "j" || e.key === "k") {

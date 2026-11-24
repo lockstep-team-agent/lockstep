@@ -2,7 +2,7 @@
 /**
  * "Outline usable rows < 1s" (plan §7): Playwright, cold browser cache (a fresh context per run),
  * authenticated, from navigationStart until the first domain row of the Map outline is visible
- * and clickable. Run against a production build (`next build && next start`) with LOCKSTEP_NEW_UI=1.
+ * and clickable. Run against a production build (`next build && next start`).
  *
  *   node e2e/concept-timing.mjs <orgId> <projectId> [webUrl] [apiUrl]
  */

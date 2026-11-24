@@ -3,6 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { verdictAction } from "@/next-actions";
 import { btn } from "./bits";
+import { VERB } from "@/lib/words";
 
 /** A verdict button that never fails silently: pending state, then the refusal in plain words. */
 export function VerdictButton({
@@ -10,7 +11,7 @@ export function VerdictButton({
   projectId,
   id,
   op,
-  label,
+  label: labelIn,
   kind = "outline",
   extra,
 }: {
@@ -18,10 +19,11 @@ export function VerdictButton({
   projectId: string;
   id: string;
   op: string;
-  label: string;
+  label?: string;
   kind?: keyof typeof btn;
   extra?: Record<string, string>;
 }) {
+  const label = labelIn ?? VERB[op]?.label ?? op;
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +32,7 @@ export function VerdictButton({
       <button
         type="button"
         disabled={pending}
+        title={VERB[op]?.effect}
         className={btn[kind]}
         onClick={() =>
           start(async () => {

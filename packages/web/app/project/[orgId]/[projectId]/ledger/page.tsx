@@ -1,9 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Search } from "lucide-react";
 import {
   getLedger,
-  newUiEnabled,
   type LedgerContract,
   type LedgerDecision,
   type LedgerQuestion,
@@ -20,17 +18,28 @@ import { ProjectStandards } from "@/components/org/ProjectStandards";
 export const dynamic = "force-dynamic";
 
 const TABS: Array<{ t: LedgerTab; label: string }> = [
-  { t: "decisions", label: "Decisions" },
-  { t: "contracts", label: "Contracts" },
-  { t: "sources", label: "Sources" },
+  { t: "decisions", label: "Rules" },
+  { t: "contracts", label: "APIs & contracts" },
+  { t: "sources", label: "Documents" },
   { t: "questions", label: "Questions" },
   { t: "tasks", label: "Tasks" },
 ];
-const DECISION_STATUS = ["binding", "proposed", "open", "superseded", "rejected", "stale", "expired"];
+const DECISION_STATUS = ["binding", "proposed", "open", "superseded", "expired"];
+/** Plain status words (the API keeps its lifecycle names). */
+const STATUS_WORD: Record<string, string> = {
+  binding: "in force",
+  proposed: "suggested",
+  open: "awaiting agreement",
+  ack: "awaiting agreement",
+  superseded: "replaced",
+  rejected: "not a rule",
+  stale: "source gone",
+  expired: "expired",
+};
 const ORIGINS = [
-  ["agent", "Agents"],
-  ["ingested", "Threads"],
-  ["document", "Product"],
+  ["agent", "From agents"],
+  ["ingested", "From Slack & PRs"],
+  ["document", "From product docs"],
 ] as const;
 
 type SP = {
@@ -53,7 +62,6 @@ export default async function LedgerPage({
 }) {
   const { orgId, projectId } = params;
   const base = `/project/${orgId}/${projectId}`;
-  if (!newUiEnabled()) redirect(base);
   const std = standardsEnabled() && searchParams.tab === "standards";
   const tab = TABS.find((x) => x.t === searchParams.tab)?.t ?? "decisions";
   const q = searchParams.q?.trim() || undefined;
@@ -67,7 +75,19 @@ export default async function LedgerPage({
 
   return (
     <div data-full className="flex h-full flex-col">
-      <PageHead title="Ledger" meta="Everything the team has decided, searchable" />
+      <PageHead
+        title="Rules"
+        meta="Everything the team has decided, searchable"
+        actions={
+          <a
+            href={`${base}/export`}
+            className="h-7 rounded-md border px-2.5 text-[12px] font-medium leading-7 text-muted-foreground hover:text-foreground"
+            title="Every rule version with who approved it and when (CSV)"
+          >
+            Export for audit
+          </a>
+        }
+      />
       <div className="flex items-center gap-5 border-b px-5">
         {TABS.map(({ t, label }) => (
           <Link
@@ -84,6 +104,12 @@ export default async function LedgerPage({
             {label}
           </Link>
         ))}
+        <Link
+          href={`${base}/map`}
+          className="-mb-px flex h-10 items-center border-b-2 border-transparent text-[13px] font-medium text-faint transition-colors duration-150 hover:text-muted-foreground"
+        >
+          By area
+        </Link>
         {standardsEnabled() && (
           <Link
             href={`${base}/ledger?tab=standards`}
@@ -117,8 +143,8 @@ export default async function LedgerPage({
               <input
                 name="q"
                 defaultValue={q}
-                placeholder={tab === "contracts" ? "Filter surfaces…" : "Search…"}
-                aria-label="Search the ledger"
+                placeholder={tab === "contracts" ? "Filter APIs…" : "Search…"}
+                aria-label="Search rules"
                 className="h-7 w-72 rounded-md border bg-muted pl-7 pr-2 text-[12px] outline-none placeholder:text-faint focus:border-border-strong"
               />
             </form>
@@ -140,7 +166,7 @@ export default async function LedgerPage({
                     href={href({ status: searchParams.status === s ? undefined : s, cursor: undefined })}
                     active={searchParams.status === s}
                   >
-                    {s}
+                    {STATUS_WORD[s] ?? s}
                   </Filter>
                 ))}
               </div>
@@ -226,12 +252,12 @@ async function Decisions({ orgId, projectId, base, opts, href }: TabProps) {
   const r = await getLedger<LedgerDecision>(orgId, projectId, "decisions", opts);
   if (!r) return <Empty title="Couldn’t load decisions" />;
   if (r.rows.length === 0) return <Empty title="No decisions match" />;
-  const cols = "grid-cols-[minmax(0,1fr)_160px_90px_64px]";
+  const cols = "grid-cols-[minmax(0,1fr)_160px_130px_64px]";
   return (
     <>
       <Head cols={cols}>
         <span>Rule</span>
-        <span>Concept</span>
+        <span>Area</span>
         <span>Status</span>
         <span className="text-right">Created</span>
       </Head>
@@ -261,7 +287,7 @@ async function Decisions({ orgId, projectId, base, opts, href }: TabProps) {
             </div>
           </div>
           <ConceptCell base={base} c={d.concept} />
-          <StateTag state={d.status} />
+          <StateTag state={d.status} label={STATUS_WORD[d.status]} />
           <When at={d.created_at} className="tnum text-right text-[11px] text-faint" />
         </div>
       ))}
@@ -279,8 +305,8 @@ async function Contracts({ orgId, projectId, base, opts, href }: TabProps) {
   return (
     <>
       <Head cols={cols}>
-        <span>Surface</span>
-        <span>Concept</span>
+        <span>API</span>
+        <span>Area</span>
         <span className="text-right">Consumers</span>
         <span className="text-right">Governed by</span>
         <span className="text-right">Changes</span>

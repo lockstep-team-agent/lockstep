@@ -1,299 +1,141 @@
-import { ShareBrief } from "@/components/ShareBrief";
-import { CheckHistory } from "@/components/CheckHistory";
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { CheckCircle2, Inbox, GitCommitHorizontal } from "lucide-react";
-import { getOverview, getRatifications, getConflicts } from "@/lib/data";
-import { apiGet } from "@/lib/api";
-import type { Me } from "@/lib/types";
-import { PageHeader } from "@/components/PageHeader";
-import { ListRow } from "@/components/ListRow";
-import { StatusBadge } from "@/components/StatusBadge";
-import { RefChip } from "@/components/RefChip";
-import { Who } from "@/components/Who";
+import { getInbox, getLedger, getPulse, type LedgerDecision } from "@/lib/next-data";
 import { When } from "@/components/When";
-import { Section } from "@/components/Section";
-import { StatGrid, Stat } from "@/components/StatGrid";
-import { EmptyState } from "@/components/EmptyState";
-import { Button } from "@/components/ui/button";
-import { ackDecisionAction } from "@/actions";
-import { redirect } from "next/navigation";
-import { newUiEnabled } from "@/lib/next-data";
+import { Empty, PageHead } from "@/components/next/bits";
+import { InboxRow, briefFor } from "@/components/next/InboxRow";
 
 export const dynamic = "force-dynamic";
 
-type Need = { key: string; impact: number; at: string; node: ReactNode };
+const NEEDS_YOU = 5;
 
+/**
+ * Home: proof first, then the few things that need this person, then what's in force.
+ * Usability round 3: every persona wanted "what did it do for us" before any queue, and a short,
+ * personal list instead of a 47-item inbox.
+ */
 export default async function Home({ params }: { params: { orgId: string; projectId: string } }) {
   const { orgId, projectId } = params;
   const base = `/project/${orgId}/${projectId}`;
-  if (newUiEnabled()) redirect(`${base}/inbox`);
-  const [o, me] = await Promise.all([getOverview(orgId, projectId), apiGet<Me>("/me")]);
-  if (!o) return <EmptyState icon={<Inbox />} title="Couldn't load this project" />;
-  const login = me?.principal.githubLogin ?? "";
-  const isPm = o.viewer?.role === "pm" || o.viewer?.role === "owner";
-
-  const needs: Need[] = [];
-  for (const d of o.decisions.filter((d) => d.status === "open")) {
-    needs.push({
-      key: `d:${d.id}`,
-      impact: d.impact,
-      at: d.createdAt,
-      node: (
-        <ListRow
-          key={`d:${d.id}`}
-          href={`${base}/decisions/${d.id}`}
-          title={d.ruleText || d.scopeRef}
-          meta={
-            <>
-              <RefChip kind={d.scopeKind}>{d.scopeRef}</RefChip>
-              {d.proposedBy && <Who login={d.proposedBy} />}
-              <When at={d.createdAt} />
-              {d.impact > 0 && <RefChip copy={false}>{`impact ${d.impact}`}</RefChip>}
-            </>
-          }
-          status={<StatusBadge status={d.status} origin={d.origin} />}
-          action={
-            <form action={ackDecisionAction}>
-              <input type="hidden" name="orgId" value={orgId} />
-              <input type="hidden" name="projectId" value={projectId} />
-              <input type="hidden" name="id" value={d.id} />
-              <input type="hidden" name="version" value={d.version} />
-              <Button size="sm">Acknowledge</Button>
-            </form>
-          }
-        />
-      ),
-    });
-  }
-  for (const t of o.tasks.filter((t) => t.delegatedTo === login && t.status !== "done" && t.status !== "closed")) {
-    needs.push({
-      key: `t:${t.id}`,
-      impact: 0,
-      at: t.createdAt,
-      node: (
-        <ListRow
-          key={`t:${t.id}`}
-          href={`${base}/tasks#${t.id}`}
-          title={t.title}
-          meta={
-            <>
-              {t.delegatedBy && (
-                <span className="inline-flex items-center gap-1">
-                  from <Who login={t.delegatedBy} />
-                </span>
-              )}
-              <When at={t.createdAt} />
-            </>
-          }
-          status={<StatusBadge status={t.runState !== "done" ? t.runState : t.status} />}
-        />
-      ),
-    });
-  }
-  for (const q of o.questions.filter((q) => q.urgent && q.status === "open")) {
-    needs.push({
-      key: `q:${q.id}`,
-      impact: 1,
-      at: q.createdAt,
-      node: (
-        <ListRow
-          key={`q:${q.id}`}
-          href={`${base}/questions#${q.id}`}
-          title={q.body}
-          meta={
-            <>
-              {q.scopeRef && <RefChip>{q.scopeRef}</RefChip>}
-              {q.askedBy && <Who login={q.askedBy} />}
-              <When at={q.createdAt} />
-              <StatusBadge status="urgent" />
-            </>
-          }
-          status={<StatusBadge status="open_question" />}
-        />
-      ),
-    });
-  }
-  for (const d of o.decisions.filter((d) => d.dueForReview && d.proposedBy === login)) {
-    needs.push({
-      key: `r:${d.id}`,
-      impact: d.impact,
-      at: d.reviewAt ?? d.createdAt,
-      node: (
-        <ListRow
-          key={`r:${d.id}`}
-          href={`${base}/review-queue?tab=review-due`}
-          title={d.ruleText}
-          meta={
-            <>
-              <RefChip>{d.scopeRef}</RefChip>
-              {d.reviewAt && (
-                <span className="inline-flex items-center gap-1">
-                  review was due <When at={d.reviewAt} />
-                </span>
-              )}
-            </>
-          }
-          status={<StatusBadge status="due" />}
-        />
-      ),
-    });
-  }
-  if (isPm) {
-    const [r, c] = await Promise.all([getRatifications(orgId, projectId), getConflicts(orgId, projectId, "open")]);
-    for (const x of r?.candidates ?? []) {
-      needs.push({
-        key: `rat:${x.id}`,
-        impact: 2,
-        at: "",
-        node: (
-          <ListRow
-            key={`rat:${x.id}`}
-            href={`${base}/review-queue?tab=ratifications`}
-            title={x.ruleText}
-            meta={
-              <>
-                <RefChip>{x.scopeRef}</RefChip>
-                {x.doc.title && <span>{x.doc.title}</span>}
-                {typeof x.confidence === "number" && <span>confidence {Math.round(x.confidence * 100)}%</span>}
-              </>
-            }
-            status={<StatusBadge status="proposed" />}
-            action={
-              <Button asChild size="sm" variant="secondary">
-                <Link href={`${base}/review-queue?tab=ratifications`}>Ratify</Link>
-              </Button>
-            }
-          />
-        ),
-      });
-    }
-    for (const x of c?.conflicts ?? []) {
-      needs.push({
-        key: `c:${x.id}`,
-        impact: 3,
-        at: x.openedAt,
-        node: (
-          <ListRow
-            key={`c:${x.id}`}
-            href={`${base}/review-queue?tab=conflicts`}
-            title={x.constraintRuleText}
-            meta={
-              <>
-                <RefChip>{x.surface}</RefChip>
-                <When at={x.openedAt} />
-              </>
-            }
-            status={<StatusBadge status="conflict" />}
-          />
-        ),
-      });
-    }
-  }
-  needs.sort((a, b) => b.impact - a.impact || (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
-
-  const binding = o.decisions.filter((d) => d.status === "binding").length;
-  const awaiting = o.decisions.filter((d) => d.status === "open").length;
-  const openQ = o.questions.filter((q) => q.status !== "closed").length;
-  const withConsumers = o.contracts.filter((c) => c.consumerCount > 0).length;
-  const firstRun = binding + awaiting + openQ + o.contracts.length + o.tasks.length === 0;
-  const sharedChanges = o.changes.filter((c) => c.riskTier === "shared").slice(0, 6);
+  const [pulse, inbox, rules] = await Promise.all([
+    getPulse(orgId, projectId),
+    getInbox(orgId, projectId),
+    getLedger<LedgerDecision>(orgId, projectId, "decisions", { status: "binding" }),
+  ]);
+  const open = Object.values(inbox?.counts ?? {}).reduce((a, n) => a + (n ?? 0), 0);
+  const needs = (inbox?.items ?? []).slice(0, NEEDS_YOU);
+  const quiet = pulse && pulse.briefed + pulse.routed + pulse.caught + pulse.conflicts + pulse.rulesInForce === 0;
 
   return (
-    <>
-      <PageHeader title="Home" description="What needs you, ranked by blast radius." />
+    <div>
+      <PageHead title="Home" meta="What Lockstep did for your team, and what needs you" />
 
-      <Section label="Needs you" count={needs.length}>
-        {needs.length === 0 ? (
-          <EmptyState
-            icon={<CheckCircle2 />}
-            title="You're in lockstep."
-            action={
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`${base}/activity`}>See recent activity</Link>
-              </Button>
-            }
-          >
-            Nothing needs you right now.
-          </EmptyState>
+      <section aria-label="Last 7 days" className="border-b px-5 py-5">
+        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.04em] text-faint">Last 7 days</div>
+        {!pulse ? (
+          <div className="text-[13px] text-faint">Couldn’t load activity.</div>
+        ) : quiet ? (
+          <div className="max-w-xl text-[13px] leading-6 text-muted-foreground">
+            Nothing yet. Run <code className="rounded bg-muted px-1 font-mono text-[12px]">npx lockstep-cli onboard</code>{" "}
+            in a repo. Your next Claude Code session gets its first briefing, and this page starts counting.
+          </div>
         ) : (
-          needs.slice(0, 8).map((n) => n.node)
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border lg:grid-cols-4">
+            <Stat n={pulse.briefed} label="agent sessions briefed" hint="Sessions that started with your team’s rules" />
+            <Stat
+              n={pulse.routed}
+              label="changes sent to affected teams"
+              hint="API and contract changes delivered to the services that use them"
+            />
+            <Stat
+              n={pulse.caught + pulse.conflicts}
+              label="problems caught early"
+              hint="Code that broke a rule, or rules that clashed, caught before shipping"
+            />
+            <Stat
+              n={pulse.rulesInForce}
+              label="rules agents follow"
+              hint={pulse.newRules > 0 ? `${pulse.newRules} new this week` : "Binding rules in every briefing"}
+            />
+          </div>
         )}
-      </Section>
+      </section>
 
-      {firstRun ? (
-        <div className="mb-6">
-          <EmptyState icon={<GitCommitHorizontal />} title="Connect a repo to start">
-            From inside a repo, run <RefChip>{"npm i -g lockstep-cli"}</RefChip> then{" "}
-            <RefChip>{"lockstep onboard"}</RefChip>.
-          </EmptyState>
+      <section aria-labelledby="needs-you" className="border-b">
+        <div className="flex items-baseline gap-3 px-5 pb-1 pt-5">
+          <h2 id="needs-you" className="text-[13px] font-semibold">
+            Needs you
+          </h2>
+          <span className="text-[12px] text-faint">Most important first. Hover a button to see what it does.</span>
+          {open > needs.length && (
+            <Link href={`${base}/inbox`} className="ml-auto text-[12px] text-faint hover:text-foreground">
+              See all {open} open →
+            </Link>
+          )}
         </div>
-      ) : (
-        <StatGrid>
-          <Stat n={binding} label="Binding decisions" href={`${base}/decisions?view=binding`} />
-          <Stat n={awaiting} label="Awaiting ack" href={`${base}/decisions?view=awaiting`} />
-          <Stat n={openQ} label="Open questions" href={`${base}/questions`} />
-          <Stat n={withConsumers} label="Surfaces with consumers" href={`${base}/contracts`} />
-        </StatGrid>
-      )}
+        {!inbox ? (
+          <Empty title="Couldn’t load what needs you" />
+        ) : needs.length === 0 ? (
+          <Empty title="Nothing needs you" hint="New suggested rules and clashes show up here." />
+        ) : (
+          <ul className="pb-3">
+            {needs.map((it) => (
+              <li key={`${it.kind}-${it.id}`}>
+                <InboxRow
+                  it={it}
+                  base={base}
+                  orgId={orgId}
+                  projectId={projectId}
+                  briefHref={briefFor(it) ? `${base}/inbox?item=${briefFor(it)}` : null}
+                  active={false}
+                  compact={false}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Section label="Recent changes" href={`${base}/contracts`}>
-          {sharedChanges.length === 0 ? (
-            <EmptyState icon={<GitCommitHorizontal />} title="No shared changes yet">
-              Contract changes captured from connected repos land here.
-            </EmptyState>
-          ) : (
-            sharedChanges.map((c) => (
-              <ListRow
-                key={c.id}
-                title={c.summary}
-                meta={
-                  <>
-                    {c.surface && <RefChip>{c.surface}</RefChip>}
-                    {c.createdBy && <Who login={c.createdBy} />}
-                    <When at={c.createdAt} />
-                  </>
-                }
-                status={<StatusBadge status={c.riskTier} />}
-              />
-            ))
-          )}
-        </Section>
-        <Section label="Latest decisions" href={`${base}/decisions`}>
-          {o.decisions.length === 0 ? (
-            <EmptyState icon={<CheckCircle2 />} title="No decisions yet">
-              Agents record binding rules via <RefChip copy={false}>propose_decision</RefChip>.
-            </EmptyState>
-          ) : (
-            o.decisions.slice(0, 6).map((d) => (
-              <ListRow
-                key={d.id}
-                href={`${base}/decisions/${d.id}`}
-                title={d.ruleText || d.scopeRef}
-                meta={
-                  <>
-                    <RefChip>{d.scopeRef}</RefChip>
-                    {d.proposedBy && <Who login={d.proposedBy} />}
-                    <When at={d.createdAt} />
-                  </>
-                }
-                status={<StatusBadge status={d.status} origin={d.origin} />}
-              />
-            ))
-          )}
-        </Section>
-      </div>
-      <Section label="Start with one decision or brief">
-        <div className="grid gap-3 p-4 text-sm">
-          <p>Developers: preview your repo and connect Claude to this project's existing decisions.</p>
-          <RefChip>{`npx lockstep-cli onboard --project-id ${projectId}`}</RefChip>
-          <Link className="underline" href={`${base}/sources`}>Product: paste a brief and review requirements →</Link>
-          <Link className="underline" href={`${base}/members`}>Invite a colleague to this project →</Link>
+      <section aria-labelledby="in-force">
+        <div className="flex items-baseline gap-3 px-5 pb-1 pt-5">
+          <h2 id="in-force" className="text-[13px] font-semibold">
+            Rules in force
+          </h2>
+          <span className="text-[12px] text-faint">What every agent session is told</span>
+          <Link href={`${base}/ledger`} className="ml-auto text-[12px] text-faint hover:text-foreground">
+            All rules →
+          </Link>
         </div>
-      </Section>
-      <ShareBrief orgId={orgId} projectId={projectId} />
-      <CheckHistory orgId={orgId} projectId={projectId} />
-    </>
+        {!rules || rules.rows.length === 0 ? (
+          <Empty title="No rules yet" hint="Rules appear here once someone makes a suggestion a rule." />
+        ) : (
+          <ul className="pb-6">
+            {rules.rows.slice(0, 5).map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={`${base}/decisions/${d.id}`}
+                  className="flex items-center gap-4 px-5 py-2 hover:bg-muted"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[13px]">{d.rule_text ?? d.scope_label}</span>
+                  {d.concept && (
+                    <span className="hidden shrink-0 text-[11px] text-faint md:block">{d.concept.label}</span>
+                  )}
+                  <When at={d.created_at} className="tnum w-14 shrink-0 text-right text-[11px] text-faint" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Stat({ n, label, hint }: { n: number; label: string; hint: string }) {
+  return (
+    <div className="bg-background px-4 py-3" title={hint}>
+      <div className="tnum text-[22px] font-semibold tracking-[-0.02em]">{n}</div>
+      <div className="text-[12px] text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-[11px] text-faint">{hint}</div>
+    </div>
   );
 }

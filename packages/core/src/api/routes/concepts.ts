@@ -24,6 +24,7 @@ import {
   getSurfaceHistory,
 } from "../../concepts/read.js";
 import { drainConceptTasks } from "../../concepts/queue.js";
+import { getPulse } from "../../concepts/pulse.js";
 import { decisionBrief, decisionSummary } from "../../concepts/brief.js";
 import { getGraph, getInbox, getLedger, searchProject, type InboxKind, type LedgerTab } from "../../concepts/views.js";
 
@@ -145,6 +146,13 @@ export async function conceptRoutes(app: FastifyInstance): Promise<void> {
     if (!LEDGER_TABS.includes(tab as LedgerTab)) return reply.code(404).send({ error: "unknown tab" });
     const qs = req.query as { cursor?: string; q?: string; status?: string; origin?: string; conceptId?: string };
     return run(reply, () => getLedger(c.orgId, c.projectId, tab as LedgerTab, qs));
+  });
+
+  app.get(`${P}/pulse`, async (req, reply) => {
+    const c = await ctx(req, reply);
+    if (!c) return;
+    const days = Math.min(90, Math.max(1, Number((req.query as { days?: string }).days) || 7));
+    return getPulse(c.orgId, c.projectId, days);
   });
 
   app.get(`${P}/search`, async (req, reply) => {
