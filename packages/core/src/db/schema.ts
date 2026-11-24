@@ -1338,3 +1338,28 @@ export const findingActions = pgTable("finding_actions", {
   memberId: uuid("member_id").notNull(),
   createdAt: createdAt(),
 });
+
+/**
+ * PR review comments seen via the GitHub webhook. Recurring similar comments become ONE proposed
+ * standard; `decisionId` marks the comments already folded into that proposal (the idempotency key).
+ */
+export const reviewComments = pgTable(
+  "review_comments",
+  {
+    id: id(),
+    orgId: orgId(),
+    projectId: uuid("project_id").notNull(),
+    repoId: uuid("repo_id").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    authorMemberId: uuid("author_member_id"),
+    body: text("body").notNull(),
+    url: text("url").notNull(),
+    githubCommentId: text("github_comment_id").notNull(), // `comment:<id>` | `review:<id>` (separate id spaces)
+    decisionId: uuid("decision_id"),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    uqComment: uniqueIndex("uq_review_comment_project_gh").on(t.projectId, t.githubCommentId),
+    byProject: index("ix_review_comments_project").on(t.projectId, t.createdAt),
+  }),
+);

@@ -31,6 +31,6 @@ export async function githubWebhookRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: "invalid JSON" });
     }
     // Always 200 for verified deliveries — GitHub retries 4xx/5xx and the skip reasons are ours.
-    return processGitHubEvent(event, payload as Parameters<typeof processGitHubEvent>[1]);
+    return processGitHubEvent(event, payload as Parameters<typeof processGitHubEvent>[1], { defer: true });
   });
 }

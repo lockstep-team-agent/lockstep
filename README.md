@@ -1,8 +1,8 @@
 <p align="center"><strong>Lockstep AI</strong></p>
 
-<h3 align="center">Shared team memory for Claude Code.</h3>
+<h3 align="center">Your team's decisions, briefed to every Claude Code session — before it writes code.</h3>
 
-<p align="center">Decisions, standards, and skills that every Claude Code session on your team receives, captured from PRDs, Slack, and PRs and approved by the person who owns them.</p>
+<p align="center">Lockstep keeps the decisions your team already made — who made them, what evidence supported them, and whether they're still true — and briefs every agent on the ones that apply, highest blast radius first. So no session writes code against a decision that's already changed.</p>
 
 <p align="center">
   <a href="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml"><img src="https://github.com/lockstep-team-agent/lockstep/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -32,7 +32,20 @@
 
 Yesterday, you and Claude renamed `POST /login` to `POST /session`. Today, a fresh session writes a client against the old route. The decision was made; the next session never received it.
 
-CLAUDE.md is one file in one repo, and auto memory lives on one machine. Lockstep gives the whole team one memory, with three ways in:
+CLAUDE.md is one file in one repo, and auto memory lives on one machine. Neither knows what a teammate decided yesterday, the rule your PM approved, or the standard your lead published last week. Lockstep gives the whole team one decision record — and briefs every agent on it before it acts.
+
+### Can your team answer these six questions about any important change?
+
+1. What request started this?
+2. What evidence supported it?
+3. Who made the decision?
+4. Who approved it?
+5. What did it replace?
+6. Is it still true?
+
+If the answer lives in Slack, a PRD, or someone's memory, your agents don't have it either. Lockstep records each answer with its source — and briefs the next session on it.
+
+One record, three ways in:
 
 - **Developers:** keep accepted decisions across Claude Code sessions and check whether changed code may contradict them.
 - **Product managers:** turn a product brief into reviewed requirements, track revisions, and copy a useful implementation brief before a developer joins.
@@ -58,13 +71,16 @@ npx lockstep-cli onboard
 
 ### How it compares
 
-|                                                     | Nothing | Slack / docs | CODEOWNERS |         **Lockstep**          |
-| --------------------------------------------------- | :-----: | :----------: | :--------: | :---------------------------: |
-| Agents learn what other agents decided              |   ❌    |    Manual    |     ❌     |         ✅ Automatic          |
-| Decisions ranked by blast radius                    |   ❌    |      ❌      |     ❌     |        ✅ Usage graph         |
-| Changes routed to the services that consume them    |   ❌    |      ❌      |     ❌     |      ✅ Dependency graph      |
-| "Does anyone use this endpoint?" answered instantly |   ❌    |    Manual    |  Partial   |       ✅ From the graph       |
-| Claude Code session continuity                      |    —    |    Manual    |     —      | ✅ Briefings + decision packs |
+Lockstep is not session memory. Session memory explains what one agent saw or tried; Lockstep keeps the team decisions that remain true across sessions, models, repositories, and people.
+
+| | Nothing | CLAUDE.md in git | Session memory (e.g. claude-mem) | **Lockstep** |
+| --- | :---: | :---: | :---: | :---: |
+| Records a decision with owner + approval | ❌ | Manual | ❌ | ✅ |
+| Versions a decision when it's replaced — the old one stays visible | ❌ | ❌ | ❌ | ✅ |
+| Briefs the next session on what's binding | ❌ | Whole file, unranked | Recalls past context | ✅ Ranked by blast radius |
+| Routes a change to the services that consume it | ❌ | ❌ | ❌ | ✅ Dependency graph |
+| Fails a PR that contradicts a binding decision | ❌ | ❌ | ❌ | ✅ PR-time gate |
+| "Does anyone use this endpoint?" answered instantly | Manual | Manual | ❌ | ✅ From the graph |
 
 ## How It Works
 
